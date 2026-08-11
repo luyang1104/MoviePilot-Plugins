@@ -1,6 +1,6 @@
 # MoviePilot Plugins
 
-MoviePilot plugins by luyang1104.
+MoviePilot plugins by Felix Yang.
 
 ## CloudStrm
 
