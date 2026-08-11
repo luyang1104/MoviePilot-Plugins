@@ -1,0 +1,15 @@
+{
+  "CloudStrmCompanion": {
+    "name": "CloudStrm",
+    "description": "Monitor a CD2 mount, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
+    "labels": "moviepilot",
+    "version": "V1.0",
+    "icon": "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/cloudcompanion.png",
+    "author": "luyang1104",
+    "level": 1,
+    "v2": true,
+    "history": {
+      "V1.0": "Initial release with directory monitoring, full scan, STRM generation, subtitle and sidecar sync, and Emby refresh."
+    }
+  }
+}
