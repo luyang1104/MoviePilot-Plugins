@@ -363,3 +363,35 @@ MoviePilot 原生详情页的 `PageRender` 只会在按钮事件后重新加载�
 - `package.v2.json`、`package.v3.json`、`package.json`
 - `icons/cloudstrm.png`（新增）
 - `DEVELOPMENT_PROGRESS.md`
+
+---
+
+# V1.2.1 表格渲染修复（2026-08-12）
+
+## 问题
+
+V1.2 实机截图发现「任务详情」明细表只渲染了分页 footer（“1-10 of 100”），表头和数据行完全缺失。根因：MoviePilot 的 `PageRender.vue` / `DashboardRender.vue` 对每个组件都会渲染 `{{ config?.text }}` 和 content 子组件，即始终注入默认插槽（default slot）；Vuetify 的 `VDataTable` 一旦检测到默认插槽就跳过自带的 thead/tbody 渲染。v2/v3 前端的 PageRender 实现一致，均受影响；V1.1 引入的两处 VDataTable 从未真正显示过行数据。
+
+## 修复
+
+- 新增静态辅助 `__render_table_html(headers, rows, empty_text)`：输出 Vuetify 风格的紧凑 HTML 表格（`v-table v-table--density-compact` 等类名），单元格经 `html.escape` 转义，空数据时输出 colspan 占位行。
+- `get_page`：明细表 VDataTable 节点替换为 `{"component": "div", "html": ...}`；超过 100 条截断时追加 `text-caption` 提示「仅显示前 100 条，共 N 条，可点击上方筛选按钮缩小范围」。
+- `get_dashboard`：最近任务表同样替换为 HTML 表格，空态显示「暂无任务记录」。
+- 版本号 V1.2 → V1.2.1，三个 package JSON 同步 version 并追加英文 history。
+
+## 渲染器机制结论（补充 V1.2 结论）
+
+- 在 `get_page` / `get_dashboard` 返回的组件树中不要使用 `VDataTable` / `VDataTableVirtual` / `VDataTableServer`——渲染器始终注入默认插槽会抑制其内置表头/表体。需要表格时用 `html` 字段输出 `<table>`（可用 v-table 类名获得原生外观）。
+- 本结论已用 Vue 3.5.13 + Vuetify 3.7.3 CDN + 忠实复制的 PageRender 组件在本地复现验证（空表），替换为 html 表格后截图确认表头 6 列、数据行正常、路径截断生效。
+
+## 本轮验证
+
+- `py_compile` v2/v3 通过，两文件 MD5 一致（A689150337A1340A4A52831A860629A9）。
+- 隔离冒烟测试 46 项全部通过（新增 html 表格结构、转义、空态、截断提示、101 行上限等断言）。
+- 本地 Vuetify 环境截图比对：修复前空表（仅 footer），修复后完整表格。
+
+## 本轮修改文件
+
+- `plugins.v2/cloudstrmhelper/__init__.py`、`plugins.v3/cloudstrmhelper/__init__.py`（内容一致）
+- `package.v2.json`、`package.v3.json`、`package.json`
+- `DEVELOPMENT_PROGRESS.md`

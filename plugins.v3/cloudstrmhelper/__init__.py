@@ -9,6 +9,7 @@ import urllib.parse
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta
+from html import escape as html_escape
 from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
@@ -73,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.2"
+    plugin_version = "V1.2.1"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -203,6 +204,33 @@ class CloudStrmHelper(_PluginBase):
         if len(parts) <= keep:
             return path
         return "…/" + "/".join(parts[-keep:])
+
+    @staticmethod
+    def __render_table_html(headers: List[Dict[str, str]], rows: List[Dict[str, Any]],
+                            empty_text: str = "暂无数据") -> str:
+        """把表头/行数据渲染成轻量 HTML 表格。
+
+        MoviePilot 的 PageRender/DashboardRender 会给每个组件注入默认插槽内容，
+        VDataTable 一旦拿到默认插槽就会跳过内置的表头与表体渲染（页面只剩分页条），
+        因此表格统一改用 html 字段输出原生 <table>，样式复用 Vuetify 的 v-table 类。
+        """
+        def cell(value: Any) -> str:
+            return html_escape("" if value is None else str(value))
+
+        head_cells = "".join(f"<th class=\"text-left\">{cell(col.get('title'))}</th>"
+                             for col in headers)
+        if rows:
+            body_rows = "".join(
+                "<tr>" + "".join(f"<td>{cell(row.get(col.get('key')))}</td>"
+                                 for col in headers) + "</tr>"
+                for row in rows)
+        else:
+            body_rows = (f"<tr><td colspan=\"{max(1, len(headers))}\" "
+                         f"class=\"text-medium-emphasis\">{cell(empty_text)}</td></tr>")
+        return ("<div class=\"v-table v-table--density-compact v-table--hover rounded\">"
+                "<div class=\"v-table__wrapper\"><table>"
+                f"<thead><tr>{head_cells}</tr></thead><tbody>{body_rows}</tbody>"
+                "</table></div></div>")
 
     @staticmethod
     def __path_key(path: str) -> str:
@@ -2855,6 +2883,7 @@ class CloudStrmHelper(_PluginBase):
         if self._page_filter_status:
             latest_items = [item for item in latest_items
                             if item.get("status") == self._page_filter_status]
+        items_total = len(latest_items)
         latest_items = latest_items[:100]
         item_rows = []
         retryable_failed_ids = []
@@ -3005,9 +3034,12 @@ class CloudStrmHelper(_PluginBase):
                 ]},
                 *([{"component": "VCardActions", "content": detail_actions}] if detail_actions else []),
                 {"component": "VCardActions", "content": detail_filters},
-                {"component": "VDataTable",
-                 "props": {"headers": item_headers, "items": item_rows, "itemsPerPage": 10,
-                           "density": "compact", "hover": True, "noDataText": "暂无明细数据"}},
+                {"component": "div",
+                 "html": self.__render_table_html(item_headers, item_rows, "暂无明细数据")},
+                *([{"component": "div",
+                    "props": {"class": "text-caption text-medium-emphasis mt-1 px-1"},
+                    "text": f"仅显示前 100 条，共 {items_total} 条，可点击上方筛选按钮缩小范围"}]
+                  if items_total > len(item_rows) else []),
                 {"component": "VCardText", "content": [
                     {"component": "VListSubheader", "text": "可重试失败项（支持全部重试或逐项重试）"},
                     failed_block,
@@ -3080,16 +3112,12 @@ class CloudStrmHelper(_PluginBase):
                                  "indeterminate": not bool(discovered)}}]}],
             })
         page.append({
-            "component": "VDataTable",
-            "props": {
-                "headers": [
-                    {"title": "时间", "key": "时间"}, {"title": "状态", "key": "状态"},
-                    {"title": "成功", "key": "成功"}, {"title": "跳过", "key": "跳过"},
-                    {"title": "失败", "key": "失败"},
-                ],
-                "items": rows, "itemsPerPage": 5, "density": "compact",
-                "hideDefaultFooter": True,
-            },
+            "component": "div",
+            "html": self.__render_table_html(
+                [{"title": "时间", "key": "时间"}, {"title": "状态", "key": "状态"},
+                 {"title": "成功", "key": "成功"}, {"title": "跳过", "key": "跳过"},
+                 {"title": "失败", "key": "失败"}],
+                rows, "暂无任务记录"),
         })
         return ({"cols": 12, "md": 12},
                 {"refresh": refresh, "border": False, "title": "CloudStrm 任务中心"},
