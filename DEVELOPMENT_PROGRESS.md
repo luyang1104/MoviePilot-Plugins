@@ -313,3 +313,53 @@ MoviePilot 原生详情页的 `PageRender` 只会在按钮事件后重新加载�
 可以把下面这段直接交给新的模型：
 
 > 请先阅读 `DEVELOPMENT_PROGRESS.md`，然后在 `D:\Windows位置\Desktop\CloudStrmCompanion-1.3.4` 继续 CloudStrm 任务中心开发。当前已完成任务历史、统一任务执行器、API、页面、失败重试和配置分组；下一步优先完成隔离回归测试和 MoviePilot 真实宿主联调。只修改 `MoviePilot-Plugins/plugins.v2/cloudstrmhelper/__init__.py`、`plugins.v3/cloudstrmhelper/__init__.py` 及确有必要的发布元数据，保持 v2/v3 一致，不要修改根目录旧版 `__init__.py`。先检查工作区现有改动，不要回滚。
+
+---
+
+# V1.2 界面与交互打磨（2026-08-11 第二轮）
+
+本轮只做 UI/UX 迭代，不改任务逻辑。版本号 V1.1 → V1.2，v2/v3 插件代码保持逐字节一致。
+
+## 渲染器机制结论（MoviePilot-Frontend 源码确认）
+
+- `PageRender.vue`：`props` 原样 `v-bind`；`events` 的键是任意事件名，触发后调 API 并 `emit('action')` 让宿主整页重取 `get_page`；支持 `html`（`v-html`）与 `slots`；事件回调拿不到事件负载，参数只能是静态值。
+- `FormRender.vue`：任何带 `model` 属性的组件都会 `v-model` 绑定到表单数据，默认值字典可预置初值，整个表单数据会保存为插件配置。
+- `DashboardRender.vue`：纯展示，无事件；只读统计 + 宿主按 `refresh` 周期刷新是唯一更新手段。
+
+## 配置表单（get_form）
+
+- `VExpansionPanels` 增加 `model: _panel_open`：首组默认展开、展开状态随配置保存记忆；存在配置错误时默认值变为 `[0, 2]`，自动展开「目录映射」。`_panel_open` 会被存入配置但不被 `init_plugin` 读取，`__update_config` 重写配置时丢弃并回落默认，属预期行为。
+- 配置错误 alert 从「目录映射」面板内移到表单顶部常显；模板警告留在面板内。
+- 5 个面板标题加 mdi 图标（mdi-cog / mdi-file-sync / mdi-folder-sync / mdi-format-list-bulleted / mdi-server）。
+- 目录配置帮助 alert 改用 `html` 分行排版，路径示例套 `<code>`。
+
+## 任务中心页（get_page）
+
+- 状态 chip 颜色动态化：running→info、success→success、partial→warning、failed→error、interrupted→grey、空闲→默认色。
+- 空闲时隐藏进度条，统计区改显示最近一次已结束任务的数据（行首加「最近任务结果」chip），无历史则隐藏统计行。
+- 「立即全量扫描」在任务运行中禁用且文案追加「（运行中）」。
+- 「最近任务」由 VDataTable + 详情列表双结构合并为单个富列表：彩色状态 chip + 摘要 + 行内「详情」按钮，最多 10 条，有关联重试时追加计数 chip；空历史显示引导 alert。
+- 「任务详情」从折叠面板改为常显卡片；筛选按钮有服务端驱动的选中态（当前筛选 flat/primary，其余 text）；明细表来源/目标列用 `__shorten_path` 尾部截断（`…/父目录/文件名`），并增加 `noDataText`；无可重试失败项时显示 success 色调提示而非空列表项。
+
+## 仪表盘（get_dashboard）
+
+- 状态 chip 用同一套颜色映射；任务运行时增加 `VProgressLinear`（discovered 为 0 时 indeterminate），空闲时隐藏；3 秒刷新逻辑不变。
+
+## 图标与发布元数据
+
+- 新增 `icons/cloudstrm.png` 专属图标（用户提供的最终设计：云 + 胶片 + 播放键，512×512）。
+- 两个插件文件的 `plugin_icon` 改为自己仓库的 raw 地址，`plugin_version` 改为 `V1.2`。
+- `package.v2.json`、`package.v3.json` 同步版本/图标/history；本轮同时更新了仓库根的 legacy `package.json`（V1.0 → V1.2，补齐 V1.1/V1.2 history），与 V1.1 轮“未修改根 package.json”的状态不同，特此说明。
+
+## 本轮验证
+
+- `py_compile` v2/v3：通过；两文件 MD5 一致。
+- 打桩 MoviePilot 依赖后的隔离冒烟测试 39 项全部通过：表单（默认展开、错误置顶、图标、html 帮助）、任务中心（空历史/空闲/运行中三态、富列表、筛选选中态、路径截断、重试按钮）、仪表盘（进度条件渲染、状态色、刷新周期）、`__shorten_path` 边界。
+- 待真实宿主回归项与第五节相同，另需确认：`_panel_open` 双向绑定在宿主表单中的实际表现、面板标题 content 子组件渲染、详情卡片常显后的页面高度体验。
+
+## 本轮修改文件
+
+- `plugins.v2/cloudstrmhelper/__init__.py`、`plugins.v3/cloudstrmhelper/__init__.py`（内容一致）
+- `package.v2.json`、`package.v3.json`、`package.json`
+- `icons/cloudstrm.png`（新增）
+- `DEVELOPMENT_PROGRESS.md`

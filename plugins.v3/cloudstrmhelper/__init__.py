@@ -71,9 +71,9 @@ class CloudStrmHelper(_PluginBase):
     # 插件描述
     plugin_desc = "实时监控、定时全量增量生成strm文件。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/thsrite/MoviePilot-Plugins/main/icons/cloudcompanion.png"
+    plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.1"
+    plugin_version = "V1.2"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -193,6 +193,16 @@ class CloudStrmHelper(_PluginBase):
         if not source or not target:
             return None
         return source, target
+
+    @staticmethod
+    def __shorten_path(path: str, keep: int = 2) -> str:
+        """长路径尾部截断：保留最后 keep 段，显示为 …/父目录/文件名。"""
+        if not path:
+            return ""
+        parts = [seg for seg in re.split(r"[\\/]+", str(path)) if seg]
+        if len(parts) <= keep:
+            return path
+        return "…/" + "/".join(parts[-keep:])
 
     @staticmethod
     def __path_key(path: str) -> str:
@@ -2612,9 +2622,18 @@ class CloudStrmHelper(_PluginBase):
         def row(*columns):
             return {"component": "VRow", "content": list(columns)}
 
-        def panel(title, content):
+        def panel(title, content, icon=None):
+            title_view = {"component": "VExpansionPanelTitle"}
+            if icon:
+                title_view["content"] = [
+                    {"component": "VIcon", "props": {"icon": icon, "size": "small",
+                                                      "class": "mr-2"}},
+                    {"component": "span", "text": title},
+                ]
+            else:
+                title_view["text"] = title
             return {"component": "VExpansionPanel", "content": [
-                {"component": "VExpansionPanelTitle", "text": title},
+                title_view,
                 {"component": "VExpansionPanelText", "content": content},
             ]}
 
@@ -2627,7 +2646,7 @@ class CloudStrmHelper(_PluginBase):
             "component": "VAlert",
             "props": {
                 "type": "warning", "variant": "tonal",
-                "text": "目录模板必须包含 {local_file} 或 {cloud_file}；保存后会立即校验并在这里显示错误。",
+                "text": "目录模板必须包含 {local_file} 或 {cloud_file}；保存后会立即校验，错误会显示在页面顶部。",
             },
         }
         config_error_alert = {
@@ -2639,14 +2658,13 @@ class CloudStrmHelper(_PluginBase):
         }
         config_help = {
             "component": "VAlert",
-            "props": {
-                "type": "info", "variant": "tonal",
-                "text": "目录配置使用 # 分隔四段：监控目录#STRM目录#云盘目录#模板。模板必须包含 {local_file} 或 {cloud_file}。",
-            },
+            "props": {"type": "info", "variant": "tonal"},
+            "html": ("目录配置每行一条，用 <code>#</code> 分隔四段：<br>"
+                     "<code>监控目录#STRM目录#云盘目录#STRM模板</code><br>"
+                     "示例：<code>/mnt/media#/mnt/library#/cloud/media#https://host{cloud_file}</code><br>"
+                     "模板必须包含 <code>{local_file}</code> 或 <code>{cloud_file}</code>。"),
         }
         directory_content = [config_help, template_warning]
-        if self._config_errors:
-            directory_content.append(config_error_alert)
         directory_content.extend([
             row(col(field("VTextarea", "monitor_confs", "目录配置", rows=5,
                          placeholder="/mnt/media#/mnt/library#/cloud/media#https://host/{cloud_file}"), 12)),
@@ -2655,47 +2673,52 @@ class CloudStrmHelper(_PluginBase):
                 col(field("VTextarea", "path_replacements", "STRM 路径替换规则", rows=3,
                          placeholder="源路径=>目标路径，每行一条；兼容旧版冒号格式"), 6)),
         ])
+        # 配置错误提示固定在表单顶部常显，避免被折叠面板遮挡
+        form_content = []
+        if self._config_errors:
+            form_content.append(config_error_alert)
+        form_content.append({
+            "component": "VExpansionPanels",
+            "props": {"variant": "accordion", "multiple": True, "model": "_panel_open"},
+            "content": [
+                panel("基础设置", [
+                    row(col(switch("enabled", "启用插件"), 3),
+                        col(switch("monitor", "实时监控"), 3),
+                        col(switch("notify", "任务与入库通知"), 3),
+                        col(switch("onlyonce", "保存后立即执行一次"), 3)),
+                    row(col(field("VTextField", "interval", "入库通知延迟（秒）",
+                                 type="number", min=1, placeholder="10"), 4)),
+                ], "mdi-cog"),
+                panel("文件处理", [
+                    row(col(switch("cover", "覆盖已存在文件"), 3),
+                        col(switch("copy_files", "复制旁车文件"), 3),
+                        col(switch("copy_subtitles", "复制字幕文件"), 3),
+                        col(switch("sync_delete", "同步删除生成文件"), 3)),
+                ], "mdi-file-sync"),
+                panel("目录映射", [
+                    *directory_content,
+                ], "mdi-folder-sync"),
+                panel("媒体格式", [
+                    row(col(field("VTextarea", "rmt_mediaext", "视频格式", rows=2,
+                                 placeholder=self._default_rmt_mediaext), 6),
+                        col(field("VTextarea", "other_mediaext", "非媒体格式", rows=2,
+                                 placeholder=self._default_other_mediaext), 6)),
+                ], "mdi-format-list-bulleted"),
+                panel("媒体库与高级设置", [
+                    row(col({"component": "VSelect", "props": {
+                        "multiple": True, "chips": True, "clearable": True,
+                        "model": "mediaservers", "label": "Emby 媒体服务器", "items": emby_items,
+                    }}, 6),
+                        col(switch("refresh_emby", "生成后刷新 Emby"), 6)),
+                    row(col(switch("uriencode", "云盘路径 URL 编码"), 4),
+                        col(field("VTextField", "url", "任务推送 URL",
+                                  placeholder="POST JSON：path、type=add"), 8)),
+                ], "mdi-server"),
+            ],
+        })
         form = [{
             "component": "VForm",
-            "content": [{
-                "component": "VExpansionPanels",
-                "props": {"variant": "accordion", "multiple": True},
-                "content": [
-                    panel("基础设置", [
-                        row(col(switch("enabled", "启用插件"), 3),
-                            col(switch("monitor", "实时监控"), 3),
-                            col(switch("notify", "任务与入库通知"), 3),
-                            col(switch("onlyonce", "保存后立即执行一次"), 3)),
-                        row(col(field("VTextField", "interval", "入库通知延迟（秒）",
-                                     type="number", min=1, placeholder="10"), 4)),
-                    ]),
-                    panel("文件处理", [
-                        row(col(switch("cover", "覆盖已存在文件"), 3),
-                            col(switch("copy_files", "复制旁车文件"), 3),
-                            col(switch("copy_subtitles", "复制字幕文件"), 3),
-                            col(switch("sync_delete", "同步删除生成文件"), 3)),
-                    ]),
-                    panel("目录映射", [
-                        *directory_content,
-                    ]),
-                    panel("媒体格式", [
-                        row(col(field("VTextarea", "rmt_mediaext", "视频格式", rows=2,
-                                     placeholder=self._default_rmt_mediaext), 6),
-                            col(field("VTextarea", "other_mediaext", "非媒体格式", rows=2,
-                                     placeholder=self._default_other_mediaext), 6)),
-                    ]),
-                    panel("媒体库与高级设置", [
-                        row(col({"component": "VSelect", "props": {
-                            "multiple": True, "chips": True, "clearable": True,
-                            "model": "mediaservers", "label": "Emby 媒体服务器", "items": emby_items,
-                        }}, 6),
-                            col(switch("refresh_emby", "生成后刷新 Emby"), 6)),
-                        row(col(switch("uriencode", "云盘路径 URL 编码"), 4),
-                            col(field("VTextField", "url", "任务推送 URL",
-                                      placeholder="POST JSON：path、type=add"), 8)),
-                    ]),
-                ],
-            }],
+            "content": form_content,
         }]
         model = {
             "enabled": False, "notify": False, "monitor": False, "cover": False,
@@ -2705,6 +2728,8 @@ class CloudStrmHelper(_PluginBase):
             "interval": 10, "url": "",
             "other_mediaext": self._default_other_mediaext,
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
+            # 界面状态：折叠面板展开组，有配置错误时自动展开「目录映射」
+            "_panel_open": [0, 2] if self._config_errors else [0],
         }
         return form, model
 
@@ -2725,65 +2750,105 @@ class CloudStrmHelper(_PluginBase):
         }
         kind_names = {"full_scan": "全量扫描", "targeted": "定向同步", "retry": "失败重试"}
 
+        status_colors = {
+            "running": "info", "success": "success", "partial": "warning",
+            "failed": "error", "interrupted": "grey",
+        }
+
         def chip(text, color="default"):
             return {"component": "VChip", "props": {"size": "small", "color": color,
                                                        "variant": "tonal"}, "text": text}
 
-        task_rows = []
-        for task in summaries:
-            stats = task.get("stats") or {}
-            task_rows.append({
-                "id": task.get("id"),
-                "时间": task.get("finished_at") or task.get("created_at"),
-                "类型": kind_names.get(task.get("kind"), task.get("kind")),
-                "状态": status_names.get(task.get("status"), task.get("status")),
-                "成功": stats.get("success", 0),
-                "跳过": stats.get("skipped", 0),
-                "失败": stats.get("failed", 0),
-                "耗时": f"{task.get('duration_seconds', 0) or 0:.1f}s",
-                "关联重试": ", ".join(retry_relations.get(task.get("id"), [])),
-            })
-
-        task_headers = [
-            {"title": "时间", "key": "时间"},
-            {"title": "类型", "key": "类型"},
-            {"title": "状态", "key": "状态"},
-            {"title": "成功", "key": "成功"},
-            {"title": "跳过", "key": "跳过"},
-            {"title": "失败", "key": "失败"},
-            {"title": "耗时", "key": "耗时"},
-            {"title": "关联重试", "key": "关联重试"},
-        ]
-        task_detail_views = []
-        for task in summaries:
+        # 最近任务：富列表呈现，状态带颜色，行内直接打开详情，最多展示 10 条
+        task_item_views = []
+        for task in summaries[:10]:
             task_id_value = task.get("id")
             if not task_id_value:
                 continue
+            task_status = task.get("status") or ""
             task_stats = task.get("stats") or {}
-            task_detail_views.append({
+            row_content = [
+                chip(status_names.get(task_status, task_status),
+                     status_colors.get(task_status, "default")),
+            ]
+            related_retries = retry_relations.get(task_id_value) or []
+            if related_retries:
+                row_content.append(chip(f"{len(related_retries)} 次关联重试"))
+            row_content.append({
+                "component": "VBtn",
+                "props": {"prependIcon": "mdi-file-document-outline", "size": "small",
+                           "variant": "tonal"},
+                "text": "详情",
+                "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks/{task_id_value}",
+                                             "method": "GET", "params": {}}},
+            })
+            task_item_views.append({
                 "component": "VListItem",
                 "props": {
                     "title": f"{kind_names.get(task.get('kind'), task.get('kind'))} · "
-                             f"{status_names.get(task.get('status'), task.get('status'))}",
+                             f"{task.get('finished_at') or task.get('created_at') or '-'}",
                     "subtitle": (
-                        f"时间：{task.get('finished_at') or task.get('created_at') or '-'}；"
                         f"成功 {task_stats.get('success', 0)}，跳过 {task_stats.get('skipped', 0)}，"
-                        f"失败 {task_stats.get('failed', 0)}；ID：{task_id_value}"
+                        f"失败 {task_stats.get('failed', 0)}；耗时 "
+                        f"{task.get('duration_seconds', 0) or 0:.1f}s；ID：{task_id_value}"
                     ),
                     "lines": "three",
                 },
-                "content": [{
-                    "component": "VBtn",
-                    "props": {"prependIcon": "mdi-file-document-outline", "size": "small",
-                               "variant": "tonal"},
-                    "text": "查看详情",
-                    "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks/{task_id_value}",
-                                                 "method": "GET", "params": {}}},
-                }],
+                "content": row_content,
             })
-        current_label = status_names.get(current.get("status"), "空闲") if current else "空闲"
+        if task_item_views:
+            recent_body = [{
+                "component": "VList",
+                "props": {"density": "compact", "lines": "three"},
+                "content": task_item_views,
+            }]
+        else:
+            recent_body = [{
+                "component": "VAlert",
+                "props": {"type": "info", "variant": "tonal",
+                          "text": "暂无任务记录，点击上方「立即全量扫描」开始第一个任务。"},
+            }]
+        # 顶部状态区：运行中展示实时进度与当前统计，空闲时展示最近一次任务结果
+        is_running = bool(current)
+        current_label = status_names.get(current.get("status"), "空闲") if is_running else "空闲"
+        current_color = status_colors.get(current.get("status"), "default") if is_running else "default"
         current_total = max(1, current_stats.get("discovered", 0))
-        current_progress = min(100, round(current_stats.get("processed", 0) * 100 / current_total)) if current else 0
+        current_progress = min(100, round(current_stats.get("processed", 0) * 100 / current_total)) if is_running else 0
+        last_finished = None if is_running else next(
+            (task for task in summaries if task.get("status") != "running"), None)
+        overview_stats = current_stats if is_running else ((last_finished or {}).get("stats") or {})
+        overview_rows = [{
+            "component": "VRow",
+            "content": [
+                {"component": "VCol", "props": {"cols": 12, "md": 3},
+                 "content": [chip(f"当前任务：{current_label}", current_color)]},
+            ] + ([{
+                "component": "VCol", "props": {"cols": 12, "md": 9},
+                "content": [{"component": "VProgressLinear", "props": {
+                    "modelValue": current_progress, "height": 8, "rounded": True,
+                    "color": "primary",
+                    "indeterminate": not bool(current_stats.get("discovered"))}}]},
+            ] if is_running else []),
+        }]
+        if is_running or last_finished:
+            overview_rows.append({
+                "component": "VRow",
+                "content": ([{
+                    "component": "VCol", "props": {"cols": 6, "md": 2},
+                    "content": [chip("最近任务结果")],
+                }] if not is_running else []) + [
+                    {"component": "VCol", "props": {"cols": 6, "md": 2},
+                     "content": [chip(f"总数 {overview_stats.get('discovered', 0)}")]},
+                    {"component": "VCol", "props": {"cols": 6, "md": 2},
+                     "content": [chip(f"已处理 {overview_stats.get('processed', 0)}")]},
+                    {"component": "VCol", "props": {"cols": 6, "md": 2},
+                     "content": [chip(f"成功 {overview_stats.get('success', 0)}", "success")]},
+                    {"component": "VCol", "props": {"cols": 6, "md": 2},
+                     "content": [chip(f"跳过 {overview_stats.get('skipped', 0)}", "warning")]},
+                    {"component": "VCol", "props": {"cols": 6, "md": 2},
+                     "content": [chip(f"失败 {overview_stats.get('failed', 0)}", "error")]},
+                ],
+            })
         latest_id = self._page_task_id or (current.get("id") if current else (summaries[0].get("id") if summaries else ""))
         latest_task = self.__get_task(latest_id) if latest_id else None
         latest_items = (latest_task or {}).get("items") or []
@@ -2798,8 +2863,8 @@ class CloudStrmHelper(_PluginBase):
             if item_status == "failed" and item.get("retryable"):
                 retryable_failed_ids.append(item.get("id"))
             item_rows.append({
-                "来源": item.get("source_file") or "",
-                "目标": item.get("target_file") or "",
+                "来源": self.__shorten_path(item.get("source_file") or ""),
+                "目标": self.__shorten_path(item.get("target_file") or ""),
                 "动作": item.get("action") or "",
                 "状态": status_names.get(item_status, item_status),
                 "阶段": item.get("stage") or "",
@@ -2878,17 +2943,31 @@ class CloudStrmHelper(_PluginBase):
                     },
                 ],
             })
-        failed_item_list = {
-            "component": "VList", "props": {"density": "compact", "lines": "three"},
-            "content": failed_item_views or [{"component": "VListItem", "props": {"title": "没有可重试的失败项"}}],
-        }
+        if failed_item_views:
+            failed_block = {
+                "component": "VList", "props": {"density": "compact", "lines": "three"},
+                "content": failed_item_views,
+            }
+        else:
+            failed_block = {
+                "component": "VAlert",
+                "props": {"type": "success", "variant": "tonal",
+                          "text": "本次任务没有可重试的失败项。"},
+            }
+        # 筛选按钮选中态由服务端状态驱动：当前筛选高亮，其余为文字按钮
         detail_filters = []
+        active_filter = self._page_filter_status or ""
         for filter_status, filter_label in (("", "全部"), ("success", "成功"),
                                              ("skipped", "跳过"), ("failed", "失败")):
+            is_active_filter = filter_status == active_filter
+            filter_props = {"size": "small", "disabled": not bool(detail_url),
+                            "variant": "flat" if is_active_filter else "text",
+                            "prependIcon": "mdi-filter-variant" if filter_status else "mdi-filter-off-outline"}
+            if is_active_filter:
+                filter_props["color"] = "primary"
             detail_filters.append({
                 "component": "VBtn",
-                "props": {"size": "small", "variant": "text",
-                           "prependIcon": "mdi-filter-variant" if filter_status else "mdi-filter-off-outline"},
+                "props": filter_props,
                 "text": filter_label,
                 "events": {"click": {"api": detail_url, "method": "GET",
                                              "params": ({"status": filter_status} if filter_status else {})}},
@@ -2899,59 +2978,43 @@ class CloudStrmHelper(_PluginBase):
                 "props": {"variant": "tonal", "class": "mb-4"},
                 "content": [
                     {"component": "VCardTitle", "text": "任务中心"},
-                    {"component": "VCardText", "content": [
-                        {"component": "VRow", "content": [
-                            {"component": "VCol", "props": {"cols": 12, "md": 3},
-                             "content": [{"component": "VChip", "props": {"color": "info", "variant": "tonal"},
-                                              "text": f"当前任务：{current_label}"}]},
-                            {"component": "VCol", "props": {"cols": 12, "md": 9},
-                             "content": [{"component": "VProgressLinear", "props": {"modelValue": current_progress,
-                                                                                         "height": 8, "rounded": True,
-                                                                                         "color": "primary",
-                                                                                         "indeterminate": bool(current and not current_stats.get("discovered"))}}]},
-                        ]},
-                        {"component": "VRow", "content": [
-                            {"component": "VCol", "props": {"cols": 6, "md": 2}, "content": [chip(f"总数 {current_stats.get('discovered', 0)}")]},
-                            {"component": "VCol", "props": {"cols": 6, "md": 2}, "content": [chip(f"已处理 {current_stats.get('processed', 0)}")]},
-                            {"component": "VCol", "props": {"cols": 6, "md": 2}, "content": [chip(f"成功 {current_stats.get('success', 0)}", "success")]},
-                            {"component": "VCol", "props": {"cols": 6, "md": 2}, "content": [chip(f"跳过 {current_stats.get('skipped', 0)}", "warning")]},
-                            {"component": "VCol", "props": {"cols": 6, "md": 2}, "content": [chip(f"失败 {current_stats.get('failed', 0)}", "error")]},
-                        ]},
-                    ]},
+                    {"component": "VCardText", "content": overview_rows},
                     {"component": "VCardActions", "content": [
-                        {"component": "VBtn", "props": {"prependIcon": "mdi-play", "color": "primary", "variant": "flat"},
-                         "text": "立即全量扫描", "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks", "method": "POST", "params": {"kind": "full_scan"}}}},
+                        {"component": "VBtn",
+                         "props": {"prependIcon": "mdi-play", "color": "primary", "variant": "flat",
+                                   "disabled": is_running},
+                         "text": "立即全量扫描（运行中）" if is_running else "立即全量扫描",
+                         "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks",
+                                              "method": "POST", "params": {"kind": "full_scan"}}}},
                         {"component": "VBtn", "props": {"prependIcon": "mdi-refresh", "variant": "text"},
-                         "text": "刷新任务状态", "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks", "method": "GET", "params": {}}}},
+                         "text": "刷新任务状态",
+                         "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks",
+                                              "method": "GET", "params": {}}}},
                     ]},
                 ],
             },
             {"component": "VCard", "props": {"class": "mb-4"}, "content": [
                 {"component": "VCardTitle", "text": "最近任务"},
-                {"component": "VDataTable", "props": {"headers": task_headers, "items": task_rows,
-                                                                         "itemsPerPage": 10, "density": "compact",
-                                                                         "hover": True, "hideDefaultFooter": False}},
-                {"component": "VListSubheader", "text": "打开任务详情"},
-                {"component": "VList", "props": {"density": "compact", "lines": "three"},
-                 "content": task_detail_views or [{"component": "VListItem", "props": {"title": "暂无历史任务"}}]},
+                {"component": "VCardText", "content": recent_body},
             ]},
-            {"component": "VExpansionPanels", "props": {"variant": "accordion"}, "content": [
-                {"component": "VExpansionPanel", "content": [
-                    {"component": "VExpansionPanelTitle", "text": "最近任务详情"},
-                    {"component": "VExpansionPanelText", "content": [
-                        {"component": "VAlert", "props": {"type": "info", "variant": "tonal",
-                                                                          "text": f"当前查看任务 ID：{task_id or '无'}"}},
-                        {"component": "VCardActions", "content": detail_actions},
-                        {"component": "VCardActions", "content": detail_filters},
-                        {"component": "VDataTable", "props": {"headers": item_headers, "items": item_rows,
-                                                                         "itemsPerPage": 10, "density": "compact",
-                                                                         "hover": True}},
-                        {"component": "VListSubheader", "text": "可重试失败项（支持全部重试或逐项重试）"},
-                        failed_item_list,
-                        {"component": "VBtn", "props": {"prependIcon": "mdi-open-in-new", "variant": "text",
-                                                                       "disabled": not bool(detail_url)},
-                         "text": "刷新任务详情", "events": {"click": {"api": detail_url, "method": "GET", "params": {}}}},
-                    ]},
+            {"component": "VCard", "props": {"class": "mb-4"}, "content": [
+                {"component": "VCardTitle", "text": "任务详情"},
+                {"component": "VCardText", "content": [
+                    {"component": "VAlert", "props": {"type": "info", "variant": "tonal",
+                                                      "text": f"当前查看任务 ID：{task_id or '无'}"}},
+                ]},
+                *([{"component": "VCardActions", "content": detail_actions}] if detail_actions else []),
+                {"component": "VCardActions", "content": detail_filters},
+                {"component": "VDataTable",
+                 "props": {"headers": item_headers, "items": item_rows, "itemsPerPage": 10,
+                           "density": "compact", "hover": True, "noDataText": "暂无明细数据"}},
+                {"component": "VCardText", "content": [
+                    {"component": "VListSubheader", "text": "可重试失败项（支持全部重试或逐项重试）"},
+                    failed_block,
+                    {"component": "VBtn", "props": {"prependIcon": "mdi-open-in-new", "variant": "text",
+                                                    "disabled": not bool(detail_url)},
+                     "text": "刷新任务详情",
+                     "events": {"click": {"api": detail_url, "method": "GET", "params": {}}}},
                 ]},
             ]},
         ]
@@ -2968,6 +3031,14 @@ class CloudStrmHelper(_PluginBase):
             "running": "运行中", "success": "成功", "partial": "部分成功",
             "failed": "失败", "interrupted": "已中断",
         }
+        status_colors = {
+            "running": "info", "success": "success", "partial": "warning",
+            "failed": "error", "interrupted": "grey",
+        }
+        is_running = bool(current)
+        status_color = status_colors.get(current.get("status"), "default") if is_running else "default"
+        discovered = stats.get("discovered", 0)
+        progress = min(100, round(stats.get("processed", 0) * 100 / max(1, discovered))) if is_running else 0
         summary = self.__api_tasks().get("tasks") or []
         rows = []
         for task in summary[:5]:
@@ -2983,7 +3054,7 @@ class CloudStrmHelper(_PluginBase):
             "component": "VRow",
             "content": [
                 {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": "info", "variant": "tonal"},
+                 "content": [{"component": "VChip", "props": {"color": status_color, "variant": "tonal"},
                               "text": f"状态：{status_names.get(current.get('status'), '空闲')}"}]},
                 {"component": "VCol", "props": {"cols": 6, "md": 2},
                  "content": [{"component": "VChip", "props": {"variant": "tonal"},
@@ -2998,7 +3069,17 @@ class CloudStrmHelper(_PluginBase):
                  "content": [{"component": "VChip", "props": {"color": "error", "variant": "tonal"},
                               "text": f"失败 {stats.get('failed', 0)}"}]},
             ],
-        }, {
+        }]
+        if is_running:
+            page.append({
+                "component": "VRow",
+                "content": [{"component": "VCol", "props": {"cols": 12},
+                             "content": [{"component": "VProgressLinear", "props": {
+                                 "modelValue": progress, "height": 8, "rounded": True,
+                                 "color": "primary",
+                                 "indeterminate": not bool(discovered)}}]}],
+            })
+        page.append({
             "component": "VDataTable",
             "props": {
                 "headers": [
@@ -3009,7 +3090,7 @@ class CloudStrmHelper(_PluginBase):
                 "items": rows, "itemsPerPage": 5, "density": "compact",
                 "hideDefaultFooter": True,
             },
-        }]
+        })
         return ({"cols": 12, "md": 12},
                 {"refresh": refresh, "border": False, "title": "CloudStrm 任务中心"},
                 page)
