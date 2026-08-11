@@ -15,12 +15,28 @@ Features:
 - Optional cleanup of generated files after source deletion.
 - Refresh one or more configured Emby servers.
 - Keep the existing `/strm` command for manual generation, including category paths such as `/strm foreign-movies`.
-- Run a full scan with the `CloudStrmCompanion` command.
+- Run a full scan with the `CloudStrmHelper` command.
 
-## MoviePilot subscription
+## MoviePilot market source
+
+Subscribe to the repository itself in MoviePilot's plugin market settings:
 
 ```text
-https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/package.v2.json
+https://github.com/luyang1104/MoviePilot-Plugins
 ```
 
-Add the URL above to MoviePilot's plugin repository subscription settings.
+Do not use the raw `package.json` URL as the market source. MoviePilot reads
+`package.v3.json` for v3, `package.v2.json` for v2, and the matching
+`plugins.v3/` or `plugins.v2/` directory automatically.
+
+For MoviePilot v3, add the repository to `PLUGIN_MARKET` together with any
+existing sources, separated by commas, then refresh the plugin market:
+
+```text
+https://github.com/jxxghp/MoviePilot-Plugins,https://github.com/luyang1104/MoviePilot-Plugins
+```
+
+The current plugin ID is `CloudStrmHelper` and its display name is
+`CloudStrm`. Future plugins can be added to this same repository by adding
+their metadata to the package index and their code under the matching
+`plugins.v3/<plugin-id>/` and/or `plugins.v2/<plugin-id>/` directory.

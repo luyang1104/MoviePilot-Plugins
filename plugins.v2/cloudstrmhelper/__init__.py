@@ -61,7 +61,7 @@ class FileMonitorHandler(FileSystemEventHandler):
                                 action="deleted")
 
 
-class CloudStrmCompanion(_PluginBase):
+class CloudStrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "CloudStrm"
     # 插件描述
@@ -75,7 +75,7 @@ class CloudStrmCompanion(_PluginBase):
     # 作者主页
     author_url = "https://github.com/luyang1104"
     # 插件配置项ID前缀
-    plugin_config_prefix = "cloudstrmCompanion_"
+    plugin_config_prefix = "cloudstrmHelper_"
     # 加载顺序
     plugin_order = 26
     # 可使用的用户级别
@@ -420,7 +420,7 @@ class CloudStrmCompanion(_PluginBase):
             event_data = event.event_data
             if not event_data:
                 return
-            if event_data.get("action") == "CloudStrmCompanion":
+            if event_data.get("action") == "CloudStrmHelper":
                 self.scan()
                 if event_data.get("user"):
                     self.post_message(channel=event_data.get("channel"),
@@ -1304,7 +1304,7 @@ class CloudStrmCompanion(_PluginBase):
                 "desc": "云盘Strm助手同步",
                 "category": "",
                 "data": {
-                    "action": "CloudStrmCompanion"
+                    "action": "CloudStrmHelper"
                 }
             },
             {
