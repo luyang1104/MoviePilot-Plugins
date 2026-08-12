@@ -74,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.6"
+    plugin_version = "V1.5.7"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -1332,7 +1332,7 @@ class CloudStrmHelper(_PluginBase):
         "notify": "任务与入库通知",
     }
     _config_toggle_defaults = {"cron_enabled": True}
-    _form_ui_state_keys = {"mapping_panel_open"}
+    _form_ui_state_keys = {"mapping_new_rule_visible", "mapping_new_rule_panel_open"}
 
     def __api_config_toggle(self, payload: Optional[dict] = Body(default=None)):
         """页面开关：服务端翻转指定布尔配置并写入暂存，保存后生效。"""
@@ -3576,7 +3576,8 @@ class CloudStrmHelper(_PluginBase):
             ),
         }
 
-        rule_cards = []
+        existing_rule_cards = []
+        new_rule_card = None
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
@@ -3636,7 +3637,7 @@ class CloudStrmHelper(_PluginBase):
                         "hideDetails": True,
                     },
                 })
-            rule_cards.append({
+            rule_card = {
                 "component": "VExpansionPanel",
                 "props": {
                     "value": rule_index, "elevation": 0,
@@ -3651,17 +3652,35 @@ class CloudStrmHelper(_PluginBase):
                      "props": {"style": "padding:0 14px 12px!important;background:#1e293b;"},
                      "content": rule_content},
                 ],
-            })
+            }
+            if is_new_rule:
+                new_rule_card = rule_card
+            else:
+                existing_rule_cards.append(rule_card)
 
-        mapping_editors = {
+        existing_mapping_editors = {
             "component": "VExpansionPanels",
             "props": {
-                "variant": "accordion", "multiple": True,
-                "model": "mapping_panel_open",
+                "variant": "accordion", "multiple": False,
                 "class": "cloudstrm-mapping-editors",
-                "style": "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:16px;",
+                "style": ("background:transparent;border:1px solid #475569;border-radius:8px;"
+                          "overflow:hidden;margin-top:16px;"),
             },
-            "content": rule_cards,
+            "content": existing_rule_cards,
+        }
+        new_mapping_editor = {
+            "component": "div",
+            "props": {"show": "{{ mapping_new_rule_visible }}"},
+            "content": [{
+                "component": "VExpansionPanels",
+                "props": {
+                    "variant": "accordion", "multiple": False,
+                    "model": "mapping_new_rule_panel_open",
+                    "style": ("background:transparent;border:1px solid #475569;border-radius:8px;"
+                              "overflow:hidden;margin-top:16px;"),
+                },
+                "content": [new_rule_card],
+            }],
         }
 
         mapping_toolbar = {
@@ -3677,13 +3696,19 @@ class CloudStrmHelper(_PluginBase):
                      "component": "VBtn",
                      "props": {"prependIcon": "mdi-plus", "size": "small",
                                "variant": "flat", "style": "height:36px;background:#6366f1;color:#fff;",
-                               "onClick": f"function () {{ mapping_panel_open = [{len(form_rules)}]; }}"},
+                               "onClick": (
+                                   "function () { mapping_new_rule_visible = true; "
+                                   f"mapping_new_rule_panel_open = {len(form_rules)}; }}"
+                               )},
                      "text": "新增映射规则",
                  }]},
             ],
         }
 
-        mapping_content = [mapping_toolbar, summary_table, mapping_editors]
+        mapping_content = [mapping_toolbar, summary_table]
+        if existing_rule_cards:
+            mapping_content.append(existing_mapping_editors)
+        mapping_content.append(new_mapping_editor)
 
         form_content = []
         if self._config_errors:
@@ -3784,7 +3809,8 @@ class CloudStrmHelper(_PluginBase):
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             "cron_enabled": True, "scan_interval": 30,
             "_panel_open": [],
-            "mapping_panel_open": [len(form_rules)],
+            "mapping_new_rule_visible": False,
+            "mapping_new_rule_panel_open": len(form_rules),
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}

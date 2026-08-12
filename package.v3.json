@@ -3,11 +3,12 @@
     "name": "CloudStrm",
     "description": "Monitor a CD2-mounted China Mobile cloud disk without an official API, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
     "labels": "moviepilot",
-    "version": "V1.5.6",
+    "version": "V1.5.7",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
     "history": {
+      "V1.5.7": "The mapping-rule editor now stays hidden until Add Mapping Rule is clicked. The toolbar button reveals and expands the one blank editor, while existing rules remain separately collapsible.",
       "V1.5.6": "Restored the mapping-rule table and the always-available add editor. The add button now expands the editor using MoviePilot's stable form state handling, and existing rules remain editable and removable before saving.",
       "V1.5.5": "Fixed mapping-rule creation: the add control now inserts a new editable rule row, redundant default add panels were removed, and the mapping editor typography and spacing were refined.",
       "V1.5.4": "Refined the configuration workflow to match the latest reference: a compact mapping overview precedes one default-open add editor, sidecar and subtitle copying use one unified switch, and low-frequency path, execution, and cleanup options are folded away.",
