@@ -1,5 +1,17 @@
 ---
 
+# V1.4.2 插件数据加载失败修复（2026-08-12）
+
+## 修复内容
+
+- 修复 MP v2/v3 下插件详情页“数据加载失败”：V1.4.1 引入的分类辅助方法仍引用旧类名 `CloudStrmCompanion`，实际类名已改为 `CloudStrmHelper`，导致 `get_page()` 抛 `NameError`，新版 MP 页面接口捕获异常后返回空对象。
+- 全部 `CloudStrmCompanion` 引用统一修正为 `CloudStrmHelper`，覆盖分类解析、规则序列化、命令匹配和看板映射行渲染。
+
+## 验证
+
+- v3 py_compile 通过
+- AST 检查无 `CloudStrmCompanion` 残留引用
+
 # V1.4.1 布局对齐与交互稳定性修复（2026-08-12）
 
 ## 修复内容

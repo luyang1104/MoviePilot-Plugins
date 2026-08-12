@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.4.1"
+    plugin_version = "V1.4.2"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -349,7 +349,7 @@ class CloudStrmHelper(_PluginBase):
     @staticmethod
     def __category_string(value: Any) -> str:
         """join tags as comma string"""
-        return ",".join(CloudStrmCompanion.__category_list(value))
+        return ",".join(CloudStrmHelper.__category_list(value))
 
     def __rules_from_config(self, config: dict) -> List[dict]:
         """优先读取结构化 rule_i_* 键，缺失时回退解析旧版 monitor_confs 文本。"""
@@ -362,7 +362,7 @@ class CloudStrmHelper(_PluginBase):
                 continue
             monitor_value = config.get(f"rule_{index}_monitor")
             rules.append({
-                "category": CloudStrmCompanion.__category_string(
+                "category": CloudStrmHelper.__category_string(
                     config.get(f"rule_{index}_category") or ""),
                 "local": local,
                 "strm": strm,
@@ -384,7 +384,7 @@ class CloudStrmHelper(_PluginBase):
             if not local and not strm:
                 continue
             line = f"{local}#{strm}#{str(rule.get('cloud') or '').strip()}#{str(rule.get('format') or '').strip()}"
-            category = CloudStrmCompanion.__category_string(rule.get("category"))
+            category = CloudStrmHelper.__category_string(rule.get("category"))
             if category:
                 line += f"@{category}"
             if not rule.get("monitor", True):
@@ -398,7 +398,7 @@ class CloudStrmHelper(_PluginBase):
         keys = {}
         for index in range(max(slots, len(rules or []))):
             rule = rules[index] if rules and index < len(rules) else {}
-            keys[f"rule_{index}_category"] = CloudStrmCompanion.__category_string(
+            keys[f"rule_{index}_category"] = CloudStrmHelper.__category_string(
                 rule.get("category"))
             keys[f"rule_{index}_local"] = str(rule.get("local") or "")
             keys[f"rule_{index}_strm"] = str(rule.get("strm") or "")
@@ -2383,8 +2383,8 @@ class CloudStrmHelper(_PluginBase):
         for mon_path, mon_category in self._category_conf.items():
             if not mon_category:
                 continue
-            mon_categories = CloudStrmCompanion.__category_list(mon_category)
-            requested_categories = CloudStrmCompanion.__category_list(category) if category else []
+            mon_categories = CloudStrmHelper.__category_list(mon_category)
+            requested_categories = CloudStrmHelper.__category_list(category) if category else []
             category_matched = bool(
                 requested_categories and any(tag in mon_categories for tag in requested_categories)
             ) or bool(category and str(category) in str(mon_category))
@@ -3709,7 +3709,7 @@ class CloudStrmHelper(_PluginBase):
             return "已配置", "#38bdf8"
 
         def mapping_rule_html(rule, state_text, state_color, extra_style=""):
-            category_tags = CloudStrmCompanion.__category_list(rule.get("category")) or ["未分类"]
+            category_tags = CloudStrmHelper.__category_list(rule.get("category")) or ["未分类"]
             category_badges = "".join(
                 f"<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
                 f"color:#38bdf8;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;"
