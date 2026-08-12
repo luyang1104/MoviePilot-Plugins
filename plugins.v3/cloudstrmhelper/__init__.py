@@ -70,11 +70,11 @@ class CloudStrmHelper(_PluginBase):
     # 插件名称
     plugin_name = "CloudStrm"
     # 插件描述
-    plugin_desc = "实时监控、定时全量增量生成strm文件。"
+    plugin_desc = "OpenList + CD2 实时监控，定时全量增量生成 STRM 文件。"
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.2.1"
+    plugin_version = "V1.3.0"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -311,6 +311,101 @@ class CloudStrmHelper(_PluginBase):
             if not any(token in format_str for token in ("{local_file}", "{cloud_file}")):
                 errors.append(f"{local_dir} 格式化模板缺少 {{local_file}} 或 {{cloud_file}}")
         return errors
+
+    def __monitor_config_rows(self) -> List[Dict[str, Any]]:
+        """把目录配置解析成页面可展示的映射行，不依赖插件是否已启用。"""
+        rows: List[Dict[str, Any]] = []
+        seen = set()
+        for original_conf in str(self._monitor_confs or "").splitlines():
+            monitor_conf = original_conf.strip()
+            if not monitor_conf or monitor_conf.startswith("#"):
+                continue
+            line_monitor = None
+            if monitor_conf.count("$") == 1:
+                line_monitor = str(monitor_conf.split("$", 1)[1]).strip()
+                monitor_conf = monitor_conf.split("$", 1)[0].strip()
+            category = None
+            if monitor_conf.count("@") == 1:
+                category = str(monitor_conf.split("@", 1)[1]).strip()
+                monitor_conf = monitor_conf.split("@", 1)[0].strip()
+            if monitor_conf.count("#") < 3:
+                continue
+            local_dir, strm_dir, cloud_dir, format_str = monitor_conf.split("#", 3)
+            local_dir = local_dir.strip()
+            strm_dir = strm_dir.strip()
+            cloud_dir = cloud_dir.strip()
+            format_str = format_str.strip()
+            if not local_dir or not strm_dir:
+                continue
+            key = (self.__path_key(local_dir), self.__path_key(strm_dir))
+            if key in seen:
+                continue
+            seen.add(key)
+            if line_monitor == "1":
+                monitor_state = "监控中"
+            elif line_monitor == "0":
+                monitor_state = "已停用"
+            elif self._enabled and self._monitor:
+                monitor_state = "监控中"
+            else:
+                monitor_state = "已配置"
+            rows.append({
+                "category": category or "-",
+                "state": monitor_state,
+                "local_dir": local_dir,
+                "strm_dir": strm_dir,
+                "cloud_dir": cloud_dir or "-",
+                "format_str": format_str or "-",
+                "mounted": Path(local_dir).is_dir(),
+            })
+        return rows
+
+    def __monitor_status(self) -> Tuple[str, str, str]:
+        """返回监控状态、颜色和说明。"""
+        rows = self.__monitor_config_rows()
+        if not self._enabled:
+            return "插件已停用", "default", "启用插件并保存配置后开始监控"
+        if not rows:
+            return "未配置目录", "warning", "请在“路径监控与 STRM 映射策略”中配置目录"
+        mounted = sum(1 for row in rows if row.get("mounted"))
+        if mounted == 0:
+            return "CD2 挂载异常", "error", f"{len(rows)} 个监控目录均不可访问"
+        if mounted < len(rows):
+            return "CD2 部分异常", "warning", f"仅 {mounted}/{len(rows)} 个监控目录可访问"
+        if not self._monitor:
+            return "已启用（未开启实时监控）", "info", "可开启 OpenList + CD2 实时监控"
+        return "OpenList + CD2 监控中", "success", f"{len(rows)} 个 CD2 目录正常"
+
+    def __openlist_status(self) -> Tuple[str, str, str]:
+        """根据目录模板判断 OpenList 地址是否已配置。"""
+        templates = [row.get("format_str", "") for row in self.__monitor_config_rows()]
+        if not templates:
+            return "OpenList 未配置", "warning", "目录模板中未发现地址"
+        if any(("http://" in template or "https://" in template) for template in templates):
+            return "OpenList 已配置", "success", f"{len(templates)} 个地址模板"
+        return "OpenList 未配置", "warning", "目录模板应包含 http(s) 地址"
+
+    def __monitor_table_html(self) -> str:
+        """把目录映射渲染成页面表格。"""
+        table_rows = []
+        for row in self.__monitor_config_rows():
+            state = row.get("state") or "-"
+            if not row.get("mounted"):
+                state = f"{state}（目录不可访问）"
+            table_rows.append({
+                "分类": row.get("category") or "-",
+                "状态": state,
+                "本地 STRM 输出目录": self.__shorten_path(row.get("strm_dir") or ""),
+                "移动云盘路径": self.__shorten_path(row.get("cloud_dir") or ""),
+                "OpenList 模板": self.__shorten_path(row.get("format_str") or "", keep=3),
+            })
+        return self.__render_table_html(
+            [{"title": "分类", "key": "分类"},
+             {"title": "状态", "key": "状态"},
+             {"title": "本地 STRM 输出目录", "key": "本地 STRM 输出目录"},
+             {"title": "移动云盘路径", "key": "移动云盘路径"},
+             {"title": "OpenList 模板", "key": "OpenList 模板"}],
+            table_rows, "暂无目录映射，请在插件配置中添加")
 
     @staticmethod
     def __task_now() -> str:
@@ -2687,12 +2782,20 @@ class CloudStrmHelper(_PluginBase):
         config_help = {
             "component": "VAlert",
             "props": {"type": "info", "variant": "tonal"},
-            "html": ("目录配置每行一条，用 <code>#</code> 分隔四段：<br>"
+            "html": ("监控方式为 OpenList + CD2；移动云盘无官方 API，不提供网盘 API 轮询。<br>"
+                     "目录配置每行一条，用 <code>#</code> 分隔四段：<br>"
                      "<code>监控目录#STRM目录#云盘目录#STRM模板</code><br>"
                      "示例：<code>/mnt/media#/mnt/library#/cloud/media#https://host{cloud_file}</code><br>"
                      "模板必须包含 <code>{local_file}</code> 或 <code>{cloud_file}</code>。"),
         }
         directory_content = [config_help, template_warning]
+        monitor_way_alert = {
+            "component": "VAlert",
+            "props": {
+                "type": "info", "variant": "tonal", "density": "compact", "class": "mb-3",
+                "text": "监控方式：OpenList + CD2。移动云盘无官方 API，插件通过 CD2 挂载目录发现文件变化，STRM 内容使用 OpenList 地址模板。",
+            },
+        }
         directory_content.extend([
             row(col(field("VTextarea", "monitor_confs", "目录配置", rows=5,
                          placeholder="/mnt/media#/mnt/library#/cloud/media#https://host/{cloud_file}"), 12)),
@@ -2705,13 +2808,14 @@ class CloudStrmHelper(_PluginBase):
         form_content = []
         if self._config_errors:
             form_content.append(config_error_alert)
+        form_content.append(monitor_way_alert)
         form_content.append({
             "component": "VExpansionPanels",
             "props": {"variant": "accordion", "multiple": True, "model": "_panel_open"},
             "content": [
                 panel("基础设置", [
                     row(col(switch("enabled", "启用插件"), 3),
-                        col(switch("monitor", "实时监控"), 3),
+                        col(switch("monitor", "OpenList + CD2 实时监控"), 3),
                         col(switch("notify", "任务与入库通知"), 3),
                         col(switch("onlyonce", "保存后立即执行一次"), 3)),
                     row(col(field("VTextField", "interval", "入库通知延迟（秒）",
@@ -2723,7 +2827,7 @@ class CloudStrmHelper(_PluginBase):
                         col(switch("copy_subtitles", "复制字幕文件"), 3),
                         col(switch("sync_delete", "同步删除生成文件"), 3)),
                 ], "mdi-file-sync"),
-                panel("目录映射", [
+                panel("路径监控与 STRM 映射策略", [
                     *directory_content,
                 ], "mdi-folder-sync"),
                 panel("媒体格式", [
@@ -3001,7 +3105,88 @@ class CloudStrmHelper(_PluginBase):
                 "events": {"click": {"api": detail_url, "method": "GET",
                                              "params": ({"status": filter_status} if filter_status else {})}},
             })
+        monitor_rows = self.__monitor_config_rows()
+        monitor_status, monitor_color, monitor_detail = self.__monitor_status()
+        openlist_status, openlist_color, openlist_detail = self.__openlist_status()
+        strm_total = len(self._generated_files)
+        failed_total = overview_stats.get("failed", 0)
+        feed_rows = []
+        for item in latest_items[:8]:
+            feed_rows.append({
+                "时间": item.get("created_at") or "-",
+                "动作": item.get("action") or "-",
+                "来源": self.__shorten_path(item.get("source_file") or ""),
+                "结果": status_names.get(item.get("status"), item.get("status") or "-"),
+                "原因": item.get("reason") or "-",
+            })
+        overview_card = {
+            "component": "VCard",
+            "props": {"variant": "tonal", "class": "mb-4"},
+            "content": [
+                {"component": "VCardTitle", "text": "OpenList + CD2 监控台"},
+                {"component": "VCardText", "content": [
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(monitor_status, monitor_color)]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(openlist_status, openlist_color)]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"监控目录 {len(monitor_rows)}")]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"本地 STRM {strm_total}", "primary")]},
+                    ]},
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"最近成功 {overview_stats.get('success', 0)}", "success")]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"跳过 {overview_stats.get('skipped', 0)}", "warning")]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"失败 {failed_total}", "error" if failed_total else "success")]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                         "content": [chip(f"当前任务：{current_label}", current_color)]},
+                    ]},
+                    {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "density": "compact", "class": "mt-2"},
+                     "text": f"移动云盘无官方 API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。{monitor_detail}{openlist_detail}"},
+                ]},
+            ],
+        }
+        mapping_card = {
+            "component": "VCard",
+            "props": {"class": "mb-4"},
+            "content": [
+                {"component": "VCardTitle", "text": "路径监控与 STRM 映射策略"},
+                {"component": "VCardSubtitle", "text": "OpenList + CD2 · 移动云盘无官方 API"},
+                {"component": "VCardText", "content": [
+                    {"component": "div", "html": self.__monitor_table_html()},
+                ]},
+            ],
+        }
+        feed_headers = [
+            {"title": "时间", "key": "时间"},
+            {"title": "动作", "key": "动作"},
+            {"title": "来源", "key": "来源"},
+            {"title": "结果", "key": "结果"},
+            {"title": "原因", "key": "原因"},
+        ]
+        feed_card = {
+            "component": "VCard",
+            "props": {"class": "mb-4"},
+            "content": [
+                {"component": "VCardTitle", "text": "最近同步明细"},
+                {"component": "VCardSubtitle", "text": "来自当前任务或最近一次任务"},
+                {"component": "VCardText", "content": [
+                    {"component": "div", "html": self.__render_table_html(feed_headers, feed_rows, "暂无同步明细")},
+                ]},
+            ],
+        }
         page = [
+            {
+                "component": "VRow",
+                "content": [
+                    {"component": "VCol", "props": {"cols": 12, "md": 5}, "content": [overview_card]},
+                    {"component": "VCol", "props": {"cols": 12, "md": 7}, "content": [mapping_card, feed_card]},
+                ],
+            },
             {
                 "component": "VCard",
                 "props": {"variant": "tonal", "class": "mb-4"},
@@ -3063,12 +3248,9 @@ class CloudStrmHelper(_PluginBase):
             "running": "运行中", "success": "成功", "partial": "部分成功",
             "failed": "失败", "interrupted": "已中断",
         }
-        status_colors = {
-            "running": "info", "success": "success", "partial": "warning",
-            "failed": "error", "interrupted": "grey",
-        }
         is_running = bool(current)
-        status_color = status_colors.get(current.get("status"), "default") if is_running else "default"
+        monitor_rows = self.__monitor_config_rows()
+        monitor_status, monitor_color = self.__monitor_status()[:2]
         discovered = stats.get("discovered", 0)
         progress = min(100, round(stats.get("processed", 0) * 100 / max(1, discovered))) if is_running else 0
         summary = self.__api_tasks().get("tasks") or []
@@ -3086,8 +3268,11 @@ class CloudStrmHelper(_PluginBase):
             "component": "VRow",
             "content": [
                 {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": status_color, "variant": "tonal"},
-                              "text": f"状态：{status_names.get(current.get('status'), '空闲')}"}]},
+                 "content": [{"component": "VChip", "props": {"color": monitor_color, "variant": "tonal"},
+                              "text": f"监控：{monitor_status}"}]},
+                {"component": "VCol", "props": {"cols": 6, "md": 2},
+                 "content": [{"component": "VChip", "props": {"variant": "tonal"},
+                              "text": f"目录 {len(monitor_rows)}"}]},
                 {"component": "VCol", "props": {"cols": 6, "md": 2},
                  "content": [{"component": "VChip", "props": {"variant": "tonal"},
                               "text": f"已处理 {stats.get('processed', 0)}"}]},

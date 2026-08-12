@@ -1,6 +1,6 @@
 # CloudStrm 任务中心开发进度
 
-更新时间：2026-08-11
+更新时间：2026-08-12
 
 ## 一、项目目标
 
@@ -395,3 +395,39 @@ V1.2 实机截图发现「任务详情」明细表只渲染了分页 footer（�
 - `plugins.v2/cloudstrmhelper/__init__.py`、`plugins.v3/cloudstrmhelper/__init__.py`（内容一致）
 - `package.v2.json`、`package.v3.json`、`package.json`
 - `DEVELOPMENT_PROGRESS.md`
+
+---
+
+# V1.3.0 OpenList + CD2 监控台（2026-08-12）
+
+## 背景
+
+用户提供新版前端设计稿，并明确移动云盘没有官方 API：监控不采用网盘 API 轮询，固定使用 OpenList + CD2 挂载目录监控，STRM 内容由 OpenList 地址模板生成。本轮只改描述、配置页文案、任务页和仪表盘展示，不改变扫描、监控、STRM 生成和任务逻辑。
+
+## 配置页（get_form）
+
+- 表单顶部固定提示监控方式为 OpenList + CD2，并说明移动云盘无官方 API、不提供网盘 API 轮询。
+- 目录配置帮助、折叠面板标题和实时监控开关文案全部改为 OpenList + CD2 口径。
+
+## 任务中心页（get_page）
+
+- 新增「OpenList + CD2 监控台」：监控状态、OpenList 配置状态、监控目录数、本地 STRM 总数，以及最近任务成功/跳过/失败统计。
+- 新增「路径监控与 STRM 映射策略」卡片，用 HTML 表格展示分类、状态、本地 STRM 输出目录、移动云盘路径和 OpenList 模板。
+- 新增「最近同步明细」卡片，取当前或最近任务的前 8 条记录。
+- 监控台与路径映射/同步明细改为左右两栏布局，参考设计稿的左侧状态策略、右侧映射表格与实时日志结构。
+
+## 仪表盘（get_dashboard）
+
+- 状态 chip 改为显示 OpenList + CD2 监控状态。
+- 新增监控目录数量 chip。
+
+## 版本与发布元数据
+
+- `plugin_version` 和三个 package JSON 统一升级为 `V1.3.0`。
+- 插件描述和 README 首段补充无官方 API 的移动云盘、CD2 挂载监控和 OpenList STRM 说明。
+
+## 本轮验证
+
+- v2/v3 `py_compile` 通过，SHA256 一致。
+- 三个 package JSON 解析通过，版本均为 `V1.3.0`。
+- `git diff --check` 通过。

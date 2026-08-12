@@ -1,13 +1,14 @@
 {
   "CloudStrmHelper": {
     "name": "CloudStrm",
-    "description": "Monitor a CD2 mount, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
+    "description": "Monitor a CD2-mounted China Mobile cloud disk without an official API, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
     "labels": "moviepilot",
-    "version": "V1.2.1",
+    "version": "V1.3.0",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
     "history": {
+      "V1.3.0": "Redesigned the task center around an OpenList + CD2 monitoring console for no-API mobile cloud disks: monitoring mode, path mapping, STRM totals and recent sync details.",
       "V1.2.1": "Fixed task detail and dashboard tables rendering empty: MoviePilot's page renderer always injects a default slot, which suppresses VDataTable's built-in header/body, so tables now render as lightweight HTML.",
       "V1.2": "Polished task center UI: color-coded statuses, consolidated task list, always-visible details, auto-expanding config sections, new icon.",
       "V1.1": "Added task center history, per-file results, completion summaries, failure details, and selective retries.",

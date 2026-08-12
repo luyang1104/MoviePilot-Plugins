@@ -4,7 +4,7 @@ MoviePilot plugins by Felix Yang.
 
 ## CloudStrm
 
-CloudStrm monitors a CD2-mounted directory and generates STRM files that point to OpenList files. It also supports subtitles and common sidecar files such as NFO, posters, backdrops, and JSON files, then refreshes configured Emby libraries after generation.
+CloudStrm monitors a CD2-mounted directory for mobile cloud disks without an official API, such as China Mobile cloud disk, and generates STRM files that point to OpenList files. It also supports subtitles and common sidecar files such as NFO, posters, backdrops, and JSON files, then refreshes configured Emby libraries after generation.
 
 Features:
 
