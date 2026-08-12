@@ -74,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.7"
+    plugin_version = "V1.5.8"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -1615,6 +1615,16 @@ class CloudStrmHelper(_PluginBase):
                         self._emby_paths[source] = target
         else:
             self._monitor_confs = ""
+        # UI-only add-editor state must never survive a plugin restart.  Older
+        # releases could have stored it alongside the real plugin settings.
+        if any(key in config for key in self._form_ui_state_keys):
+            cleaned_config = dict(config)
+            for key in self._form_ui_state_keys:
+                cleaned_config.pop(key, None)
+            try:
+                self.update_config(cleaned_config)
+            except Exception:
+                pass
             self._rmt_mediaext = self._default_rmt_mediaext
             self._other_mediaext = self._default_other_mediaext
 
@@ -3576,7 +3586,7 @@ class CloudStrmHelper(_PluginBase):
             ),
         }
 
-        existing_rule_cards = []
+        existing_rule_forms = []
         new_rule_card = None
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
@@ -3641,33 +3651,33 @@ class CloudStrmHelper(_PluginBase):
                 "component": "VExpansionPanel",
                 "props": {
                     "value": rule_index, "elevation": 0,
-                    "style": ("background:#202b4b;border:1px solid #6366f1;"
-                               if is_new_rule else
-                               "background:#172033;border-bottom:1px solid #334155;"),
+                    "style": "background:#202b4b;border:1px solid #6366f1;",
                 },
                 "content": [
                     {"component": "VExpansionPanelTitle", "props": {"style": title_style},
                      "text": rule_summary},
                     {"component": "VExpansionPanelText",
-                     "props": {"style": "padding:0 14px 12px!important;background:#1e293b;"},
+                     "props": {"style": "padding:0 16px 14px!important;background:#1e293b;"},
                      "content": rule_content},
                 ],
             }
             if is_new_rule:
                 new_rule_card = rule_card
             else:
-                existing_rule_cards.append(rule_card)
-
-        existing_mapping_editors = {
-            "component": "VExpansionPanels",
-            "props": {
-                "variant": "accordion", "multiple": False,
-                "class": "cloudstrm-mapping-editors",
-                "style": ("background:transparent;border:1px solid #475569;border-radius:8px;"
-                          "overflow:hidden;margin-top:16px;"),
-            },
-            "content": existing_rule_cards,
-        }
+                existing_rule_forms.append({
+                    "component": "div",
+                    "props": {
+                        "style": ("margin-top:16px;padding:14px 16px 12px;background:#1e293b;"
+                                  "border:1px solid #334155;border-radius:8px;"),
+                    },
+                    "content": [
+                        {"component": "div",
+                         "props": {"style": ("padding-bottom:10px;margin-bottom:4px;color:#e2e8f0;"
+                                               "font-size:14px;font-weight:600;border-bottom:1px solid #334155;")},
+                         "text": f"映射规则 {rule_index + 1}"},
+                        *rule_content,
+                    ],
+                })
         new_mapping_editor = {
             "component": "div",
             "props": {"show": "{{ mapping_new_rule_visible }}"},
@@ -3676,7 +3686,7 @@ class CloudStrmHelper(_PluginBase):
                 "props": {
                     "variant": "accordion", "multiple": False,
                     "model": "mapping_new_rule_panel_open",
-                    "style": ("background:transparent;border:1px solid #475569;border-radius:8px;"
+                    "style": ("background:transparent;border:1px solid #6366f1;border-radius:8px;"
                               "overflow:hidden;margin-top:16px;"),
                 },
                 "content": [new_rule_card],
@@ -3706,8 +3716,7 @@ class CloudStrmHelper(_PluginBase):
         }
 
         mapping_content = [mapping_toolbar, summary_table]
-        if existing_rule_cards:
-            mapping_content.append(existing_mapping_editors)
+        mapping_content.extend(existing_rule_forms)
         mapping_content.append(new_mapping_editor)
 
         form_content = []
