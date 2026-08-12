@@ -8,6 +8,7 @@ import traceback
 import urllib.parse
 import uuid
 from copy import deepcopy
+from collections import deque
 from datetime import datetime, timedelta
 from html import escape as html_escape
 from pathlib import Path
@@ -74,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.3.1"
+    plugin_version = "V1.4.0"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -157,6 +158,20 @@ class CloudStrmHelper(_PluginBase):
     _task_history_save_interval = 0.5
     _task_history_save_batch = 20
     _config_errors = []
+    # V1.4.0：定时增量扫描（对应设计稿「定时增量扫描」开关）
+    _cron_enabled = True
+    _scan_interval = 30
+    # V1.4.0：实时事件环形缓冲，供页面 Live Log Feed 使用
+    _live_events = deque(maxlen=150)
+    _live_events_lock = threading.Lock()
+    # V1.4.0：孤儿清理（死链）累计统计，持久化到 stats.json
+    _pruned_total = 0
+    _stats_json = "stats.json"
+    _stats_lock = threading.Lock()
+    # V1.4.0：页面暂存配置（开关/映射删除/扩展名移除），保存后生效
+    _staged_config = None
+    _staged_lock = threading.Lock()
+    _page_editing_rule = None
 
     _default_rmt_mediaext = ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v"
     _default_other_mediaext = ".nfo, .jpg, .png, .json"
@@ -279,6 +294,168 @@ class CloudStrmHelper(_PluginBase):
             result.add(extension)
         return result
 
+    @staticmethod
+    def __count_rule_slots(config: dict) -> int:
+        """统计配置中结构化映射规则 rule_i_* 占用的槽位数。"""
+        slots = 0
+        for key in (config or {}).keys():
+            match = re.match(r"^rule_(\d+)_(local|strm)$", str(key))
+            if match:
+                slots = max(slots, int(match.group(1)) + 1)
+        return slots
+
+    @staticmethod
+    def __rules_from_monitor_confs(monitor_confs: str) -> List[dict]:
+        """把旧版 # 分隔文本解析为结构化映射规则列表。"""
+        rules = []
+        for raw_line in str(monitor_confs or "").splitlines():
+            line = str(raw_line).strip()
+            if not line or line.startswith("#"):
+                continue
+            monitor_flag = None
+            if line.count("$") == 1:
+                line, monitor_flag = line.split("$", 1)
+                monitor_flag = monitor_flag.strip()
+            category = None
+            if line.count("@") == 1:
+                line, category = line.split("@", 1)
+                category = category.strip()
+            if line.count("#") < 3:
+                continue
+            local_dir, strm_dir, cloud_dir, format_str = [part.strip() for part in line.split("#", 3)]
+            rules.append({
+                "category": category or "",
+                "local": local_dir,
+                "strm": strm_dir,
+                "cloud": cloud_dir,
+                "format": format_str,
+                "monitor": monitor_flag != "0",
+            })
+        return rules
+
+    def __rules_from_config(self, config: dict) -> List[dict]:
+        """优先读取结构化 rule_i_* 键，缺失时回退解析旧版 monitor_confs 文本。"""
+        config = config or {}
+        rules = []
+        for index in range(self.__count_rule_slots(config)):
+            local = str(config.get(f"rule_{index}_local") or "").strip()
+            strm = str(config.get(f"rule_{index}_strm") or "").strip()
+            if not local and not strm:
+                continue
+            monitor_value = config.get(f"rule_{index}_monitor")
+            rules.append({
+                "category": str(config.get(f"rule_{index}_category") or "").strip(),
+                "local": local,
+                "strm": strm,
+                "cloud": str(config.get(f"rule_{index}_cloud") or "").strip(),
+                "format": str(config.get(f"rule_{index}_format") or "").strip(),
+                "monitor": bool(monitor_value) if monitor_value is not None else True,
+            })
+        if rules:
+            return rules
+        return self.__rules_from_monitor_confs(config.get("monitor_confs") or "")
+
+    @staticmethod
+    def __rules_to_monitor_confs(rules: List[dict]) -> str:
+        """把结构化规则序列化回旧版文本格式，作为可移植镜像。"""
+        lines = []
+        for rule in rules or []:
+            local = str(rule.get("local") or "").strip()
+            strm = str(rule.get("strm") or "").strip()
+            if not local and not strm:
+                continue
+            line = f"{local}#{strm}#{str(rule.get('cloud') or '').strip()}#{str(rule.get('format') or '').strip()}"
+            category = str(rule.get("category") or "").strip()
+            if category:
+                line += f"@{category}"
+            if not rule.get("monitor", True):
+                line += "$0"
+            lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def __rules_to_config_keys(rules: List[dict], slots: int) -> Dict[str, Any]:
+        """把规则列表展开为 rule_i_* 配置键，空槽位写空串保证旧键被清除。"""
+        keys = {}
+        for index in range(max(slots, len(rules or []))):
+            rule = rules[index] if rules and index < len(rules) else {}
+            keys[f"rule_{index}_category"] = str(rule.get("category") or "")
+            keys[f"rule_{index}_local"] = str(rule.get("local") or "")
+            keys[f"rule_{index}_strm"] = str(rule.get("strm") or "")
+            keys[f"rule_{index}_cloud"] = str(rule.get("cloud") or "")
+            keys[f"rule_{index}_format"] = str(rule.get("format") or "")
+            keys[f"rule_{index}_monitor"] = bool(rule.get("monitor", True)) if rule else True
+        return keys
+
+    def __log_event(self, tag: str, message: str):
+        """追加一条实时事件，供页面 Live Log Feed 展示；任何异常都不影响主流程。"""
+        try:
+            with self._live_events_lock:
+                self._live_events.append({
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "tag": str(tag or "EVENT"),
+                    "message": str(message or ""),
+                })
+        except Exception:
+            pass
+
+    def __live_event_snapshot(self, limit: int = 40) -> List[dict]:
+        with self._live_events_lock:
+            events = list(self._live_events)
+        return events[-limit:]
+
+    def __load_stats(self):
+        try:
+            if Path(self._stats_json).is_file():
+                with open(self._stats_json, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+                self._pruned_total = int(data.get("pruned_total") or 0)
+        except Exception as err:
+            logger.warning(f"读取清理统计失败：{err}")
+            self._pruned_total = 0
+
+    def __save_stats(self):
+        with self._stats_lock:
+            try:
+                tmp_path = f"{self._stats_json}.tmp"
+                with open(tmp_path, "w", encoding="utf-8") as file:
+                    json.dump({"pruned_total": int(self._pruned_total)}, file, ensure_ascii=False)
+                os.replace(tmp_path, self._stats_json)
+            except OSError as err:
+                logger.warning(f"保存清理统计失败：{err}")
+
+    def __bump_pruned(self, count: int):
+        if not count or count <= 0:
+            return
+        with self._stats_lock:
+            self._pruned_total += int(count)
+        self.__save_stats()
+
+    def __current_saved_config(self) -> dict:
+        """读取宿主当前保存的插件配置，隔离环境下不可用时返回空字典。"""
+        try:
+            config = self.get_config()
+            return dict(config) if isinstance(config, dict) else {}
+        except Exception:
+            return {}
+
+    def __staged_snapshot(self) -> dict:
+        with self._staged_lock:
+            return dict(self._staged_config or {})
+
+    @staticmethod
+    def __effective_bool(key: str, saved: dict, staged: dict, default: bool = False) -> bool:
+        if key in staged:
+            return bool(staged[key])
+        if key in saved:
+            return bool(saved[key])
+        return default
+
+    def __effective_rules(self, saved: dict, staged: dict) -> List[dict]:
+        if "_rules" in staged:
+            return deepcopy(staged.get("_rules") or [])
+        return self.__rules_from_config(saved)
+
     def __validate_monitor_confs(self, monitor_confs: str) -> List[str]:
         """Validate directory configuration without starting monitors or scheduling work."""
         errors = []
@@ -385,57 +562,6 @@ class CloudStrmHelper(_PluginBase):
             return "OpenList 已配置", "success", f"{len(templates)} 个地址模板"
         return "OpenList 未配置", "warning", "目录模板应包含 http(s) 地址"
 
-    def __mapping_rows_html(self) -> str:
-        """把目录映射渲染成轻量卡片数据行，悬停时显示编辑/删除图标。"""
-        rows_html = []
-        for row in self.__monitor_config_rows():
-            category = html_escape(row.get("category") or "-")
-            state = html_escape(row.get("state") or "-")
-            if not row.get("mounted"):
-                state += "（目录不可访问）"
-            local_path = html_escape(self.__shorten_path(row.get("strm_dir") or ""))
-            cloud_path = html_escape(self.__shorten_path(row.get("cloud_dir") or ""))
-            full_local = html_escape(row.get("strm_dir") or "")
-            full_cloud = html_escape(row.get("cloud_dir") or "")
-            rows_html.append(
-                '<div class="csm-mapping-row">'
-                f'<span class="csm-mapping-badge">{category}</span>'
-                '<div class="csm-mapping-paths">'
-                f'<div class="csm-mapping-path" title="{full_local}">{local_path}</div>'
-                '<div class="csm-mapping-arrow">→</div>'
-                f'<div class="csm-mapping-path" title="{full_cloud}">{cloud_path}</div>'
-                '</div>'
-                f'<span class="csm-mapping-state">{state}</span>'
-                '<span class="csm-mapping-actions">'
-                '<span title="编辑">✎</span><span title="删除">🗑</span>'
-                '</span>'
-                '</div>'
-            )
-        if not rows_html:
-            rows_html.append('<div class="csm-mapping-empty">暂无目录映射，请在插件配置中添加</div>')
-        return (
-            '<style>'
-            '.csm-mapping-row{display:flex;align-items:center;gap:10px;padding:10px 12px;'
-            'border:1px solid rgba(55,65,81,.55);border-radius:10px;background:#111827;margin-bottom:8px;'
-            'transition:background .15s ease,box-shadow .15s ease;}'
-            '.csm-mapping-row:hover{background:#1f2937;box-shadow:0 2px 10px rgba(0,0,0,.18);}'
-            '.csm-mapping-badge{flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;color:#38bdf8;'
-            'border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap;}'
-            '.csm-mapping-paths{flex:1 1 auto;display:flex;align-items:center;gap:8px;min-width:0;color:#e5e7eb;'
-            'font-family:Consolas,Monaco,monospace;font-size:12px;}'
-            '.csm-mapping-path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%;}'
-            '.csm-mapping-arrow{color:#6b7280;flex:0 0 auto;}'
-            '.csm-mapping-state{flex:0 0 auto;color:#9ca3af;font-size:11px;white-space:nowrap;}'
-            '.csm-mapping-actions{flex:0 0 auto;opacity:0;color:#9ca3af;font-size:14px;'
-            'transition:opacity .15s ease;}'
-            '.csm-mapping-row:hover .csm-mapping-actions{opacity:1;}'
-            '.csm-mapping-actions span{cursor:pointer;margin-left:6px;}'
-            '.csm-mapping-actions span:first-child{color:#38bdf8;}'
-            '.csm-mapping-actions span:last-child{color:#f43f5e;}'
-            '.csm-mapping-empty{color:#6b7280;padding:18px 12px;text-align:center;font-size:13px;}'
-            '</style>'
-            + "".join(rows_html)
-        )
 
 
     @staticmethod
@@ -704,6 +830,16 @@ class CloudStrmHelper(_PluginBase):
             ]
         self.__save_task_history(force=True)
         self.__notify_task(finished, channel=channel, userid=userid)
+        # V1.4.0：任务结束写入实时事件流，供页面 Live Log Feed 展示
+        finished_stats = (finished or {}).get("stats") or {}
+        kind_names = {"full_scan": "全量扫描", "targeted": "定向同步", "retry": "失败重试"}
+        status_names = {"success": "成功", "partial": "部分成功", "failed": "失败", "interrupted": "已中断"}
+        self.__log_event(
+            "TASK",
+            f"{kind_names.get((finished or {}).get('kind'), '任务')}"
+            f"{status_names.get((finished or {}).get('status'), '结束')}："
+            f"成功 {finished_stats.get('success', 0)}，跳过 {finished_stats.get('skipped', 0)}，"
+            f"失败 {finished_stats.get('failed', 0)}")
 
     def __run_task(self, task_id: str, worker, channel=None, userid=None, generation=None):
         stop_event = self._task_stop_events.get(task_id)
@@ -952,6 +1088,135 @@ class CloudStrmHelper(_PluginBase):
         return {"task_id": task_id, "item_id": item_id,
                 "selected": checked, "selected_item_ids": selected_ids}
 
+    # V1.4.0：页面可直接切换的策略开关白名单及其默认值
+    _config_toggle_keys = {
+        "monitor": "OpenList + CD2 实时监控",
+        "cron_enabled": "定时增量扫描",
+        "sync_delete": "云端同步删除",
+        "cover": "覆盖已存在文件",
+        "copy_files": "复制旁车文件",
+        "copy_subtitles": "复制字幕文件",
+        "notify": "任务与入库通知",
+    }
+    _config_toggle_defaults = {"cron_enabled": True}
+
+    def __api_config_toggle(self, payload: Optional[dict] = Body(default=None)):
+        """页面开关：服务端翻转指定布尔配置并写入暂存，保存后生效。"""
+        key = str((payload or {}).get("key") or "").strip()
+        if key not in self._config_toggle_keys:
+            return self.__api_error(400, f"不支持切换的配置项：{key}")
+        saved = self.__current_saved_config()
+        with self._staged_lock:
+            staged = dict(self._staged_config or {})
+            if key in staged:
+                current = bool(staged[key])
+            elif key in saved:
+                current = bool(saved[key])
+            else:
+                current = bool(self._config_toggle_defaults.get(key, False))
+            staged[key] = not current
+            self._staged_config = staged
+            new_value = staged[key]
+        label = self._config_toggle_keys.get(key, key)
+        self.__log_event("CONFIG", f"{label} 已{'开启' if new_value else '关闭'}（待保存）")
+        return {"key": key, "value": new_value, "staged": True}
+
+    def __api_config_save(self, payload: Optional[dict] = Body(default=None)):
+        """把页面暂存的开关、映射删除和扩展名变更落盘并重新初始化插件。"""
+        with self._staged_lock:
+            staged = dict(self._staged_config or {})
+        if not staged:
+            return {"saved": False, "message": "没有待保存的更改"}
+        saved = self.__current_saved_config()
+        new_config = dict(saved)
+        rules = staged.pop("_rules", None)
+        for key, value in staged.items():
+            if key in self._config_toggle_keys or key == "rmt_mediaext":
+                new_config[key] = value
+        if rules is not None:
+            slots = max(len(rules), self.__count_rule_slots(saved))
+            new_config.update(self.__rules_to_config_keys(rules, slots))
+            new_config["monitor_confs"] = self.__rules_to_monitor_confs(rules)
+        try:
+            self.update_config(new_config)
+        except Exception as err:
+            return self.__api_error(500, f"保存配置失败：{err}")
+        with self._staged_lock:
+            self._staged_config = None
+        self._page_editing_rule = None
+        self.__log_event("CONFIG", "配置已保存，OpenList + CD2 监控服务重新加载")
+        try:
+            self.init_plugin(new_config)
+        except Exception as err:
+            logger.error(f"保存配置后重新初始化失败：{err} - {traceback.format_exc()}")
+        return {"saved": True}
+
+    def __api_config_discard(self, payload: Optional[dict] = Body(default=None)):
+        with self._staged_lock:
+            had_changes = bool(self._staged_config)
+            self._staged_config = None
+        self._page_editing_rule = None
+        return {"discarded": had_changes}
+
+    def __api_mapping_delete(self, payload: Optional[dict] = Body(default=None)):
+        """删除一条映射规则，变更写入暂存，点击「保存配置」后生效。"""
+        try:
+            index = int((payload or {}).get("index"))
+        except (TypeError, ValueError):
+            return self.__api_error(400, "index 必须是数字")
+        saved = self.__current_saved_config()
+        with self._staged_lock:
+            staged = dict(self._staged_config or {})
+            rules = deepcopy(staged["_rules"]) if "_rules" in staged \
+                else self.__rules_from_config(saved)
+            if index < 0 or index >= len(rules):
+                return self.__api_error(404, f"映射规则不存在：第 {index + 1} 条")
+            removed = rules.pop(index)
+            staged["_rules"] = rules
+            self._staged_config = staged
+        removed_name = removed.get("category") or removed.get("local") or f"第 {index + 1} 条"
+        self.__log_event("CONFIG", f"映射规则「{removed_name}」已标记删除（待保存）")
+        return {"deleted": index, "remaining": len(rules), "staged": True}
+
+    def __api_mapping_edit(self, payload: Optional[dict] = Body(default=None)):
+        """标记正在编辑的规则行，页面展开「前往设置编辑」提示；再次点击取消。"""
+        try:
+            index = int((payload or {}).get("index", -1))
+        except (TypeError, ValueError):
+            return self.__api_error(400, "index 必须是数字")
+        if self._page_editing_rule == index:
+            self._page_editing_rule = None
+            editing = None
+        else:
+            self._page_editing_rule = index
+            editing = index
+        return {"editing": editing,
+                "message": "映射规则的新增与编辑请在插件「设置 → 路径监控与 STRM 映射策略」中完成"}
+
+    def __api_extension_remove(self, payload: Optional[dict] = Body(default=None)):
+        """从监控扩展名列表移除一个格式，变更写入暂存。"""
+        ext = str((payload or {}).get("ext") or "").strip().lower()
+        if not ext:
+            return self.__api_error(400, "ext 不能为空")
+        if not ext.startswith("."):
+            ext = "." + ext
+        saved = self.__current_saved_config()
+        with self._staged_lock:
+            staged = dict(self._staged_config or {})
+            current_value = (staged.get("rmt_mediaext") or saved.get("rmt_mediaext")
+                             or self._default_rmt_mediaext)
+            extensions = sorted(self.__normalise_extensions(current_value,
+                                                            self._default_rmt_mediaext))
+            if ext not in extensions:
+                return self.__api_error(404, f"扩展名不存在：{ext}")
+            if len(extensions) <= 1:
+                return self.__api_error(400, "至少保留一种视频格式")
+            extensions.remove(ext)
+            staged["rmt_mediaext"] = ", ".join(extensions)
+            self._staged_config = staged
+        self.__log_event("CONFIG", f"监控扩展名 {ext} 已移除（待保存）")
+        return {"removed": ext, "extensions": extensions, "staged": True}
+
     def __api_get_tasks(self, status: str = None):
         if status and status not in {"running", "success", "partial", "failed", "interrupted"}:
             return self.__api_error(400, "无效的任务状态")
@@ -1017,12 +1282,27 @@ class CloudStrmHelper(_PluginBase):
         self.mediaserver_helper = MediaServerHelper()
         self.__load_generated_files()
         self.__load_task_history()
+        # V1.4.0：定时增量扫描与页面暂存状态
+        self._cron_enabled = True
+        self._scan_interval = 30
+        with self._staged_lock:
+            self._staged_config = None
+        self._page_editing_rule = None
+        self._stats_json = os.path.join(self.get_data_path(), "stats.json")
+        self._pruned_total = 0
+        self.__load_stats()
 
         if config:
             self._enabled = bool(config.get("enabled"))
             self._onlyonce = bool(config.get("onlyonce"))
             self._interval = config.get("interval") or 10
             self._monitor = bool(config.get("monitor"))
+            # V1.4.0：定时增量扫描开关与周期（分钟）
+            self._cron_enabled = bool(config.get("cron_enabled", True))
+            try:
+                self._scan_interval = max(5, int(config.get("scan_interval") or 30))
+            except (TypeError, ValueError):
+                self._scan_interval = 30
             self._cover = bool(config.get("cover"))
             self._copy_files = bool(config.get("copy_files"))
             self._copy_subtitles = bool(config.get("copy_subtitles"))
@@ -1043,6 +1323,18 @@ class CloudStrmHelper(_PluginBase):
                         self._path_replacements[source] = target
             self._rmt_mediaext = config.get(
                 "rmt_mediaext") or self._default_rmt_mediaext
+            # V1.4.0：存在结构化映射规则时以其为准，序列化为旧版文本走原有解析
+            if self.__count_rule_slots(config):
+                rules = self.__rules_from_config(config)
+                self._monitor_confs = self.__rules_to_monitor_confs(rules)
+                # 旧版文本镜像与结构化规则保持一致，便于降级回滚与备份
+                if str(config.get("monitor_confs") or "") != self._monitor_confs:
+                    try:
+                        mirror_config = dict(config)
+                        mirror_config["monitor_confs"] = self._monitor_confs
+                        self.update_config(mirror_config)
+                    except Exception:
+                        pass
             if config.get("emby_path"):
                 for path in str(config.get("emby_path")).split(","):
                     mapping = self.__parse_mapping_line(path)
@@ -1160,10 +1452,29 @@ class CloudStrmHelper(_PluginBase):
                 # 保存配置
                 self.__update_config()
 
+            # V1.4.0：定时增量扫描，对应设计稿「定时增量扫描」开关
+            if self._enabled and self._cron_enabled and self._strm_dir_conf:
+                self._scheduler.add_job(
+                    func=self.__scheduled_scan, trigger='interval',
+                    minutes=self._scan_interval,
+                    name="CloudStrm定时增量扫描")
+                logger.info(f"定时增量扫描已启动，周期 {self._scan_interval} 分钟")
+
             # 启动任务
             if self._scheduler.get_jobs():
                 self._scheduler.print_jobs()
                 self._scheduler.start()
+
+    def __scheduled_scan(self):
+        """定时增量扫描入口：记录轮询事件并复用统一任务执行器。"""
+        self.__log_event("POLL", f"定时增量扫描启动（周期 {self._scan_interval} 分钟），轮询 CD2 挂载目录")
+        try:
+            result = self.scan()
+        except Exception as err:
+            self.__log_event("FAIL", f"定时增量扫描异常：{err}")
+            return
+        if isinstance(result, dict) and not result.get("accepted", True):
+            self.__log_event("POLL", "已有任务运行中，本次定时扫描跳过")
 
     def scan(self, scan_path: str = None, mon_path: str = None,
              task_id: str = None, record_task: bool = True, channel=None, userid=None):
@@ -1263,7 +1574,16 @@ class CloudStrmHelper(_PluginBase):
             self._event_timers.pop(key, None)
         if not self.__wait_for_stable_file(event_path):
             return
-        self.__handle_file(event_path=event_path, mon_path=mon_path)
+        # V1.4.0：实时监控事件写入 Live Log Feed
+        self.__log_event("MONITOR", f"发现文件变更 -> {event_path}")
+        result = self.__handle_file(event_path=event_path, mon_path=mon_path)
+        if not result:
+            return
+        target_file = result.get("target_file") or ""
+        if result.get("status") == "success" and str(target_file).lower().endswith(".strm"):
+            self.__log_event("STRM-GEN", f"生成文件 -> {target_file}")
+        elif result.get("status") == "failed":
+            self.__log_event("FAIL", f"{event_path} 处理失败：{result.get('reason') or '未知原因'}")
 
     def __schedule_directory(self, event_path: str, mon_path: str):
         key = ("directory", mon_path, self.__path_key(event_path))
@@ -1281,6 +1601,7 @@ class CloudStrmHelper(_PluginBase):
         with self._event_timers_lock:
             self._event_timers.pop(key, None)
         if Path(event_path).is_dir():
+            self.__log_event("POLL", f"目录变更，增量扫描 -> {event_path}")
             self.scan(scan_path=event_path, mon_path=mon_path, record_task=False)
 
     def __wait_for_stable_file(self, event_path: str) -> bool:
@@ -1747,6 +2068,17 @@ class CloudStrmHelper(_PluginBase):
         removed = False
         for candidate in candidates:
             removed = self.__remove_file_if_generated(str(candidate)) or removed
+        removed_count = 0
+        for candidate in candidates:
+            if self.__remove_file_if_generated(str(candidate)):
+                removed_count += 1
+        removed = removed_count > 0
+        # V1.4.0：死链清理计数与实时事件
+        if removed_count:
+            self.__bump_pruned(removed_count)
+            self.__log_event("PRUNE", f"云端源文件已删除，同步清理 {removed_count} 个本地文件 <- {event_path}")
+        else:
+            self.__log_event("PRUNE", f"未发现死链，跳过清理动作 <- {event_path}")
         if removed:
             with self._state_lock:
                 self._manifest_pending = False
@@ -2221,6 +2553,8 @@ class CloudStrmHelper(_PluginBase):
             # 新增：路径替换规则
             "path_replacements": "\n".join([f"{source}=>{target}" for source, target in
                                             self._path_replacements.items()]) if self._path_replacements else "",
+            "cron_enabled": self._cron_enabled,
+            "scan_interval": self._scan_interval,
         })
 
     def get_state(self) -> bool:
@@ -2302,6 +2636,48 @@ class CloudStrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "选择 CloudStrm 失败项",
+            },
+            {
+                "path": "/config/toggle",
+                "endpoint": self.__api_config_toggle,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "切换 CloudStrm 策略开关（暂存）",
+            },
+            {
+                "path": "/config/save",
+                "endpoint": self.__api_config_save,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "保存 CloudStrm 页面暂存配置",
+            },
+            {
+                "path": "/config/discard",
+                "endpoint": self.__api_config_discard,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "放弃 CloudStrm 页面暂存配置",
+            },
+            {
+                "path": "/mappings/delete",
+                "endpoint": self.__api_mapping_delete,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "删除 CloudStrm 映射规则（暂存）",
+            },
+            {
+                "path": "/mappings/edit",
+                "endpoint": self.__api_mapping_edit,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "标记 CloudStrm 映射规则编辑入口",
+            },
+            {
+                "path": "/extensions/remove",
+                "endpoint": self.__api_extension_remove,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "移除 CloudStrm 监控扩展名（暂存）",
             },
         ]
 
@@ -2814,10 +3190,10 @@ class CloudStrmHelper(_PluginBase):
             "component": "VAlert",
             "props": {"type": "info", "variant": "tonal"},
             "html": ("监控方式为 OpenList + CD2；移动云盘无官方 API，不提供网盘 API 轮询。<br>"
-                     "目录配置每行一条，用 <code>#</code> 分隔四段：<br>"
-                     "<code>监控目录#STRM目录#云盘目录#STRM模板</code><br>"
-                     "示例：<code>/mnt/media#/mnt/library#/cloud/media#https://host{cloud_file}</code><br>"
-                     "模板必须包含 <code>{local_file}</code> 或 <code>{cloud_file}</code>。"),
+                     "按规则卡片填写：CD2 挂载目录 → STRM 生成目录 → OpenList 云盘目录 → STRM 模板，"
+                     "模板必须包含 <code>{local_file}</code> 或 <code>{cloud_file}</code>。<br>"
+                     "示例模板：<code>http://192.168.1.10:5244/d{cloud_file}</code><br>"
+                     "旧版 <code>#</code> 分隔文本配置仍兼容读取，保存后自动迁移为规则卡片。"),
         }
         directory_content = [config_help, template_warning]
         monitor_way_alert = {
@@ -2827,9 +3203,41 @@ class CloudStrmHelper(_PluginBase):
                 "text": "监控方式：OpenList + CD2。移动云盘无官方 API，插件通过 CD2 挂载目录发现文件变化，STRM 内容使用 OpenList 地址模板。",
             },
         }
+        # V1.4.0：结构化映射规则编辑器，运行时配置已由 init_plugin 归一化为旧版文本
+        form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
+        rule_slot_count = min(12, max(4, len(form_rules) + 2))
+        rule_cards = []
+        for rule_index in range(rule_slot_count):
+            rule_cards.append({
+                "component": "VCard",
+                "props": {"variant": "tonal", "class": "mb-3"},
+                "content": [{
+                    "component": "VCardText", "content": [
+                        {"component": "div",
+                         "props": {"class": "text-caption text-medium-emphasis mb-1"},
+                         "text": f"映射规则 {rule_index + 1}"},
+                        row(
+                            col(field("VTextField", f"rule_{rule_index}_category", "分类",
+                                      placeholder="如：华语电影", density="compact"), 2),
+                            col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
+                            col(field("VTextField", f"rule_{rule_index}_local",
+                                      "CD2 挂载目录（MoviePilot 中路径）",
+                                      placeholder="/mnt/media", density="compact"), 4),
+                            col(field("VTextField", f"rule_{rule_index}_strm", "STRM 生成目录",
+                                      placeholder="/mnt/library", density="compact"), 4),
+                        ),
+                        row(
+                            col(field("VTextField", f"rule_{rule_index}_cloud", "OpenList 云盘目录",
+                                      placeholder="/移动网盘/媒体库/电影", density="compact"), 6),
+                            col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板",
+                                      placeholder="http://192.168.1.10:5244/d{cloud_file}",
+                                      density="compact"), 6),
+                        ),
+                    ],
+                }],
+            })
+        directory_content.extend(rule_cards)
         directory_content.extend([
-            row(col(field("VTextarea", "monitor_confs", "目录配置", rows=5,
-                         placeholder="/mnt/media#/mnt/library#/cloud/media#https://host/{cloud_file}"), 12)),
             row(col(field("VTextarea", "emby_path", "媒体库路径映射", rows=2,
                          placeholder="本地路径=>Emby路径，多组用英文逗号分隔"), 6),
                 col(field("VTextarea", "path_replacements", "STRM 路径替换规则", rows=3,
@@ -2847,10 +3255,13 @@ class CloudStrmHelper(_PluginBase):
                 panel("基础设置", [
                     row(col(switch("enabled", "启用插件"), 3),
                         col(switch("monitor", "OpenList + CD2 实时监控"), 3),
-                        col(switch("notify", "任务与入库通知"), 3),
-                        col(switch("onlyonce", "保存后立即执行一次"), 3)),
-                    row(col(field("VTextField", "interval", "入库通知延迟（秒）",
-                                 type="number", min=1, placeholder="10"), 4)),
+                        col(switch("cron_enabled", "定时增量扫描"), 3),
+                        col(switch("notify", "任务与入库通知"), 3)),
+                    row(col(switch("onlyonce", "保存后立即执行一次"), 3),
+                        col(field("VTextField", "interval", "入库通知延迟（秒）",
+                                 type="number", min=1, placeholder="10"), 4),
+                        col(field("VTextField", "scan_interval", "定时增量扫描周期（分钟）",
+                                 type="number", min=5, placeholder="30"), 5)),
                 ], "mdi-cog"),
                 panel("文件处理", [
                     row(col(switch("cover", "覆盖已存在文件"), 3),
@@ -2887,13 +3298,23 @@ class CloudStrmHelper(_PluginBase):
             "enabled": False, "notify": False, "monitor": False, "cover": False,
             "onlyonce": False, "copy_files": False, "uriencode": False,
             "copy_subtitles": False, "sync_delete": False, "refresh_emby": False,
-            "mediaservers": [], "monitor_confs": "", "emby_path": "",
+            "mediaservers": [], "emby_path": "",
             "interval": 10, "url": "",
             "other_mediaext": self._default_other_mediaext,
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
+            # V1.4.0：定时增量扫描与结构化映射规则默认值
+            "cron_enabled": True, "scan_interval": 30,
             # 界面状态：折叠面板展开组，有配置错误时自动展开「目录映射」
             "_panel_open": [0, 2] if self._config_errors else [0],
         }
+        for rule_index in range(rule_slot_count):
+            rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
+            model[f"rule_{rule_index}_category"] = rule.get("category", "")
+            model[f"rule_{rule_index}_local"] = rule.get("local", "")
+            model[f"rule_{rule_index}_strm"] = rule.get("strm", "")
+            model[f"rule_{rule_index}_cloud"] = rule.get("cloud", "")
+            model[f"rule_{rule_index}_format"] = rule.get("format", "")
+            model[f"rule_{rule_index}_monitor"] = rule.get("monitor", True)
         return form, model
 
     def get_page(self) -> List[dict]:
@@ -3144,106 +3565,210 @@ class CloudStrmHelper(_PluginBase):
         skipped_total = overview_stats.get("skipped", 0)
         tasks_url = f"plugin/{self.__class__.__name__}/tasks"
 
-        def metric(title, value, color_class="text-body-1"):
-            metric_colors = {
-                "text-primary": "#38bdf8",
-                "text-success": "#10b981",
-                "text-error": "#f43f5e",
+        # ---------- V1.4.0：参考设计稿的深色监控台（OpenList + CD2 口径） ----------
+        toggle_url = f"plugin/{self.__class__.__name__}/config/toggle"
+        save_url = f"plugin/{self.__class__.__name__}/config/save"
+        discard_url = f"plugin/{self.__class__.__name__}/config/discard"
+        mapping_delete_url = f"plugin/{self.__class__.__name__}/mappings/delete"
+        mapping_edit_url = f"plugin/{self.__class__.__name__}/mappings/edit"
+        extension_remove_url = f"plugin/{self.__class__.__name__}/extensions/remove"
+        saved_config = self.__current_saved_config()
+        staged_config = self.__staged_snapshot()
+        staged_dirty = bool(staged_config)
+        status_dot_colors = {"success": "#10b981", "warning": "#f59e0b", "error": "#f43f5e",
+                             "info": "#38bdf8", "default": "#6b7280"}
+        dark_card_style = ("background:#111827;border:1px solid #1f2937;"
+                           "border-radius:10px;color:#e5e7eb;")
+
+        def panel_title(title, subtitle=""):
+            subtitle_html = (f"<div style=\"color:#9ca3af;font-size:12px;margin-top:2px;\">"
+                             f"{html_escape(subtitle)}</div>" if subtitle else "")
+            return (f"<div style=\"color:#f9fafb;font-size:15px;font-weight:600;\">"
+                    f"{html_escape(title)}</div>" + subtitle_html)
+
+        def metric_card(title, value, unit, value_color):
+            return {
+                "component": "VCol", "props": {"cols": 6},
+                "content": [{"component": "div", "html": (
+                    "<div style=\"background:#1f2937;border-radius:8px;padding:10px 12px;\">"
+                    f"<div style=\"color:#9ca3af;font-size:11px;\">{html_escape(title)}</div>"
+                    f"<div style=\"color:{value_color};font-size:20px;font-weight:700;line-height:1.4;\">"
+                    f"{html_escape(str(value))}"
+                    f"<span style=\"color:#9ca3af;font-size:10px;font-weight:400;\">"
+                    f" {html_escape(unit)}</span></div></div>"
+                )}],
             }
-            value_color = metric_colors.get(color_class, "#e5e7eb")
-            metric_html = (
-                f"<div style=\"background:#111827;border:1px solid rgba(55,65,81,.55);"
-                f"border-radius:10px;padding:10px 12px;\">"
-                f"<div style=\"color:#9ca3af;font-size:11px;\">{html_escape(title)}</div>"
-                f"<div style=\"color:{value_color};font-size:20px;font-weight:700;\">"
-                f"{html_escape(str(value))}</div></div>"
+
+        def hint_box(html_text):
+            return {"component": "div", "html": (
+                "<div style=\"border:1px solid rgba(2,132,199,.45);background:rgba(2,132,199,.12);"
+                f"color:#7dd3fc;border-radius:8px;padding:8px 12px;font-size:12px;\">{html_text}</div>"
+            )}
+
+        def strategy_row(label, subtitle, key):
+            """设计稿同款策略开关行：点击即暂存翻转，「保存配置」后生效。"""
+            effective = self.__effective_bool(key, saved_config, staged_config,
+                                              self._config_toggle_defaults.get(key, False))
+            pending_tag = (
+                "<span style=\"color:#f59e0b;font-size:10px;margin-left:6px;border:1px solid #f59e0b;"
+                "border-radius:4px;padding:0 4px;\">待保存</span>" if key in staged_config else "")
+            label_html = (
+                f"<div style=\"color:#e5e7eb;font-size:13px;\">{html_escape(label)}{pending_tag}</div>"
+                f"<div style=\"color:#9ca3af;font-size:11px;margin-top:2px;\">{html_escape(subtitle)}</div>"
             )
             return {
-                "component": "VCol",
-                "props": {"cols": 6, "md": 6},
-                "content": [{"component": "div", "html": metric_html}],
+                "component": "VRow",
+                "props": {"align": "center", "noGutters": True, "class": "py-2"},
+                "content": [
+                    {"component": "VCol", "props": {"cols": 9},
+                     "content": [{"component": "div", "html": label_html}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex justify-end"},
+                     "content": [{
+                         "component": "VSwitch",
+                         "props": {"modelValue": effective, "color": "primary", "inset": True,
+                                   "hideDetails": True, "density": "compact"},
+                         "events": {"click": {"api": toggle_url, "method": "POST",
+                                              "params": {"key": key}}},
+                     }]},
+                ],
             }
 
-        def strategy_switch(label, subtitle, on):
-            return {
-                "component": "VListItem",
-                "props": {"title": label, "subtitle": subtitle, "lines": "two",
-                          "density": "compact"},
+        def row_divider():
+            return {"component": "div",
+                    "html": "<div style=\"border-top:1px solid #1f2937;\"></div>"}
+
+        def rule_state(rule):
+            local_dir = rule.get("local") or ""
+            format_str = rule.get("format") or ""
+            if local_dir and not Path(local_dir).is_dir():
+                return "目录不可访问", "#f43f5e"
+            if format_str and not any(token in format_str
+                                      for token in ("{local_file}", "{cloud_file}")):
+                return "模板缺占位符", "#f59e0b"
+            if not rule.get("monitor", True):
+                return "实时已停用", "#9ca3af"
+            if self._enabled and self._monitor:
+                return "监控中", "#10b981"
+            return "已配置", "#38bdf8"
+
+        def mapping_rule_html(rule, state_text, state_color, extra_style=""):
+            category = html_escape(rule.get("category") or "未分类")
+            strm_dir = html_escape(rule.get("strm") or "-")
+            cloud_dir = html_escape(rule.get("cloud") or "-")
+            return (
+                "<div style=\"display:flex;align-items:center;gap:10px;padding:10px 12px;"
+                "border:1px solid rgba(55,65,81,.55);border-radius:10px;"
+                f"background:rgba(55,65,81,.22);{extra_style}\">"
+                "<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
+                "color:#38bdf8;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;"
+                f"white-space:nowrap;\">{category}</span>"
+                "<div style=\"flex:1 1 auto;min-width:0;font-family:Consolas,Monaco,monospace;\">"
+                f"<div style=\"color:#e5e7eb;font-size:12px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{strm_dir}\">{strm_dir}</div>"
+                f"<div style=\"color:#6b7280;font-size:11px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{cloud_dir}\">➜ {cloud_dir}</div></div>"
+                f"<span style=\"flex:0 0 auto;color:{state_color};font-size:11px;"
+                f"white-space:nowrap;\">{html_escape(state_text)}</span></div>"
+            )
+
+        # 头部：标题 + 状态徽章 + 操作按钮（对应设计稿 Header Bar）
+        header_title_html = (
+            "<div style=\"display:flex;align-items:center;gap:12px;\">"
+            "<div style=\"width:36px;height:36px;border-radius:8px;background:#0284c7;"
+            "display:flex;align-items:center;justify-content:center;flex:0 0 auto;\">"
+            "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\">"
+            "<path d=\"M6.5 19h11a4.5 4.5 0 0 0 .9-8.9A6 6 0 0 0 6.8 8.2 5.5 5.5 0 0 0 6.5 19z\""
+            " fill=\"#ffffff\" opacity=\"0.95\"/><circle cx=\"17.5\" cy=\"6.5\" r=\"2.2\" fill=\"#38bdf8\"/>"
+            "</svg></div>"
+            "<div style=\"min-width:0;\">"
+            "<div style=\"color:#f9fafb;font-size:17px;font-weight:600;line-height:1.35;\">"
+            "中国移动云盘 STRM 助手</div>"
+            "<div style=\"color:#9ca3af;font-size:12px;\">"
+            "精简高性能 · 自动化 STRM 生成与 MP 联动 · OpenList + CD2</div>"
+            "</div></div>"
+        )
+        header_chips = [
+            chip(f"OpenList + CD2 · {monitor_status.replace('OpenList + CD2 ', '', 1)}",
+                 monitor_color),
+            chip(openlist_status, openlist_color),
+        ]
+        if staged_dirty:
+            header_chips.append(chip("有未保存更改", "warning"))
+        for header_chip in header_chips:
+            header_chip["props"]["class"] = "ma-1"
+        header_button_cols = [
+            {"component": "VCol", "props": {"cols": "auto"},
+             "content": [{
+                 "component": "VBtn",
+                 "props": {"prependIcon": "mdi-text-box-search-outline", "size": "small",
+                           "variant": "flat", "style": "background:#374151;color:#e5e7eb;"},
+                 "text": "查看日志",
+                 "events": {"click": {"api": tasks_url, "method": "GET", "params": {}}},
+             }]},
+            {"component": "VCol", "props": {"cols": "auto"},
+             "content": [{
+                 "component": "VBtn",
+                 "props": {"prependIcon": "mdi-content-save", "size": "small", "variant": "flat",
+                           "style": "background:#0284c7;color:#ffffff;",
+                           "disabled": not staged_dirty},
+                 "text": "保存配置",
+                 "events": {"click": {"api": save_url, "method": "POST", "params": {}}},
+             }]},
+        ]
+        if staged_dirty:
+            header_button_cols.append({
+                "component": "VCol", "props": {"cols": "auto"},
                 "content": [{
-                    "component": "VSwitch",
-                    "props": {"modelValue": bool(on), "disabled": True, "color": "primary",
-                              "hideDetails": True, "density": "compact"},
+                    "component": "VBtn",
+                    "props": {"prependIcon": "mdi-undo-variant", "size": "small", "variant": "text",
+                              "style": "color:#9ca3af;"},
+                    "text": "放弃更改",
+                    "events": {"click": {"api": discard_url, "method": "POST", "params": {}}},
                 }],
-            }
-
-        scan_button = {
-            "component": "VBtn",
-            "props": {"prependIcon": "mdi-play", "color": "primary", "variant": "flat",
-                      "disabled": is_running},
-            "text": "立即全量扫描（运行中）" if is_running else "立即全量扫描",
-            "events": {"click": {"api": tasks_url, "method": "POST",
-                                 "params": {"kind": "full_scan"}}},
-        }
-        refresh_button = {
-            "component": "VBtn",
-            "props": {"prependIcon": "mdi-refresh", "variant": "text"},
-            "text": "查看日志",
-            "events": {"click": {"api": tasks_url, "method": "GET", "params": {}}},
-        }
-        save_button = {
-            "component": "VBtn",
-            "props": {"prependIcon": "mdi-content-save", "variant": "flat",
-                      "disabled": True, "title": "请到插件设置页修改并保存"},
-            "text": "保存配置",
-        }
-
+            })
         header_card = {
             "component": "VCard",
-            "props": {"variant": "tonal", "class": "mb-4"},
+            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
             "content": [
                 {"component": "VCardText", "content": [
-                    {"component": "VRow", "content": [
-                        {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
-                            {"component": "div", "html":
-                                "<div class=\"text-h6\">中国移动云盘 STRM 助手</div>"
-                                "<div class=\"text-subtitle-1 text-medium-emphasis\">"
-                                "OpenList + CD2 · 自动化 STRM 生成与 MoviePilot 联动</div>"},
-                        ]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 2},
-                         "content": [chip(f"OpenList + CD2 · {monitor_status}", monitor_color)]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 2},
-                         "content": [chip(openlist_status, openlist_color)]},
-                        {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
-                            {"component": "VRow", "content": [
-                                {"component": "VCol", "props": {"cols": 6},
-                                 "content": [refresh_button]},
-                                {"component": "VCol", "props": {"cols": 6},
-                                 "content": [save_button]},
-                            ]},
-                        ]},
+                    {"component": "VRow", "props": {"align": "center"}, "content": [
+                        {"component": "VCol", "props": {"cols": 12, "md": 5},
+                         "content": [{"component": "div", "html": header_title_html}]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 3},
+                         "content": [{"component": "div", "content": header_chips}]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 4},
+                         "content": [{"component": "VRow",
+                                      "props": {"justify": "end", "align": "center"},
+                                      "content": header_button_cols}]},
                     ]},
                 ]},
             ],
         }
 
+        # 左栏：账号与运行指标（本地 STRM 总数 / 孤儿清理死链计数 + OpenList+CD2 状态行）
+        status_dot = status_dot_colors.get(monitor_color, "#6b7280")
+        status_row_html = (
+            "<div style=\"background:#1f2937;border:1px solid rgba(55,65,81,.5);border-radius:8px;"
+            "padding:10px 12px;margin-top:4px;display:flex;align-items:center;gap:10px;\">"
+            "<div style=\"flex:1 1 auto;min-width:0;\">"
+            "<div style=\"color:#e5e7eb;font-size:12px;\">OpenList + CD2 运行状态</div>"
+            f"<div style=\"color:#9ca3af;font-size:11px;\">"
+            f"{html_escape(monitor_status)} · {html_escape(openlist_status)}</div></div>"
+            f"<span style=\"width:8px;height:8px;border-radius:50%;background:{status_dot};"
+            "flex:0 0 auto;\"></span></div>"
+        )
         kpi_card = {
             "component": "VCard",
-            "props": {"class": "mb-4"},
+            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
             "content": [
-                {"component": "VCardTitle", "text": "账号与监控指标"},
                 {"component": "VCardText", "content": [
-                    {"component": "VRow", "content": [
-                        {"component": "VCol", "props": {"cols": 6, "md": 6},
-                         "content": [chip(monitor_status, monitor_color)]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 6},
-                         "content": [chip(openlist_status, openlist_color)]},
+                    {"component": "div", "html": panel_title("账号与运行指标")},
+                    {"component": "VRow", "props": {"class": "mt-2"}, "content": [
+                        metric_card("本地 STRM 总数", f"{strm_total:,}", "个", "#38bdf8"),
+                        metric_card("孤儿清理（死链）", f"{self._pruned_total:,}", "个已删", "#f43f5e"),
                     ]},
-                    {"component": "VRow", "content": [
-                        metric("本地 STRM 总数", f"{strm_total} 个", "text-primary"),
-                        metric("已跳过 / 失败", f"{skipped_total} / {failed_total}",
-                               "text-error" if failed_total else "text-success"),
-                    ]},
-                    *([{"component": "VRow", "content": [
+                    {"component": "div", "html": status_row_html},
+                    *([{"component": "VRow", "props": {"class": "mt-2"}, "content": [
                         {"component": "VCol", "props": {"cols": 12}, "content": [
                             {"component": "VProgressLinear", "props": {
                                 "modelValue": current_progress, "height": 8, "rounded": True,
@@ -3251,98 +3776,204 @@ class CloudStrmHelper(_PluginBase):
                                 "indeterminate": not bool(current_stats.get("discovered"))}},
                         ]},
                     ]}] if is_running else []),
-                    {"component": "VAlert",
-                     "props": {"type": "info", "variant": "tonal", "density": "compact",
-                               "class": "mt-2"},
-                     "text": f"移动云盘无官方 API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。{monitor_detail}{openlist_detail}"},
+                    {"component": "div", "html": (
+                        "<div style=\"color:#6b7280;font-size:11px;margin-top:10px;line-height:1.6;\">"
+                        "移动云盘无官方 API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。"
+                        f"{html_escape(monitor_detail)} {html_escape(openlist_detail)}</div>"
+                    )}
                 ]},
             ],
         }
 
-        strategy_items = [
-            strategy_switch("启用插件", "插件服务与定时任务", self._enabled),
-            strategy_switch("OpenList + CD2 实时监控", "CD2 挂载目录实时发现文件变化",
-                            self._enabled and self._monitor),
-            strategy_switch("入库通知", "任务完成与媒体入库通知", self._notify),
-            strategy_switch("同步删除生成文件", "源文件删除时清理本地 STRM", self._sync_delete),
-            strategy_switch("复制字幕文件", "同步字幕与旁车文件", self._copy_subtitles),
-        ]
+        # 左栏：自动化与清理策略（可用开关，点击暂存、保存生效）+ 扩展名标签 + 全量同步
+        effective_exts = sorted(self.__normalise_extensions(
+            staged_config.get("rmt_mediaext") or saved_config.get("rmt_mediaext")
+            or self._default_rmt_mediaext, self._default_rmt_mediaext))
+        ext_chip_views = []
+        for ext in effective_exts:
+            ext_chip_views.append({
+                "component": "VChip",
+                "props": {"size": "x-small", "variant": "outlined", "class": "ma-1",
+                          "closable": len(effective_exts) > 1,
+                          "style": "border-color:#3b82f6;color:#38bdf8;background:#1e293b;"},
+                "text": ext,
+                "events": {"click:close": {"api": extension_remove_url, "method": "POST",
+                                           "params": {"ext": ext}}},
+            })
         strategy_card = {
             "component": "VCard",
-            "props": {"class": "mb-4"},
+            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
             "content": [
-                {"component": "VCardTitle", "text": "策略控制面板"},
                 {"component": "VCardText", "content": [
-                    {"component": "VList", "props": {"density": "compact"},
-                     "content": strategy_items},
+                    {"component": "div", "html": panel_title("自动化与清理策略")},
+                    strategy_row("监控 MoviePilot 整理入库",
+                                 "CD2 挂载目录出现新文件（如 MP 整理完成）即刻生成 STRM", "monitor"),
+                    row_divider(),
+                    strategy_row("定时增量扫描",
+                                 f"每 {self._scan_interval} 分钟主动轮询 CD2 挂载目录", "cron_enabled"),
+                    row_divider(),
+                    strategy_row("云端同步删除（Prune）",
+                                 "网盘源文件被删时，同步清理本地 STRM", "sync_delete"),
+                    {"component": "div", "html": (
+                        "<div style=\"color:#e5e7eb;font-size:13px;font-weight:500;margin-top:14px;\">"
+                        "监控扩展名限制</div>"
+                    )},
+                    {"component": "div", "content": ext_chip_views},
+                    {"component": "div", "html": (
+                        "<div style=\"color:#6b7280;font-size:11px;margin-bottom:10px;\">"
+                        "点 × 移除（待保存）；新增格式请在插件设置中添加</div>"
+                    )},
+                    {
+                        "component": "VBtn",
+                        "props": {"block": True, "variant": "flat", "prependIcon": "mdi-sync",
+                                  "style": "background:#0284c7;color:#ffffff;",
+                                  "disabled": is_running},
+                        "text": "立即全量同步（运行中）" if is_running else "立即全量同步",
+                        "events": {"click": {"api": tasks_url, "method": "POST",
+                                             "params": {"kind": "full_scan"}}},
+                    },
                 ]},
-                {"component": "VCardActions", "content": [scan_button]},
             ],
         }
 
+        # 右栏：路径监控与 STRM 映射策略（分类徽章 + 路径对 + 编辑/删除）
+        effective_rules = self.__effective_rules(saved_config, staged_config)
+        pending_deleted_rules = []
+        if "_rules" in staged_config:
+            pending_deleted_rules = [rule for rule in self.__rules_from_config(saved_config)
+                                     if rule not in effective_rules]
+        mapping_row_views = []
+        if self._page_editing_rule == -1:
+            mapping_row_views.append(hint_box(
+                "新增映射规则：请打开插件「设置 → 路径监控与 STRM 映射策略」，"
+                "在空白规则卡片中填写后保存，本页会自动同步。"))
+        for rule_index, rule in enumerate(effective_rules):
+            state_text, state_color = rule_state(rule)
+            mapping_row_views.append({
+                "component": "VRow", "props": {"align": "center", "noGutters": True, "class": "mb-2"},
+                "content": [
+                    {"component": "VCol", "props": {"cols": 10},
+                     "content": [{"component": "div",
+                                  "html": mapping_rule_html(rule, state_text, state_color)}]},
+                    {"component": "VCol", "props": {"cols": 2, "class": "d-flex justify-end"},
+                     "content": [
+                         {"component": "VBtn",
+                          "props": {"icon": "mdi-pencil-outline", "size": "x-small",
+                                     "variant": "text", "color": "info"},
+                          "events": {"click": {"api": mapping_edit_url, "method": "POST",
+                                               "params": {"index": rule_index}}}},
+                         {"component": "VBtn",
+                          "props": {"icon": "mdi-delete-outline", "size": "x-small",
+                                     "variant": "text", "color": "error"},
+                          "events": {"click": {"api": mapping_delete_url, "method": "POST",
+                                               "params": {"index": rule_index}}}},
+                     ]},
+                ],
+            })
+            if self._page_editing_rule == rule_index:
+                raw_line = self.__rules_to_monitor_confs([rule])
+                mapping_row_views.append(hint_box(
+                    "编辑映射规则：请在插件「设置 → 路径监控与 STRM 映射策略」的规则卡片中修改并保存。"
+                    + (f"<br>当前规则原文：<code>{html_escape(raw_line)}</code>" if raw_line else "")))
+        for rule in pending_deleted_rules:
+            mapping_row_views.append({
+                "component": "VRow", "props": {"noGutters": True, "class": "mb-2"},
+                "content": [{"component": "VCol", "props": {"cols": 12},
+                             "content": [{"component": "div", "html": mapping_rule_html(
+                                 rule, "待删除 · 保存后生效", "#f59e0b", "opacity:.45;")}]}],
+            })
+        if not effective_rules and not pending_deleted_rules:
+            mapping_row_views.append({"component": "div", "html": (
+                "<div style=\"color:#6b7280;padding:18px 12px;text-align:center;font-size:13px;\">"
+                "暂无映射规则，点击右上角「添加映射规则」开始配置</div>"
+            )})
         mapping_card = {
             "component": "VCard",
-            "props": {"class": "mb-4"},
+            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
             "content": [
-                {"component": "VCardTitle", "text": "路径监控与 STRM 映射策略"},
-                {"component": "VCardSubtitle",
-                 "text": f"本地 STRM 输出目录 → 移动云盘绝对路径 · 共 {len(monitor_rows)} 条映射"},
                 {"component": "VCardText", "content": [
-                    {"component": "div", "html": self.__mapping_rows_html()},
-                ]},
-                {"component": "VCardActions", "content": [
-                    {"component": "VBtn",
-                     "props": {"prependIcon": "mdi-plus", "variant": "tonal", "disabled": True,
-                               "title": "请到插件设置页添加映射规则"},
-                     "text": "添加映射规则"},
-                ]},
+                    {"component": "VRow", "props": {"align": "center", "noGutters": True},
+                     "content": [
+                         {"component": "VCol", "props": {"cols": 9}, "content": [
+                             {"component": "div", "html": panel_title(
+                                 "路径监控与 STRM 映射策略",
+                                 f"本地 STRM 输出目录 → 移动云盘绝对路径 · 共 {len(effective_rules)} 条映射")}]},
+                         {"component": "VCol", "props": {"cols": 3, "class": "d-flex justify-end"},
+                          "content": [{
+                              "component": "VBtn",
+                              "props": {"prependIcon": "mdi-plus", "size": "small", "variant": "flat",
+                                        "style": "background:#0284c7;color:#ffffff;"},
+                              "text": "添加映射规则",
+                              "events": {"click": {"api": mapping_edit_url, "method": "POST",
+                                                   "params": {"index": -1}}}},
+                          ]},
+                     ]},
+                    {"component": "div", "html": (
+                        "<div style=\"display:flex;color:#6b7280;font-size:11px;padding:8px 4px 6px;\">"
+                        "<span style=\"width:96px;\">分类 / 状态</span>"
+                        "<span style=\"flex:1 1 auto;\">本地 STRM 输出目录 ➜ 移动云盘绝对路径</span>"
+                        "<span>操作</span></div>"
+                    )}
+                ] + mapping_row_views,
+                },
             ],
         }
 
+        # 右栏：实时日志终端（column-reverse：DOM 最新在前，视觉锚定底部）
+        feed_tag_colors = {"MONITOR": "#38bdf8", "STRM-GEN": "#10b981", "PRUNE": "#f59e0b",
+                           "POLL": "#60a5fa", "FAIL": "#f43f5e", "TASK": "#34d399",
+                           "CONFIG": "#eab308"}
         feed_lines = []
-        for item in latest_items[:8]:
-            feed_time = item.get("created_at") or "-"
-            item_status = item.get("status") or ""
-            item_action = item.get("action") or "-"
-            item_reason = item.get("reason") or "-"
-            feed_source = self.__shorten_path(item.get("source_file") or "")
-            if item_status == "success":
-                feed_tag = "STRM-GEN"
-                feed_color = "#10b981"
-                feed_message = f"生成文件 -> {feed_source}"
-            elif item_status == "failed":
-                feed_tag = "FAIL"
-                feed_color = "#f43f5e"
-                feed_message = f"{feed_source} {item_reason}"
-            elif item_status == "skipped":
-                feed_tag = "SKIP"
-                feed_color = "#f59e0b"
-                feed_message = f"跳过 {feed_source} {item_reason}"
-            else:
-                feed_tag = "EVENT"
-                feed_color = "#38bdf8"
-                feed_message = f"{item_action} {feed_source} {item_reason}"
+        live_events = self.__live_event_snapshot(40)
+        for event in reversed(live_events[-8:]):
+            feed_tag = str(event.get("tag") or "EVENT")
             feed_lines.append(
-                f"<div><span style=\"color:#6b7280\">[{html_escape(feed_time)}]</span> "
-                f"<span style=\"color:{feed_color}\">[{feed_tag}]</span> "
-                f"<span style=\"color:#e5e7eb\">{html_escape(feed_message)}</span></div>"
+                f"<div><span style=\"color:#6b7280\">[{html_escape(str(event.get('time') or '-'))}]</span> "
+                f"<span style=\"color:{feed_tag_colors.get(feed_tag, '#38bdf8')}\">[{html_escape(feed_tag)}]</span> "
+                f"<span style=\"color:#e5e7eb\">{html_escape(str(event.get('message') or ''))}</span></div>"
             )
         if not feed_lines:
-            feed_lines.append("<div><span style=\"color:#6b7280\">暂无同步记录，等待任务开始...</span></div>")
+            # 插件重启后事件缓冲为空时，回退展示最近任务明细
+            for item in reversed(latest_items[:8]):
+                feed_time = item.get("created_at") or "-"
+                item_status = item.get("status") or ""
+                item_action = item.get("action") or "-"
+                item_reason = item.get("reason") or "-"
+                feed_source = self.__shorten_path(item.get("source_file") or "")
+                if item_status == "success":
+                    feed_tag, feed_color = "STRM-GEN", "#10b981"
+                    feed_message = f"生成文件 -> {feed_source}"
+                elif item_status == "failed":
+                    feed_tag, feed_color = "FAIL", "#f43f5e"
+                    feed_message = f"{feed_source} {item_reason}"
+                elif item_status == "skipped":
+                    feed_tag, feed_color = "SKIP", "#f59e0b"
+                    feed_message = f"跳过 {feed_source} {item_reason}"
+                else:
+                    feed_tag, feed_color = "EVENT", "#38bdf8"
+                    feed_message = f"{item_action} {feed_source} {item_reason}"
+                feed_lines.append(
+                    f"<div><span style=\"color:#6b7280\">[{html_escape(feed_time)}]</span> "
+                    f"<span style=\"color:{feed_color}\">[{feed_tag}]</span> "
+                    f"<span style=\"color:#e5e7eb\">{html_escape(feed_message)}</span></div>"
+                )
+        if not feed_lines:
+            feed_lines.append("<div><span style=\"color:#6b7280\">暂无同步记录，等待监控事件...</span></div>")
         feed_html = (
             "<div style=\"background:#0b0f19;border:1px solid #1f2937;border-radius:10px;"
             "padding:12px 14px;font-family:Consolas,Monaco,monospace;font-size:12px;"
-            "line-height:1.8;overflow:auto;height:180px;box-sizing:border-box;\">"
+            "line-height:1.8;overflow:auto;height:180px;box-sizing:border-box;"
+            "display:flex;flex-direction:column-reverse;\">"
             + "".join(feed_lines) + "</div>"
         )
         feed_card = {
             "component": "VCard",
-            "props": {"class": "mb-4"},
+            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
             "content": [
-                {"component": "VCardTitle", "text": "实时同步任务与运行日志"},
-                {"component": "VCardSubtitle", "text": "Live Log Feed · 最近任务明细"},
                 {"component": "VCardText", "content": [
-                    {"component": "div", "html": feed_html},
+                    {"component": "div", "html": panel_title(
+                        "实时同步任务与运行日志", "Live Log Feed · OpenList + CD2 事件流")},
+                    {"component": "div", "props": {"class": "mt-2"}, "html": feed_html},
                 ]},
             ],
         }
@@ -3355,12 +3986,21 @@ class CloudStrmHelper(_PluginBase):
                     {"component": "VCol", "props": {"cols": 12, "md": 8}, "content": [mapping_card, feed_card]},
                 ],
             },
-            {
-                "component": "VCard",
-                "props": {"variant": "tonal", "class": "mb-4"},
-                "content": [
-                    {"component": "VCardTitle", "text": "任务中心"},
-                    {"component": "VCardText", "content": overview_rows},
+            {"component": "VExpansionPanels", "props": {"variant": "accordion", "class": "mb-4"},
+             "content": [
+                {"component": "VExpansionPanel", "content": [
+                    {"component": "VExpansionPanelTitle", "content": [
+                        {"component": "VIcon", "props": {"icon": "mdi-clipboard-text-outline",
+                                                          "size": "small", "class": "mr-2"}},
+                        {"component": "span", "text": "任务中心与失败重试（扫描进度、历史与明细，点击展开）"},
+                    ]},
+                    {"component": "VExpansionPanelText", "content": [
+                        {
+                            "component": "VCard",
+                            "props": {"variant": "tonal", "class": "mb-4"},
+                            "content": [
+                                {"component": "VCardTitle", "text": "任务中心"},
+                                {"component": "VCardText", "content": overview_rows},
                     {"component": "VCardActions", "content": [
                         {"component": "VBtn",
                          "props": {"prependIcon": "mdi-play", "color": "primary", "variant": "flat",
@@ -3402,6 +4042,10 @@ class CloudStrmHelper(_PluginBase):
                      "events": {"click": {"api": detail_url, "method": "GET", "params": {}}}},
                 ]},
             ]},
+                        ]},
+                    ]},
+                ],
+            },
         ]
         return page
 

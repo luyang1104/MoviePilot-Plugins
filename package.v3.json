@@ -3,11 +3,12 @@
     "name": "CloudStrm",
     "description": "Monitor a CD2-mounted China Mobile cloud disk without an official API, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
     "labels": "moviepilot",
-    "version": "V1.3.1",
+    "version": "V1.4.0",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
     "history": {
+      "V1.4.0": "Rebuilt the dashboard to fully match the reference mockup with working controls: staged strategy toggles (realtime watch, scheduled incremental scan, cloud prune), save/discard config flow, mapping rules with delete and pending state, removable extension chips, KPI cards with a persisted prune counter, a bottom-anchored live event terminal, and a new scheduled incremental scan job. Mapping rules are now edited as structured cards in settings, with legacy text configs auto-migrated.",
       "V1.3.1": "Refined the CloudStrm dashboard to match the provided SVG mockup: header status bar, 4/8 split layout, KPI mini cards, strategy switches, mapping row cards with hover actions, and a 180px live log terminal.",
       "V1.3.0": "Redesigned the task center around an OpenList + CD2 monitoring console for no-API mobile cloud disks: monitoring mode, path mapping, STRM totals and recent sync details.",
       "V1.2.1": "Fixed task detail and dashboard tables rendering empty: MoviePilot's page renderer always injects a default slot, which suppresses VDataTable's built-in header/body, so tables now render as lightweight HTML.",

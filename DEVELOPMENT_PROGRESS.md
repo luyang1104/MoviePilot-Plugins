@@ -459,3 +459,63 @@ V1.2 实机截图发现「任务详情」明细表只渲染了分页 footer（�
 
 - `plugin_version` 和三个 package JSON 升级为 `V1.3.1`，history 增加 V1.3.1 说明。
 - v2/v3 保持逐字节一致。
+
+---
+
+# V1.4.0 交互式 Dashboard 与结构化映射规则（2026-08-12）
+
+## 背景与重构目标
+
+用户提供了新的 SVG 设计稿（深色“中国移动云盘 STRM 助手”Dashboard），要求任务页不仅外观对齐，操作逻辑也要真正可用。移动网盘仍无官方 API，后端维持 OpenList + CD2 方案不变，设计稿中的 Token 状态元素对应改造为 OpenList / CD2 状态展示。本轮只改 `MoviePilot-Plugins` 内维护的 v2/v3 插件，仓库根目录的旧版 `CloudStrmCompanion`（thsrite 分支 v1.3.5）保持不动。
+
+## 暂存式配置模型（未保存更改）
+
+- 新增 `self._staged_config`：任务页上的策略开关、删除映射、移除扩展名都只写入暂存层，不直接落盘。
+- Header 出现橙色“有未保存更改”Badge；「保存配置」走 POST `/config/save`（`update_config` + `init_plugin` 生效），「放弃更改」走 `/config/discard` 丢弃暂存。
+- 页面所有展示读取 生效值 = 已保存配置 ⊕ 暂存改动，被暂存覆盖的开关行显示“待保存”标签。
+- `__effective_bool` 统一处理生效值解析，避免字符串 "false" 被当作 True 的老坑。
+
+## 结构化映射规则配置
+
+- 新增配置键 `rule_{i}_category/local/strm/cloud/format/monitor`，设置页表单改为规则卡片编辑器（至少 4 槽、当前条数 +2、上限 12 槽）。
+- `__rules_to_monitor_confs` 把结构化规则合成为旧版 `monitor_confs` 文本，喂给保持不变的原解析器；同时回写旧文本，降级到旧版本插件不丢配置。
+- 设置页移除旧的 `monitor_confs` 大文本框，避免两套编辑入口互相覆盖。
+
+## 新增运行时能力
+
+- 新增 `cron_enabled`（默认开）与 `scan_interval`（默认 30 分钟）：注册间隔任务 `__scheduled_scan`，周期巡检并在事件流中记录 POLL 事件。
+- 新增 `_live_events` 队列（deque，150 条）与 `__log_event`，事件类型 STRM-GEN / FAIL / PRUNE / TASK / POLL，任务页日志终端实时渲染。
+- 死链清理累计数 `_pruned_total` 持久化到 `stats.json`，重启不丢。
+
+## 新增 API（均 bear 鉴权）
+
+- POST `/config/toggle` {key}：白名单 `_config_toggle_keys` 内的策略键暂存取反（仅 `cron_enabled` 默认 True）。
+- POST `/config/save` / `/config/discard`：保存或放弃暂存配置。
+- POST `/mappings/delete` {index}：暂存删除第 i 条映射。
+- POST `/mappings/edit` {index}：记录 `_page_editing_rule` 并提示前往设置页编辑（MoviePilot PageRender 无法在任务页内嵌表单）。
+- POST `/extensions/remove` {ext}：暂存移除扩展名，拒绝删到只剩最后一个。
+
+## get_page 重建
+
+- Header：SVG Logo、插件标题、OpenList + CD2 状态 chip（修复了 `__monitor_status()` 自带前缀导致的“OpenList + CD2 OpenList + CD2 监控中”重复文案）、OpenList 状态 chip、查看日志 / 保存配置 / 放弃更改按钮。
+- 左栏：KPI 指标卡（本地 STRM 总数、已跳过/失败、死链清理累计）、OpenList + CD2 状态、三个策略开关行（VSwitch 真实可点、暂存后显示“待保存”）、可移除扩展名 VChip 组、「立即全量同步」按钮。
+- 右栏：映射规则数据行（分类 Badge、本地路径 → 网盘路径、悬停显示编辑/删除图标）+ 实时日志终端（`#0b0f19` 背景、column-reverse 最新事件置顶）。
+- 任务中心移入折叠的 VExpansionPanels，保持可用但不占首屏。
+- 删除 V1.3.1 遗留的死代码 `__mapping_rows_html`。
+
+## 机制结论与排障记录
+
+- 曾怀疑策略开关暂存后状态不刷新：复核为旧截图缓存，`__effective_bool` + Vuetify 3 `modelValue` 绑定行为正确，重新生成预览确认开关 1 灰（关）、2/3 蓝（开）。
+- 真实宿主待验证项：VSwitch 点击事件、VChip `click:close` 事件、PageRender 内 VExpansionPanels 表现、结构化规则表单在真实宿主中的保存链路。
+
+## 本轮验证
+
+- v2 `py_compile` 通过；v2/v3 SHA256 完全一致（`B0DC6DD8…F388D113`）。
+- 冒烟测试 52/52 全部通过（含 API 注册、暂存读改写、死链计数持久化、无重复函数定义）。
+- headless Chrome 整页截图核对：Header chips、KPI 行、策略面板状态、映射行、事件终端、折叠任务中心均符合设计稿。
+- `git diff --check` 通过；根目录旧版插件与 `requirements.txt` 未改动。
+
+## 修改文件
+
+- `plugins.v2/cloudstrmhelper/__init__.py`、`plugins.v3/cloudstrmhelper/__init__.py`（逐字节一致）。
+- `package.json`、`package.v2.json`、`package.v3.json`：版本统一 `V1.4.0`。
