@@ -3905,36 +3905,39 @@ class CloudStrmHelper(_PluginBase):
                 return "监控中", "#10b981", ""
             return "已配置", "#38bdf8", ""
 
-        def mapping_rule_html(rule, state_text, state_color, extra_style="", state_detail=""):
+        def mapping_table_cells(rule, state_text="", state_color=""):
+            """Render mapping rule as HTML table columns matching SVG design."""
             category_tags = CloudStrmHelper.__category_list(rule.get("category")) or ["未分类"]
             category_badges = "".join(
-                f"<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
-                f"color:#38bdf8;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;"
-                f"white-space:nowrap;margin-right:4px;\">{html_escape(tag)}</span>"
+                f"<span style=\"background:#312e81;color:#a5b4fc;border-radius:4px;padding:2px 8px;"
+                f"font-size:11px;font-weight:600;white-space:nowrap;margin:0 2px 2px 0;"
+                f"display:inline-block;\">{html_escape(tag)}</span>"
                 for tag in category_tags
             )
+            local_dir = html_escape(rule.get("local") or "-")
             strm_dir = html_escape(rule.get("strm") or "-")
             cloud_dir = html_escape(rule.get("cloud") or "-")
-            state_title = f" title=\"{html_escape(state_detail)}\"" if state_detail else ""
-            state_detail_html = (
-                f"<div style=\"color:#f87171;font-size:11px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{html_escape(state_detail)}\">"
-                f"{html_escape(state_detail)}</div>" if state_detail else "")
-            return (
-                "<div style=\"display:flex;align-items:center;gap:10px;padding:10px 12px;"
-                "border:1px solid rgba(55,65,81,.55);border-radius:10px;"
-                f"background:rgba(55,65,81,.22);{extra_style}\">"
-                "<span style=\"display:flex;flex:0 0 auto;align-items:center;flex-wrap:wrap;gap:2px;\">"
-                f"{category_badges}</span>"
-                "<div style=\"flex:1 1 auto;min-width:0;font-family:Consolas,Monaco,monospace;\">"
-                f"<div style=\"color:#e5e7eb;font-size:12px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{strm_dir}\">{strm_dir}</div>"
-                f"<div style=\"color:#6b7280;font-size:11px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{cloud_dir}\">➜ {cloud_dir}</div></div>"
-                f"{state_detail_html}"
-                f"<span style=\"flex:0 0 auto;color:{state_color};font-size:11px;"
-                f"white-space:nowrap;\"{state_title}>{html_escape(state_text)}</span></div>"
+            format_str = html_escape(rule.get("format") or "-")
+            # Col 1: category badges
+            col1 = f"<div style=\"display:flex;flex-wrap:wrap;gap:2px;align-items:center;\">{category_badges}</div>"
+            # Col 2: CD2 mount dir / STRM gen dir (two lines)
+            col2 = (
+                f"<div style=\"font-family:Consolas,Monaco,monospace;min-width:0;\">"
+                f"<div style=\"color:#e2e8f0;font-size:12px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{local_dir}\">CD2: {local_dir}</div>"
+                f"<div style=\"color:#94a3b8;font-size:11px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{strm_dir}\">STRM: {strm_dir}</div></div>"
             )
+            # Col 3: OpenList cloud dir & format template (two lines)
+            col3 = (
+                f"<div style=\"font-family:Consolas,Monaco,monospace;min-width:0;\">"
+                f"<div style=\"color:#e2e8f0;font-size:12px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{cloud_dir}\">{cloud_dir}</div>"
+                f"<div style=\"color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{format_str}\">{format_str}</div></div>"
+            )
+            return col1, col2, col3
+
 
         # 头部：标题 + 状态徽章 + 操作按钮（对应设计稿 Header Bar）
         header_title_html = (
@@ -4101,7 +4104,7 @@ class CloudStrmHelper(_PluginBase):
             ],
         }
 
-        # 右栏：路径监控与 STRM 映射策略（分类徽章 + 路径对 + 编辑/删除）
+        # 右栏：路径监控与 STRM 映射策略（表格布局，匹配 SVG 设计稿）
         effective_rules = self.__effective_rules(saved_config, staged_config)
         pending_deleted_rules = []
         if "_rules" in staged_config:
@@ -4111,27 +4114,48 @@ class CloudStrmHelper(_PluginBase):
         if self._page_editing_rule == -1:
             mapping_row_views.append(hint_box(
                 "新增映射规则：请打开插件「设置 → 路径监控与 STRM 映射策略」，"
-                "在空白规则卡片中填写后保存，本页会自动同步。"))
+                "在空白规则表单中填写后保存，本页会自动同步。"))
+        # 表头行（SVG 表头风格）
+        mapping_row_views.append({
+            "component": "VRow", "props": {"noGutters": True, "class": "px-2 py-1", "dense": True},
+            "content": [
+                {"component": "VCol", "props": {"cols": 2}, "content": [
+                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "分类标签"}]},
+                {"component": "VCol", "props": {"cols": 3}, "content": [
+                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "CD2 挂载目录 / STRM 生成目录"}]},
+                {"component": "VCol", "props": {"cols": 3}, "content": [
+                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "OpenList 云盘目录 & 格式化模板"}]},
+                {"component": "VCol", "props": {"cols": 1, "class": "text-center"}, "content": [
+                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "监控"}]},
+                {"component": "VCol", "props": {"cols": 3, "class": "text-right"}, "content": [
+                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "操作"}]},
+            ],
+        })
         for rule_index, rule in enumerate(effective_rules):
             state_text, state_color, state_detail = rule_state(rule)
             rule_monitor = bool(rule.get("monitor", True))
+            col1, col2, col3 = mapping_table_cells(rule, state_text, state_color)
+            row_style = "border-bottom:1px solid rgba(51,65,85,.35);min-height:52px;"
             mapping_row_views.append({
-                "component": "VRow", "props": {"align": "center", "noGutters": True, "class": "mb-2"},
+                "component": "VRow", "props": {"noGutters": True, "align": "center",
+                  "class": "px-2 py-1", "style": row_style },
                 "content": [
-                    {"component": "VCol", "props": {"cols": 9},
-                     "content": [{"component": "div",
-                                  "html": mapping_rule_html(rule, state_text, state_color,
-                                                              state_detail=state_detail)}]},
-                    {"component": "VCol", "props": {"cols": 3,
-                                               "class": "d-flex justify-end align-center", "style": "gap:2px;"},
+                    {"component": "VCol", "props": {"cols": 2, "class": "d-flex align-center py-1"},
+                     "content": [{"component": "div", "html": col1}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center py-1"},
+                     "content": [{"component": "div", "html": col2}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center py-1"},
+                     "content": [{"component": "div", "html": col3}]},
+                    {"component": "VCol", "props": {"cols": 1, "class": "d-flex align-center justify-center py-1"},
+                     "content": [{"component": "VBtn",
+                      "props": {"icon": "mdi-eye-off" if rule_monitor else "mdi-eye",
+                                 "size": "x-small", "variant": "text",
+                                 "color": "info" if rule_monitor else "grey",
+                                 "title": "停用实时监控" if rule_monitor else "启用实时监控"},
+                      "events": {"click": {"api": f"plugin/{self.__class__.__name__}/mappings/{rule_index}/monitor",
+                                           "method": "POST", "params": {}}}}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center justify-end py-1", "style": "gap:2px;"},
                      "content": [
-                         {"component": "VBtn",
-                          "props": {"icon": "mdi-eye-off" if rule_monitor else "mdi-eye",
-                                     "size": "x-small", "variant": "text",
-                                     "color": "info" if rule_monitor else "grey",
-                                     "title": "停用实时监控" if rule_monitor else "启用实时监控"},
-                          "events": {"click": {"api": f"plugin/{self.__class__.__name__}/mappings/{rule_index}/monitor",
-                                               "method": "POST", "params": {}}}},
                          {"component": "VBtn",
                           "props": {"icon": "mdi-pencil-outline", "size": "x-small",
                                      "variant": "text", "color": "info"},
@@ -4148,14 +4172,25 @@ class CloudStrmHelper(_PluginBase):
             if self._page_editing_rule == rule_index:
                 raw_line = self.__rules_to_monitor_confs([rule])
                 mapping_row_views.append(hint_box(
-                    "编辑映射规则：请在插件「设置 → 路径监控与 STRM 映射策略」的规则卡片中修改并保存。"
+                    "编辑映射规则：请在插件「设置 → 路径监控与 STRM 映射策略」的规则表单中修改并保存。"
                     + (f"<br>当前规则原文：<code>{html_escape(raw_line)}</code>" if raw_line else "")))
         for rule in pending_deleted_rules:
+            col1, col2, col3 = mapping_table_cells(rule, "待删除", "#f59e0b")
             mapping_row_views.append({
-                "component": "VRow", "props": {"noGutters": True, "class": "mb-2"},
-                "content": [{"component": "VCol", "props": {"cols": 12},
-                             "content": [{"component": "div", "html": mapping_rule_html(
-                                 rule, "待删除 · 保存后生效", "#f59e0b", "opacity:.45;")}]}],
+                "component": "VRow", "props": {"noGutters": True, "align": "center",
+                  "class": "px-2 py-1", "style": "border-bottom:1px solid rgba(51,65,85,.35);opacity:.45;" },
+                "content": [
+                    {"component": "VCol", "props": {"cols": 2, "class": "d-flex align-center"},
+                     "content": [{"component": "div", "html": col1}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center"},
+                     "content": [{"component": "div", "html": col2}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center"},
+                     "content": [{"component": "div", "html": col3}]},
+                    {"component": "VCol", "props": {"cols": 1, "class": "d-flex align-center justify-center"},
+                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#f59e0b;"}, "text": "待删除"}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center justify-end"},
+                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#94a3b8;"}, "text": "保存后生效"}]},
+                ],
             })
         if not effective_rules and not pending_deleted_rules:
             mapping_row_views.append({"component": "div", "html": (
@@ -4173,7 +4208,7 @@ class CloudStrmHelper(_PluginBase):
                          {"component": "VCol", "props": {"cols": 9}, "content": [
                              {"component": "div", "html": panel_title(
                                  "路径监控与 STRM 映射策略",
-                                 f"本地 STRM 输出目录 → 移动云盘绝对路径 · 共 {len(effective_rules)} 条映射")}]},
+                                 f"CD2 挂载目录 → STRM 输出目录 → OpenList 云盘路径 · 共 {len(effective_rules)} 条映射")}]},
                          {"component": "VCol", "props": {"cols": 3, "class": "d-flex justify-end"},
                           "content": [{
                               "component": "VBtn",
@@ -4184,14 +4219,11 @@ class CloudStrmHelper(_PluginBase):
                                                    "params": {"index": -1}}}},
                           ]},
                      ]},
-                    {"component": "div", "html": (
-                        "<div style=\"display:flex;color:#6b7280;font-size:11px;padding:8px 4px 6px;\">"
-                        "<span style=\"width:96px;\">分类 / 状态</span>"
-                        "<span style=\"flex:1 1 auto;\">本地 STRM 输出目录 ➜ 移动云盘绝对路径</span>"
-                        "<span>操作</span></div>"
-                    )}
-                ] + mapping_row_views,
-                },
+                    # 表格容器（VSheet 带边框）
+                    {"component": "VSheet", "props": {"variant": "outlined", "class": "rounded-lg",
+                      "style": "background:#0b0f19;border:1px solid #1f2937;overflow:hidden;"},
+                     "content": mapping_row_views},
+                ]},
             ],
         }
 
