@@ -19,7 +19,6 @@ import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Body
 from fastapi.responses import JSONResponse
-from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
 from app.core.config import settings
@@ -33,38 +32,38 @@ from app.schemas.types import EventType, NotificationType, MediaType
 from app.utils.http import RequestUtils
 from app.utils.string import StringUtils
 
+from .manifest import GeneratedFileManifest
+from .monitoring import (
+    FileMonitorHandler,
+    is_ignored_path as _is_ignored_path,
+    wait_for_stable_file as _wait_for_stable_file,
+)
+from .paths import (
+    format_content as _format_content,
+    is_path_within as _is_path_within,
+    join_remote_path as _join_remote_path,
+    find_monitor_path as _find_monitor_path,
+    map_library_path as _map_library_path,
+    map_path as _map_path,
+    normalize_extensions as _normalize_extensions,
+    parse_mapping_line as _parse_mapping_line,
+    path_key as _path_key,
+    relative_path as _relative_path,
+    shorten_path as _shorten_path,
+)
+from .rules import (
+    category_list as _category_list,
+    category_string as _category_string,
+    count_rule_slots as _count_rule_slots,
+    remove_rule_config_keys as _remove_rule_config_keys,
+    rules_from_config as _rules_from_config,
+    rules_from_monitor_confs as _rules_from_monitor_confs,
+    rules_to_config_keys as _rules_to_config_keys,
+    rules_to_monitor_confs as _rules_to_monitor_confs,
+    validate_monitor_confs as _validate_monitor_confs,
+)
+
 lock = threading.Lock()
-
-
-class FileMonitorHandler(FileSystemEventHandler):
-    """
-    目录监控响应类
-    """
-
-    def __init__(self, monpath: str, sync: Any, **kwargs):
-        super(FileMonitorHandler, self).__init__(**kwargs)
-        self._watch_path = monpath
-        self.sync = sync
-
-    def on_created(self, event):
-        self.sync.event_handler(event=event, text="创建",
-                                mon_path=self._watch_path, event_path=event.src_path,
-                                action="created")
-
-    def on_modified(self, event):
-        self.sync.event_handler(event=event, text="修改",
-                                mon_path=self._watch_path, event_path=event.src_path,
-                                action="modified")
-
-    def on_moved(self, event):
-        self.sync.event_handler(event=event, text="移动",
-                                mon_path=self._watch_path, event_path=event.dest_path,
-                                old_event_path=event.src_path, action="moved")
-
-    def on_deleted(self, event):
-        self.sync.event_handler(event=event, text="删除",
-                                mon_path=self._watch_path, event_path=event.src_path,
-                                action="deleted")
 
 
 class CloudStrmHelper(_PluginBase):
@@ -75,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.3"
+    plugin_version = "V1.5.4"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -195,10 +194,8 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __parse_mapping_line(line: str) -> Optional[Tuple[str, str]]:
+        return _parse_mapping_line(str(line or ""))
         """解析路径映射，优先使用 =>，同时兼容旧版冒号格式。"""
-        line = str(line or "").strip()
-        if not line:
-            return None
 
         if "=>" in line:
             source, target = line.split("=>", 1)
@@ -224,6 +221,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __shorten_path(path: str, keep: int = 2) -> str:
+        return _shorten_path(path, keep)
         """长路径尾部截断：保留最后 keep 段，显示为 …/父目录/文件名。"""
         if not path:
             return ""
@@ -261,11 +259,13 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __path_key(path: str) -> str:
+        return _path_key(path)
         """返回用于边界判断的标准本地路径，不解析软链接。"""
         return os.path.normcase(os.path.abspath(os.path.normpath(str(path))))
 
     @classmethod
     def __relative_path(cls, path: str, root: str) -> Optional[Path]:
+        return _relative_path(path, root)
         """获取 path 相对于 root 的路径，path 不在 root 下时返回 None。"""
         # 边界判断使用 normcase，但相对路径必须基于原始路径计算，
         # 否则 Windows 下目标文件名会被意外转换为小写。
@@ -283,10 +283,12 @@ class CloudStrmHelper(_PluginBase):
 
     @classmethod
     def __is_path_within(cls, path: str, root: str) -> bool:
+        return _is_path_within(path, root)
         return cls.__relative_path(path, root) is not None
 
     @classmethod
     def __map_path(cls, path: str, source_root: str, target_root: str) -> Optional[str]:
+        return _map_path(path, source_root, target_root)
         relative = cls.__relative_path(path, source_root)
         if relative is None:
             return None
@@ -296,6 +298,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __normalise_extensions(value: Optional[str], default: str = "") -> set:
+        return _normalize_extensions(value, default)
         result = set()
         for extension in str(value or default).split(","):
             extension = extension.strip().lower()
@@ -308,6 +311,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __count_rule_slots(config: dict) -> int:
+        return _count_rule_slots(config)
         """统计配置中结构化映射规则 rule_i_* 占用的槽位数。"""
         slots = 0
         for key in (config or {}).keys():
@@ -318,6 +322,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __remove_rule_config_keys(config: dict):
+        return _remove_rule_config_keys(config)
         """Remove the transient/structured rule fields before rewriting them."""
         for key in list((config or {}).keys()):
             if re.match(r"^rule_\d+_(category|local|strm|cloud|format|monitor|delete)$",
@@ -326,6 +331,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __rules_from_monitor_confs(monitor_confs: str) -> List[dict]:
+        return _rules_from_monitor_confs(monitor_confs)
         """把旧版 # 分隔文本解析为结构化映射规则列表。"""
         rules = []
         for raw_line in str(monitor_confs or "").splitlines():
@@ -355,6 +361,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __category_list(value: Any) -> List[str]:
+        return _category_list(value)
         """split category into tags"""
         if value is None:
             return []
@@ -368,10 +375,12 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __category_string(value: Any) -> str:
+        return _category_string(value)
         """join tags as comma string"""
         return ",".join(CloudStrmHelper.__category_list(value))
 
     def __rules_from_config(self, config: dict) -> List[dict]:
+        return _rules_from_config(config)
         """优先读取结构化 rule_i_* 键，缺失时回退解析旧版 monitor_confs 文本。"""
         config = config or {}
         rules = []
@@ -405,6 +414,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __rules_to_monitor_confs(rules: List[dict]) -> str:
+        return _rules_to_monitor_confs(rules)
         """把结构化规则序列化回旧版文本格式，作为可移植镜像。"""
         lines = []
         for rule in rules or []:
@@ -423,6 +433,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __rules_to_config_keys(rules: List[dict], slots: int) -> Dict[str, Any]:
+        return _rules_to_config_keys(rules, slots)
         """把规则列表展开为 rule_i_* 配置键，空槽位写空串保证旧键被清除。"""
         keys = {}
         for index in range(max(slots, len(rules or []))):
@@ -540,6 +551,7 @@ class CloudStrmHelper(_PluginBase):
         return pending
 
     def __validate_monitor_confs(self, monitor_confs: str) -> List[str]:
+        return _validate_monitor_confs(monitor_confs)
         """Validate directory configuration without starting monitors or scheduling work."""
         errors = []
         for original_conf in str(monitor_confs or "").splitlines():
@@ -1549,8 +1561,15 @@ class CloudStrmHelper(_PluginBase):
             except (TypeError, ValueError):
                 self._scan_interval = 30
             self._cover = bool(config.get("cover"))
-            self._copy_files = bool(config.get("copy_files"))
-            self._copy_subtitles = bool(config.get("copy_subtitles"))
+            # The UI exposes one sidecar switch.  Existing configurations that
+            # predate it keep their split values until they are saved again.
+            if "copy_sidecars" in config:
+                copy_sidecars = bool(config.get("copy_sidecars"))
+                self._copy_files = copy_sidecars
+                self._copy_subtitles = copy_sidecars
+            else:
+                self._copy_files = bool(config.get("copy_files"))
+                self._copy_subtitles = bool(config.get("copy_subtitles"))
             self._sync_delete = bool(config.get("sync_delete"))
             self._refresh_emby = bool(config.get("refresh_emby"))
             self._notify = bool(config.get("notify"))
@@ -1800,6 +1819,7 @@ class CloudStrmHelper(_PluginBase):
             self.__handle_file(event_path=file_path, mon_path=mon_path)
 
     def __find_monitor_path(self, file_path: str) -> Optional[str]:
+        return _find_monitor_path(file_path, self._strm_dir_conf)
         candidates = [
             mon_path for mon_path in self._strm_dir_conf.keys()
             if self.__is_path_within(file_path, mon_path)
@@ -1808,6 +1828,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __join_remote_path(root: str, relative: Path) -> str:
+        return _join_remote_path(root, relative)
         root = str(root or "")
         relative_text = str(relative).replace("\\", "/")
         if not relative_text or relative_text == ".":
@@ -1866,6 +1887,11 @@ class CloudStrmHelper(_PluginBase):
             self.scan(scan_path=event_path, mon_path=mon_path, record_task=False)
 
     def __wait_for_stable_file(self, event_path: str) -> bool:
+        return _wait_for_stable_file(
+            event_path,
+            stable_checks=self._stable_checks,
+            stable_interval=self._stable_interval,
+        )
         """等待挂载文件大小稳定，避免复制到尚未完成的旁车文件。"""
         previous = None
         stable_count = 0
@@ -1923,6 +1949,7 @@ class CloudStrmHelper(_PluginBase):
         self.__schedule_file(event_path=event_path, mon_path=mon_path)
 
     def __is_ignored_path(self, event_path: str) -> bool:
+        return _is_ignored_path(event_path, self._ignored_dir_names)
         path = Path(str(event_path))
         for part in path.parts:
             lower_part = part.lower()
@@ -2221,29 +2248,13 @@ class CloudStrmHelper(_PluginBase):
                     "reason": str(err), "retryable": True}
 
     def __load_generated_files(self):
-        try:
-            if not Path(self._generated_files_json).is_file():
-                return
-            with open(self._generated_files_json, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            if isinstance(data, list):
-                self._generated_files = {self.__path_key(path) for path in data if path}
-        except (OSError, ValueError) as err:
-            logger.warning(f"读取已生成文件清单失败：{err}")
+        self._generated_files = GeneratedFileManifest.load(self._generated_files_json)
 
     def __save_generated_files(self):
         with self._manifest_lock:
-            try:
-                path = Path(self._generated_files_json)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with self._state_lock:
-                    generated_files = sorted(self._generated_files)
-                temp_file = path.with_name(f".{path.name}.tmp")
-                with open(temp_file, "w", encoding="utf-8") as file:
-                    json.dump(generated_files, file, ensure_ascii=False, indent=2)
-                os.replace(str(temp_file), str(path))
-            except OSError as err:
-                logger.warning(f"保存已生成文件清单失败：{err}")
+            with self._state_lock:
+                generated_files = set(self._generated_files)
+            GeneratedFileManifest.save(self._generated_files_json, generated_files)
 
     def __mark_generated_file(self, path: str):
         path_key = self.__path_key(path)
@@ -2363,6 +2374,7 @@ class CloudStrmHelper(_PluginBase):
 
     @staticmethod
     def __format_content(format_str: str, local_file: str, cloud_file: str, uriencode: bool):
+        return _format_content(format_str, local_file, cloud_file, uriencode)
         """
         格式化strm内容
         """
@@ -2517,6 +2529,7 @@ class CloudStrmHelper(_PluginBase):
             return {"ok": False, "reason": str(err)}
 
     def __get_path(self, paths, file_path: str):
+        return _map_library_path(paths, file_path)
         """
         路径转换
         """
@@ -2807,6 +2820,7 @@ class CloudStrmHelper(_PluginBase):
             "interval": self._interval,
             "copy_files": self._copy_files,
             "copy_subtitles": self._copy_subtitles,
+            "copy_sidecars": self._copy_files and self._copy_subtitles,
             "sync_delete": self._sync_delete,
             "refresh_emby": self._refresh_emby,
             "uriencode": self._uriencode,
@@ -3406,83 +3420,154 @@ class CloudStrmHelper(_PluginBase):
         }
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """按工作流组织配置，字段名和数据格式保持与旧版兼容。"""
-        def switch(model, label, color=None):
-            props = {"model": model, "label": label}
-            if color:
-                props["color"] = color
-            return {"component": "VSwitch", "props": props}
+        """Render a compact, flat configuration page while keeping legacy keys."""
+        field_style = (
+            "--v-input-control-height:36px;--v-field-padding-start:12px;"
+            "--v-field-padding-end:12px;font-size:13px;"
+        )
+
+        def switch(model, label, color="primary"):
+            return {
+                "component": "VSwitch",
+                "props": {
+                    "model": model, "label": label, "color": color,
+                    "inset": True, "density": "compact",
+                    "hideDetails": True, "class": "cloudstrm-config-switch",
+                },
+            }
 
         def field(component, model, label, **props):
-            values = {"model": model, "label": label}
+            values = {
+                "model": model, "label": label, "density": "compact",
+                "variant": "outlined", "hideDetails": True,
+                "class": "cloudstrm-config-field", "style": field_style,
+            }
             values.update(props)
             return {"component": component, "props": values}
 
-        def col(content, md=12):
-            return {"component": "VCol", "props": {"cols": 12, "md": md},
-                    "content": content if isinstance(content, list) else [content]}
+        def col(content, md=12, class_name="pa-1"):
+            return {
+                "component": "VCol",
+                "props": {"cols": 12, "md": md, "class": class_name},
+                "content": content if isinstance(content, list) else [content],
+            }
 
-        def row(*columns):
-            return {"component": "VRow", "content": list(columns)}
+        def row(*columns, class_name="ma-0"):
+            return {
+                "component": "VRow",
+                "props": {"noGutters": True, "class": class_name},
+                "content": list(columns),
+            }
 
-        def panel(title, content, icon=None):
-            title_view = {"component": "VExpansionPanelTitle"}
-            if icon:
-                title_view["content"] = [
-                    {"component": "VIcon", "props": {"icon": icon, "size": "small",
-                                                      "class": "mr-2"}},
-                    {"component": "span", "text": title},
-                ]
-            else:
-                title_view["text"] = title
-            return {"component": "VExpansionPanel", "content": [
-                title_view,
-                {"component": "VExpansionPanelText", "content": content},
-            ]}
+        def icon(icon_name, size="small"):
+            return {"component": "VIcon", "props": {"icon": icon_name, "size": size}}
+
+        def section(title, icon_name, content):
+            return {
+                "component": "div",
+                "props": {
+                    "class": "cloudstrm-config-section",
+                    "style": "color:#e2e8f0;margin:0 0 28px;padding:0;",
+                },
+                "content": [
+                    {
+                        "component": "div",
+                        "props": {
+                            "style": ("display:flex;align-items:center;gap:8px;height:34px;"
+                                      "border-bottom:1px solid #334155;margin-bottom:10px;"),
+                        },
+                        "content": [
+                            icon(icon_name),
+                            {"component": "span", "props": {"style": "font-size:15px;font-weight:600;"},
+                             "text": title},
+                        ],
+                    },
+                    {"component": "div", "props": {"style": "width:100%;"},
+                     "content": content},
+                ],
+            }
+
+        def banner(text, tone="info"):
+            colors = {
+                "info": ("#0284c7", "#1e293b", "#e2e8f0", "i"),
+                "warning": ("#eab308", "#2b2412", "#fde68a", "!"),
+                "error": ("#f43f5e", "#351923", "#fecdd3", "!"),
+            }
+            border, background, foreground, mark = colors.get(tone, colors["info"])
+            return {
+                "component": "div",
+                "html": (
+                    f'<div style="display:flex;align-items:center;gap:12px;min-height:42px;'
+                    f'padding:8px 14px;margin:0 0 18px;border:1px solid {border};'
+                    f'border-radius:8px;background:{background};color:{foreground};font-size:13px;">'
+                    f'<span style="width:22px;height:22px;display:inline-flex;align-items:center;'
+                    f'justify-content:center;border-radius:50%;background:{border};color:#fff;'
+                    f'font-weight:700;flex:0 0 auto;">{mark}</span>'
+                    f'<span>{html_escape(text)}</span></div>'
+                ),
+            }
 
         emby_configs = self.mediaserver_helper.get_configs() if self.mediaserver_helper else {}
         emby_items = [
             {"title": config.name, "value": config.name}
             for config in emby_configs.values() if getattr(config, "type", "") == "emby"
         ]
-        template_warning = {
-            "component": "VAlert",
-            "props": {
-                "type": "warning", "variant": "tonal",
-                "text": "目录模板必须包含 {local_file} 或 {cloud_file}；保存后会立即校验，错误会显示在页面顶部。",
-            },
-        }
-        config_error_alert = {
-            "component": "VAlert",
-            "props": {
-                "type": "error", "variant": "tonal",
-                "text": "；".join(self._config_errors),
-            },
-        }
-        config_help = {
-            "component": "VAlert",
-            "props": {"type": "info", "variant": "tonal"},
-            "html": ("监控方式为 OpenList + CD2；移动云盘无官方 API，不提供网盘 API 轮询。<br>"
-                     "按规则卡片填写：CD2 挂载目录 → STRM 生成目录 → OpenList 云盘目录 → STRM 模板，"
-                     "模板必须包含 <code>{local_file}</code> 或 <code>{cloud_file}</code>。<br>"
-                     "示例模板：<code>http://192.168.1.10:5244/d{cloud_file}</code><br>"
-                     "旧版 <code>#</code> 分隔文本配置仍兼容读取，保存后自动迁移为规则卡片。"),
-        }
-        directory_content = [config_help, template_warning]
-        monitor_way_alert = {
-            "component": "VAlert",
-            "props": {
-                "type": "info", "variant": "tonal", "density": "compact", "class": "mb-3",
-                "text": "监控方式：OpenList + CD2。移动云盘无官方 API，插件通过 CD2 挂载目录发现文件变化，STRM 内容使用 OpenList 地址模板。",
-            },
-        }
-        # The compact mapping summary mirrors the reference table; fields are
-        # expanded only for the rule being edited.
         form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
-        # Keep one extra editor visible so a new rule can be entered directly.
-        # Do not cap the count here: saving the settings form must not silently
-        # drop legacy rules when a user has more than twelve mappings.
+        # Keep existing rules editable, while reserving one final slot for a
+        # new rule.  The final slot is the only panel opened by default.
         rule_slot_count = max(1, len(form_rules) + 1)
+
+        # The summary is intentionally plain HTML: it keeps the table compact
+        # and avoids Vuetify data-table defaults changing the target proportions.
+        summary_rows = []
+        for rule_index, rule in enumerate(form_rules):
+            tags = self.__category_list(rule.get("category")) or ["未分类"]
+            tag_html = "".join(
+                f'<span style="display:inline-block;margin:0 3px 3px 0;padding:3px 8px;'
+                f'border-radius:4px;background:#312e81;color:#a5b4fc;font-size:11px;">'
+                f"{html_escape(tag)}</span>" for tag in tags
+            )
+            local = html_escape(rule.get("local") or "-")
+            strm = html_escape(rule.get("strm") or "-")
+            cloud = html_escape(rule.get("cloud") or "-")
+            format_str = html_escape(rule.get("format") or "-")
+            monitor = bool(rule.get("monitor", True))
+            toggle = (
+                '<span style="display:inline-block;width:36px;height:20px;border-radius:10px;'
+                f'background:{"#6366f1" if monitor else "#334155"};vertical-align:middle;">'
+                f'<span style="display:block;width:14px;height:14px;margin:{"3px 3px 3px 19px" if monitor else "3px 19px 3px 3px"};'
+                f'border-radius:50%;background:{"#fff" if monitor else "#94a3b8"};"></span></span>'
+            )
+            summary_rows.append(
+                '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;'
+                'align-items:center;min-height:68px;padding:8px 12px;border-top:1px dashed #334155;">'
+                f'<div style="min-width:0;">{tag_html}</div>'
+                f'<div style="min-width:0;font-family:Consolas,monospace;font-size:12px;line-height:1.8;'
+                f'color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+                f'title="{local}">CD2: {local}<br><span style="color:#94a3b8;">STRM: {strm}</span></div>'
+                f'<div style="min-width:0;font-family:Consolas,monospace;font-size:12px;line-height:1.8;'
+                f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;title="{format_str}">'
+                f'{cloud}<br><span style="color:#64748b;">{format_str}</span></div>'
+                f'<div style="display:flex;align-items:center;justify-content:center;gap:10px;">'
+                f'{toggle}<span style="color:#94a3b8;font-size:11px;">规则 {rule_index + 1}</span></div></div>'
+            )
+        if not summary_rows:
+            summary_rows.append(
+                '<div style="padding:18px;text-align:center;color:#94a3b8;font-size:13px;">'
+                '暂无映射规则，请在下方新增规则编辑区填写。</div>'
+            )
+        summary_table = {
+            "component": "div",
+            "html": (
+                '<div style="border:1px solid #334155;border-radius:8px;overflow:hidden;background:#1e293b;">'
+                '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;padding:12px;'
+                'background:#0f172a;color:#94a3b8;font-size:12px;font-weight:600;">'
+                '<span>分类标签</span><span>CD2 挂载目录 / STRM 生成目录</span>'
+                '<span>OpenList 云盘目录 &amp; 格式化模板</span><span style="text-align:center">监控 / 编辑</span>'
+                '</div>' + ''.join(summary_rows) + '</div>'
+            ),
+        }
+
         rule_cards = []
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
@@ -3492,153 +3577,204 @@ class CloudStrmHelper(_PluginBase):
                 rule_summary = "+ 新增映射规则（填写后保存）"
             else:
                 rule_summary = (
-                    f"{' · '.join(categories)}    |    "
-                    f"CD2: {self.__shorten_path(rule.get('local') or '未配置')}    →    "
-                    f"STRM: {self.__shorten_path(rule.get('strm') or '未配置')}    |    "
-                    f"OpenList: {self.__shorten_path(rule.get('cloud') or '未配置')}"
+                    f"{' · '.join(categories)} | CD2: {self.__shorten_path(rule.get('local') or '未配置')}"
+                    f" → STRM: {self.__shorten_path(rule.get('strm') or '未配置')}"
                 )
-            rule_actions = []
+            title_style = (
+                "min-height:44px!important;padding:8px 14px!important;font-size:13px!important;"
+                "color:#fff;background:#3730a3;" if is_new_rule else
+                "min-height:42px!important;padding:7px 14px!important;font-size:13px!important;"
+                "color:#cbd5e1;background:#172033;"
+            )
+            rule_content = [
+                {"component": "div", "props": {"style": "padding:8px 0 0;color:#94a3b8;font-size:12px;"},
+                 "text": "新增映射规则" if is_new_rule else f"编辑映射规则 {rule_index + 1}"},
+                row(
+                    col({
+                        "component": "VCombobox",
+                        "props": {
+                            "model": f"rule_{rule_index}_category", "label": "分类标签",
+                            "multiple": True, "chips": True, "smallChips": True,
+                            "closableChips": True, "items": [],
+                            "placeholder": "选择或输入...", "density": "compact",
+                            "variant": "outlined", "hideDetails": True,
+                            "class": "cloudstrm-config-field", "style": field_style,
+                        },
+                    }, 4),
+                    col(field("VTextField", f"rule_{rule_index}_local",
+                              "CD2 挂载目录（MoviePilot 中路径）",
+                              placeholder="/CloudNAS/CloudDrive/WebDrive/电影"), 6),
+                    col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
+                ),
+                row(
+                    col(field("VTextField", f"rule_{rule_index}_strm", "STRM 生成目录",
+                              placeholder="/CloudNAS/云盘Strm/media/电影"), 4),
+                    col(field("VTextField", f"rule_{rule_index}_cloud", "OpenList 云盘目录",
+                              placeholder="/media/电影"), 4),
+                    col(field("VTextField", f"rule_{rule_index}_format",
+                              "STRM 格式化模板（必须包含 {cloud_file}）",
+                              placeholder="http://192.168.1.10:5244/d{cloud_file}"), 4),
+                ),
+            ]
             if is_new_rule:
-                rule_actions.append({
-                    "component": "VAlert",
-                    "props": {"type": "info", "variant": "tonal",
-                               "density": "compact",
-                               "text": "填写完整后保存配置，即可新增这条映射规则。"},
-                })
+                rule_content.append(banner("填写完整后保存配置，即可新增这条映射规则。"))
             else:
-                rule_actions.append({
+                rule_content.append({
                     "component": "VCheckbox",
                     "props": {
                         "model": f"rule_{rule_index}_delete",
                         "label": "删除此映射规则（保存后生效）",
-                        "color": "error",
-                        "density": "compact",
+                        "color": "error", "density": "compact",
                         "hideDetails": True,
                     },
                 })
             rule_cards.append({
                 "component": "VExpansionPanel",
-                "props": {"value": rule_index,
-                          "style": ("background:#172554;color:#e2e8f0;border:1px dashed #38bdf8;"
-                                    if is_new_rule else "background:#1e293b;color:#e2e8f0;"),
-                          "rounded": 0,
-                          "elevation": 0},
+                "props": {
+                    "value": rule_index, "elevation": 0,
+                    "style": ("background:#202b4b;border:1px solid #6366f1;" if is_new_rule
+                               else "background:#172033;border-bottom:1px solid #334155;"),
+                },
                 "content": [
-                    {"component": "VExpansionPanelTitle", "props": {"style": "min-height:56px;"},
-                      "text": rule_summary},
-                    {"component": "VExpansionPanelText", "content": [
-                        {"component": "div",
-                         "props": {"class": "text-caption text-medium-emphasis mb-1"},
-                         "text": "新增映射规则" if is_new_rule else f"映射规则 {rule_index + 1}"},
-                        row(
-                            col({
-                                "component": "VCombobox",
-                                "props": {
-                                    "model": f"rule_{rule_index}_category",
-                                    "label": "分类标签",
-                                    "multiple": True,
-                                    "chips": True,
-                                    "smallChips": True,
-                                    "density": "compact",
-                                    "items": [],
-                                    "placeholder": "输入自定义分类，回车添加",
-                                },
-                            }, 4),
-                            col(field("VTextField", f"rule_{rule_index}_local",
-                                      "CD2 挂载目录（MoviePilot 中路径）",
-                                      placeholder="/mnt/media", density="compact"), 6),
-                            col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
-                        ),
-                        row(
-                            col(field("VTextField", f"rule_{rule_index}_strm", "STRM 生成目录",
-                                      placeholder="/mnt/library", density="compact"), 4),
-                            col(field("VTextField", f"rule_{rule_index}_cloud", "OpenList 云盘目录",
-                                      placeholder="/移动网盘/媒体库/电影", density="compact"), 4),
-                            col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板（必须包含 {cloud_file}）",
-                                      placeholder="http://192.168.1.10:5244/d{cloud_file}",
-                                      density="compact"), 4),
-                        ),
-                        *rule_actions,
-                    ]},
+                    {"component": "VExpansionPanelTitle", "props": {"style": title_style},
+                     "text": rule_summary},
+                    {"component": "VExpansionPanelText",
+                     "props": {"style": "padding:0 14px 12px!important;background:#1e293b;"},
+                     "content": rule_content},
                 ],
             })
-        directory_content.extend([
-            {"component": "div", "props": {"class": "d-none d-md-flex px-3 py-2",
-                                                    "style": "font-size:12px;color:#94a3b8;background:#1e293b;border-bottom:1px solid #475569;"},
-              "html": ("<span style='width:20%'>分类标签</span>"
-                        "<span style='width:46%'>CD2 挂载目录 / STRM 生成目录</span>"
-                        "<span style='width:24%'>OpenList 云盘目录 &amp; 格式化模板</span>"
-                        "<span style='width:10%;text-align:right'>操作</span>")},
-            {"component": "VExpansionPanels",
-             "props": {"variant": "accordion", "multiple": True, "model": "mapping_panel_open"},
-             "content": rule_cards},
-        ])
-        directory_content.extend([
-            row(col(field("VTextarea", "emby_path", "媒体库路径映射", rows=2,
-                         placeholder="本地路径=>Emby路径，多组用英文逗号分隔"), 6),
-                col(field("VTextarea", "path_replacements", "STRM 路径替换规则", rows=3,
-                         placeholder="源路径=>目标路径，每行一条；兼容旧版冒号格式"), 6)),
-        ])
-        # 配置错误提示固定在表单顶部常显，避免被折叠面板遮挡
+
+        mapping_editors = {
+            "component": "VExpansionPanels",
+            "props": {
+                "variant": "accordion", "multiple": False,
+                "model": "mapping_panel_open",
+                "class": "cloudstrm-mapping-editors",
+                "style": "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:16px;",
+            },
+            "content": rule_cards,
+        }
+
+        mapping_header = {
+            "component": "VRow",
+            "props": {"align": "center", "noGutters": True, "class": "ma-0 mb-2"},
+            "content": [
+                {"component": "VCol", "props": {"cols": 8, "class": "pa-0"},
+                 "content": [{"component": "span",
+                              "props": {"style": "font-size:15px;font-weight:600;color:#f8fafc;"},
+                              "text": "路径监控与 STRM 映射策略"}]},
+                {"component": "VCol", "props": {"cols": 4, "class": "pa-0 d-flex justify-end"},
+                 "content": [{
+                     "component": "VBtn",
+                     "props": {"prependIcon": "mdi-plus", "size": "small",
+                               "variant": "flat", "style": "height:36px;background:#6366f1;color:#fff;"},
+                     "text": "新增映射规则",
+                 }]},
+            ],
+        }
+
+        mapping_content = [mapping_header, summary_table, mapping_editors]
+
         form_content = []
         if self._config_errors:
-            form_content.append(config_error_alert)
-        form_content.append(monitor_way_alert)
-        form_content.append({
-            "component": "VExpansionPanels",
-            "props": {"variant": "accordion", "multiple": True, "model": "_panel_open"},
-            "content": [
-                panel("基础与文件设置", [
-                    row(col(switch("enabled", "启用插件"), 3),
-                        col(switch("monitor", "OpenList + CD2 实时监控"), 3),
-                        col(switch("cron_enabled", "定时增量扫描"), 3),
-                        col(switch("notify", "任务与入库通知"), 3)),
-                    row(col(switch("onlyonce", "保存后立即执行一次"), 3),
-                        col(field("VTextField", "interval", "入库通知延迟（秒）",
-                                 type="number", min=1, placeholder="10"), 4),
-                        col(field("VTextField", "scan_interval", "定时增量扫描周期（分钟）",
-                                 type="number", min=5, placeholder="30"), 5)),
-                    row(col(switch("cover", "覆盖已存在文件"), 3),
-                        col(switch("copy_files", "复制旁车文件"), 3),
-                        col(switch("copy_subtitles", "复制字幕文件"), 3),
-                        col(switch("sync_delete", "同步删除生成文件"), 3)),
-                ], "mdi-cog"),
-                panel("路径监控与 STRM 映射策略", [
-                    *directory_content,
-                ], "mdi-folder-sync"),
-                panel("媒体与高级设置", [
-                    row(col(field("VTextarea", "rmt_mediaext", "视频格式", rows=2,
-                                 placeholder=self._default_rmt_mediaext), 6),
-                        col(field("VTextarea", "other_mediaext", "非媒体格式", rows=2,
-                                 placeholder=self._default_other_mediaext), 6)),
-                    row(col({"component": "VSelect", "props": {
+            form_content.append(banner("；".join(self._config_errors), "error"))
+        form_content.extend([
+            banner("监控方式：OpenList + CD2。通过 CD2 挂载目录感知变化，STRM 内容采用 OpenList 模板渲染。"),
+            section("基础与文件设置", "mdi-cog", [
+                row(
+                    col(switch("enabled", "启用插件"), 3),
+                    col(switch("monitor", "OpenList + CD2 实时监控"), 3),
+                    col(switch("cron_enabled", "定时增量扫描"), 3),
+                    col(switch("notify", "任务入库通知"), 3),
+                ),
+                row(
+                    col(field("VTextField", "interval", "入库通知延迟（秒）",
+                              type="number", min=1, placeholder="10"), 3),
+                    col(field("VTextField", "scan_interval", "定时扫描周期（分钟）",
+                              type="number", min=5, placeholder="30"), 3),
+                    col(switch("cover", "覆盖已存在文件"), 3),
+                    col(switch("copy_sidecars", "复制旁车/字幕文件"), 3),
+                ),
+            ]),
+            section("路径监控与 STRM 映射策略", "mdi-folder-sync", mapping_content),
+            section("媒体与高级设置", "mdi-movie-open", [
+                row(
+                    col(field("VTextarea", "rmt_mediaext", "视频格式扩展名", rows=2,
+                              placeholder=self._default_rmt_mediaext), 6),
+                    col(field("VTextarea", "other_mediaext", "非媒体格式 / 忽略文件", rows=2,
+                              placeholder=self._default_other_mediaext), 6),
+                ),
+                row(
+                    col({"component": "VSelect", "props": {
                         "multiple": True, "chips": True, "clearable": True,
-                        "model": "mediaservers", "label": "Emby 媒体服务器", "items": emby_items,
-                    }}, 6),
-                        col(switch("refresh_emby", "生成后刷新 Emby"), 6)),
-                    row(col(switch("uriencode", "云盘路径 URL 编码"), 4),
-                        col(field("VTextField", "url", "任务推送 URL",
-                                  placeholder="POST JSON：path、type=add"), 8)),
-                ], "mdi-server"),
-            ],
-        })
+                        "model": "mediaservers", "label": "媒体服务器类型",
+                        "items": emby_items, "density": "compact", "variant": "outlined",
+                        "hideDetails": True, "class": "cloudstrm-config-field",
+                        "style": field_style,
+                    }}, 4),
+                    col(switch("refresh_emby", "生成后刷新 Emby"), 4),
+                    col(switch("uriencode", "云盘路径 URL 编码"), 4),
+                ),
+                row(col(field("VTextField", "url", "任务推送 Webhook URL",
+                             placeholder="http://127.0.0.1:5001/api/v1/webhook"), 12)),
+                {
+                    "component": "VExpansionPanels",
+                    "props": {"variant": "accordion", "class": "mt-4",
+                              "style": "border:1px solid #334155;border-radius:6px;overflow:hidden;"},
+                    "content": [{
+                        "component": "VExpansionPanel",
+                        "props": {"elevation": 0, "style": "background:#172033;color:#cbd5e1;"},
+                        "content": [
+                            {"component": "VExpansionPanelTitle", "text": "路径兼容设置（可选）"},
+                            {"component": "VExpansionPanelText", "content": [row(
+                                col(field("VTextarea", "emby_path", "媒体库路径映射", rows=2,
+                                          placeholder="本地路径=>Emby路径，多组用英文逗号分隔"), 6),
+                                col(field("VTextarea", "path_replacements", "STRM 路径替换规则", rows=2,
+                                          placeholder="源路径=>目标路径，每行一条；兼容旧版冒号格式"), 6),
+                            )]},
+                        ],
+                    }],
+                },
+                {
+                    "component": "VExpansionPanels",
+                    "props": {"variant": "accordion", "class": "mt-3",
+                              "style": "border:1px solid #334155;border-radius:6px;overflow:hidden;"},
+                    "content": [{
+                        "component": "VExpansionPanel",
+                        "props": {"elevation": 0, "style": "background:#172033;color:#cbd5e1;"},
+                        "content": [
+                            {"component": "VExpansionPanelTitle", "text": "执行与清理设置（可选）"},
+                            {"component": "VExpansionPanelText", "content": [row(
+                                col(switch("onlyonce", "保存后立即执行一次"), 6),
+                                col(switch("sync_delete", "同步删除生成文件"), 6),
+                            )]},
+                        ],
+                    }],
+                },
+            ]),
+        ])
+
         form = [{
             "component": "VForm",
+            "props": {
+                "class": "cloudstrm-config-form",
+                "style": "background:#0f172a;color:#e2e8f0;padding:0 0 18px;",
+            },
             "content": form_content,
         }]
         model = {
             "enabled": False, "notify": False, "monitor": False, "cover": False,
-            "onlyonce": False, "copy_files": False, "uriencode": False,
-            "copy_subtitles": False, "sync_delete": False, "refresh_emby": False,
+            "onlyonce": False, "copy_files": self._copy_files,
+            "copy_sidecars": self._copy_files and self._copy_subtitles,
+            "uriencode": False, "copy_subtitles": self._copy_subtitles,
+            "sync_delete": False, "refresh_emby": False,
             "mediaservers": [], "emby_path": "",
             "interval": 10, "url": "",
             "other_mediaext": self._default_other_mediaext,
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
-            # V1.4.0：定时增量扫描与结构化映射规则默认值
             "cron_enabled": True, "scan_interval": 30,
-            # Keep the three workflow sections visible and open the blank editor.
-            "_panel_open": [0, 1, 2],
-            "mapping_panel_open": [rule_slot_count - 1],
+            "_panel_open": [],
+            "mapping_panel_open": rule_slot_count - 1,
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
