@@ -74,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.4"
+    plugin_version = "V1.5.5"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -1332,6 +1332,7 @@ class CloudStrmHelper(_PluginBase):
         "notify": "任务与入库通知",
     }
     _config_toggle_defaults = {"cron_enabled": True}
+    _form_ui_state_keys = {"mapping_new_rule_count", "mapping_panel_open"}
 
     def __api_config_toggle(self, payload: Optional[dict] = Body(default=None)):
         """页面开关：服务端翻转指定布尔配置并写入暂存，保存后生效。"""
@@ -1594,6 +1595,10 @@ class CloudStrmHelper(_PluginBase):
                 # 表单删除项只在提交时短暂存在，保存后清理旧槽位，避免删除的
                 # 规则在下一次打开配置页时又被空槽位重新占住。
                 normalized_config = dict(config)
+                # These keys only drive the client-side add editor and must
+                # not make a blank rule reappear after a later page reload.
+                for key in self._form_ui_state_keys:
+                    normalized_config.pop(key, None)
                 self.__remove_rule_config_keys(normalized_config)
                 normalized_config.update(self.__rules_to_config_keys(rules, len(rules)))
                 normalized_config["monitor_confs"] = self._monitor_confs
@@ -3422,8 +3427,8 @@ class CloudStrmHelper(_PluginBase):
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """Render a compact, flat configuration page while keeping legacy keys."""
         field_style = (
-            "--v-input-control-height:36px;--v-field-padding-start:12px;"
-            "--v-field-padding-end:12px;font-size:13px;"
+            "--v-input-control-height:40px;--v-field-padding-start:12px;"
+            "--v-field-padding-end:12px;font-size:14px;line-height:1.4;"
         )
 
         def switch(model, label, color="primary"):
@@ -3478,7 +3483,7 @@ class CloudStrmHelper(_PluginBase):
                         },
                         "content": [
                             icon(icon_name),
-                            {"component": "span", "props": {"style": "font-size:15px;font-weight:600;"},
+                            {"component": "span", "props": {"style": "font-size:16px;font-weight:600;"},
                              "text": title},
                         ],
                     },
@@ -3512,10 +3517,13 @@ class CloudStrmHelper(_PluginBase):
             {"title": config.name, "value": config.name}
             for config in emby_configs.values() if getattr(config, "type", "") == "emby"
         ]
-        form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
-        # Keep existing rules editable, while reserving one final slot for a
-        # new rule.  The final slot is the only panel opened by default.
-        rule_slot_count = max(1, len(form_rules) + 1)
+        saved_config = self.__current_saved_config()
+        form_rules = self.__rules_from_config(saved_config) if saved_config else \
+            self.__rules_from_monitor_confs(self._monitor_confs)
+        # The host renders a static form tree. Reserve hidden slots and reveal
+        # them on demand so the add action works without a page refresh.
+        new_rule_capacity = 12
+        rule_slot_count = len(form_rules) + new_rule_capacity
 
         # The summary is intentionally plain HTML: it keeps the table compact
         # and avoids Vuetify data-table defaults changing the target proportions.
@@ -3572,6 +3580,7 @@ class CloudStrmHelper(_PluginBase):
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
+            new_rule_index = rule_index - len(form_rules)
             categories = self.__category_list(rule.get("category")) or ["未分类"]
             if is_new_rule:
                 rule_summary = "+ 新增映射规则（填写后保存）"
@@ -3581,13 +3590,13 @@ class CloudStrmHelper(_PluginBase):
                     f" → STRM: {self.__shorten_path(rule.get('strm') or '未配置')}"
                 )
             title_style = (
-                "min-height:44px!important;padding:8px 14px!important;font-size:13px!important;"
-                "color:#fff;background:#3730a3;" if is_new_rule else
-                "min-height:42px!important;padding:7px 14px!important;font-size:13px!important;"
-                "color:#cbd5e1;background:#172033;"
+                "min-height:46px!important;padding:9px 16px!important;font-size:14px!important;"
+                "font-weight:600;color:#fff;background:#3730a3;" if is_new_rule else
+                "min-height:44px!important;padding:8px 16px!important;font-size:14px!important;"
+                "font-weight:600;color:#dbeafe;background:#172033;"
             )
             rule_content = [
-                {"component": "div", "props": {"style": "padding:8px 0 0;color:#94a3b8;font-size:12px;"},
+                {"component": "div", "props": {"style": "padding:12px 0 4px;color:#94a3b8;font-size:13px;"},
                  "text": "新增映射规则" if is_new_rule else f"编辑映射规则 {rule_index + 1}"},
                 row(
                     col({
@@ -3632,8 +3641,12 @@ class CloudStrmHelper(_PluginBase):
                 "component": "VExpansionPanel",
                 "props": {
                     "value": rule_index, "elevation": 0,
-                    "style": ("background:#202b4b;border:1px solid #6366f1;" if is_new_rule
-                               else "background:#172033;border-bottom:1px solid #334155;"),
+                    "style": (
+                        f"{{{{Number(mapping_new_rule_count || 0) > {new_rule_index} ? '"
+                        "background:#202b4b;border:1px solid #6366f1;' : 'display:none;'}}}}"
+                        if is_new_rule else
+                        "background:#172033;border-bottom:1px solid #334155;"
+                    ),
                 },
                 "content": [
                     {"component": "VExpansionPanelTitle", "props": {"style": title_style},
@@ -3644,36 +3657,49 @@ class CloudStrmHelper(_PluginBase):
                 ],
             })
 
+        mapping_editors_style = (
+            "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:12px;"
+            if form_rules else
+            "{{Number(mapping_new_rule_count || 0) > 0 ? '"
+            "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:12px;'"
+            " : 'display:none;'}}"
+        )
         mapping_editors = {
             "component": "VExpansionPanels",
             "props": {
-                "variant": "accordion", "multiple": False,
+                "variant": "accordion", "multiple": True,
                 "model": "mapping_panel_open",
                 "class": "cloudstrm-mapping-editors",
-                "style": "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:16px;",
+                "style": mapping_editors_style,
             },
             "content": rule_cards,
         }
 
-        mapping_header = {
+        mapping_toolbar = {
             "component": "VRow",
-            "props": {"align": "center", "noGutters": True, "class": "ma-0 mb-2"},
+            "props": {"align": "center", "noGutters": True, "class": "ma-0 mb-3"},
             "content": [
-                {"component": "VCol", "props": {"cols": 8, "class": "pa-0"},
+                {"component": "VCol", "props": {"cols": 9, "class": "pa-0"},
                  "content": [{"component": "span",
-                              "props": {"style": "font-size:15px;font-weight:600;color:#f8fafc;"},
-                              "text": "路径监控与 STRM 映射策略"}]},
-                {"component": "VCol", "props": {"cols": 4, "class": "pa-0 d-flex justify-end"},
+                              "props": {"style": "font-size:13px;color:#94a3b8;"},
+                              "text": "分类、挂载目录、云盘路径与 STRM 模板"}]},
+                {"component": "VCol", "props": {"cols": 3, "class": "pa-0 d-flex justify-end"},
                  "content": [{
                      "component": "VBtn",
-                     "props": {"prependIcon": "mdi-plus", "size": "small",
-                               "variant": "flat", "style": "height:36px;background:#6366f1;color:#fff;"},
-                     "text": "新增映射规则",
+                     "props": {"icon": "mdi-plus", "size": "small", "title": "新增映射规则",
+                               "aria-label": "新增映射规则", "variant": "flat",
+                               "disabled": f"{{{{Number(mapping_new_rule_count || 0) >= {new_rule_capacity}}}}}",
+                               "style": "width:36px;height:36px;background:#6366f1;color:#fff;",
+                               "onClick": (
+                                   "function () { const count = Math.min(Number(mapping_new_rule_count || 0), "
+                                   f"{new_rule_capacity - 1}); mapping_panel_open = [{len(form_rules)} + count]; "
+                                   "mapping_new_rule_count = count + 1; }"
+                               )},
                  }]},
             ],
         }
 
-        mapping_content = [mapping_header, summary_table, mapping_editors]
+        mapping_content = [mapping_toolbar, summary_table, mapping_editors]
 
         form_content = []
         if self._config_errors:
@@ -3774,7 +3800,8 @@ class CloudStrmHelper(_PluginBase):
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             "cron_enabled": True, "scan_interval": 30,
             "_panel_open": [],
-            "mapping_panel_open": rule_slot_count - 1,
+            "mapping_new_rule_count": 0,
+            "mapping_panel_open": [],
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
