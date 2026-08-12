@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.1"
+    plugin_version = "V1.5.2"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -3456,18 +3456,33 @@ class CloudStrmHelper(_PluginBase):
                 "text": "监控方式：OpenList + CD2。移动云盘无官方 API，插件通过 CD2 挂载目录发现文件变化，STRM 内容使用 OpenList 地址模板。",
             },
         }
-        # V1.4.0：结构化映射规则编辑器，运行时配置已由 init_plugin 归一化为旧版文本
+        # The compact mapping summary mirrors the reference table; fields are
+        # expanded only for the rule being edited.
         form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
         rule_slot_count = min(12, len(form_rules) + 1)
         rule_cards = []
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
+            rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
+            categories = self.__category_list(rule.get("category")) or ["未分类"]
+            if is_new_rule:
+                rule_summary = "+ 新增映射规则"
+            else:
+                rule_summary = (
+                    f"{' · '.join(categories)}    |    "
+                    f"CD2: {self.__shorten_path(rule.get('local') or '未配置')}    →    "
+                    f"STRM: {self.__shorten_path(rule.get('strm') or '未配置')}    |    "
+                    f"OpenList: {self.__shorten_path(rule.get('cloud') or '未配置')}"
+                )
             rule_cards.append({
-                "component": "VCard",
-                "props": {"variant": "tonal", "class": "mb-3",
-                          "style": "border:1px dashed rgba(56,189,248,.45);" if is_new_rule else ""},
-                "content": [{
-                    "component": "VCardText", "content": [
+                "component": "VExpansionPanel",
+                "props": {"value": rule_index,
+                          "style": ("background:#1e293b;color:#e2e8f0;border:1px dashed #38bdf8;"
+                                    if is_new_rule else "background:#1e293b;color:#e2e8f0;")},
+                "content": [
+                    {"component": "VExpansionPanelTitle", "props": {"style": "min-height:56px;"},
+                     "text": rule_summary},
+                    {"component": "VExpansionPanelText", "content": [
                         {"component": "div",
                          "props": {"class": "text-caption text-medium-emphasis mb-1"},
                          "text": "新增映射规则" if is_new_rule else f"映射规则 {rule_index + 1}"},
@@ -3495,14 +3510,21 @@ class CloudStrmHelper(_PluginBase):
                         row(
                             col(field("VTextField", f"rule_{rule_index}_cloud", "OpenList 云盘目录",
                                       placeholder="/移动网盘/媒体库/电影", density="compact"), 6),
-                            col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板",
+                             col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板（必须包含 {cloud_file}）",
                                       placeholder="http://192.168.1.10:5244/d{cloud_file}",
                                       density="compact"), 6),
                         ),
-                    ],
-                }],
+                    ]},
+                ],
             })
-        directory_content.extend(rule_cards)
+        directory_content.extend([
+            {"component": "div", "props": {"class": "d-none d-md-flex px-3 py-2",
+                                                    "style": "font-size:12px;color:#94a3b8;background:#1e293b;border-bottom:1px solid #475569;"},
+             "html": "<span style='width:20%'>分类标签</span><span style='width:48%'>CD2 挂载目录 / STRM 生成目录</span><span style='width:32%'>OpenList 云盘目录</span>"},
+            {"component": "VExpansionPanels",
+             "props": {"variant": "accordion", "multiple": True, "model": "mapping_panel_open"},
+             "content": rule_cards},
+        ])
         directory_content.extend([
             row(col(field("VTextarea", "emby_path", "媒体库路径映射", rows=2,
                          placeholder="本地路径=>Emby路径，多组用英文逗号分隔"), 6),
@@ -3566,8 +3588,9 @@ class CloudStrmHelper(_PluginBase):
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             # V1.4.0：定时增量扫描与结构化映射规则默认值
             "cron_enabled": True, "scan_interval": 30,
-            # 界面状态：折叠面板展开组，有配置错误时自动展开「目录映射」
-            "_panel_open": [0, 2] if self._config_errors else [0],
+            # Keep the three workflow sections visible; mapping editors stay collapsed.
+            "_panel_open": [0, 1, 2],
+            "mapping_panel_open": [],
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
