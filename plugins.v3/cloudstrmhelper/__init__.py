@@ -74,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.3.0"
+    plugin_version = "V1.3.1"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -385,27 +385,58 @@ class CloudStrmHelper(_PluginBase):
             return "OpenList 已配置", "success", f"{len(templates)} 个地址模板"
         return "OpenList 未配置", "warning", "目录模板应包含 http(s) 地址"
 
-    def __monitor_table_html(self) -> str:
-        """把目录映射渲染成页面表格。"""
-        table_rows = []
+    def __mapping_rows_html(self) -> str:
+        """把目录映射渲染成轻量卡片数据行，悬停时显示编辑/删除图标。"""
+        rows_html = []
         for row in self.__monitor_config_rows():
-            state = row.get("state") or "-"
+            category = html_escape(row.get("category") or "-")
+            state = html_escape(row.get("state") or "-")
             if not row.get("mounted"):
-                state = f"{state}（目录不可访问）"
-            table_rows.append({
-                "分类": row.get("category") or "-",
-                "状态": state,
-                "本地 STRM 输出目录": self.__shorten_path(row.get("strm_dir") or ""),
-                "移动云盘路径": self.__shorten_path(row.get("cloud_dir") or ""),
-                "OpenList 模板": self.__shorten_path(row.get("format_str") or "", keep=3),
-            })
-        return self.__render_table_html(
-            [{"title": "分类", "key": "分类"},
-             {"title": "状态", "key": "状态"},
-             {"title": "本地 STRM 输出目录", "key": "本地 STRM 输出目录"},
-             {"title": "移动云盘路径", "key": "移动云盘路径"},
-             {"title": "OpenList 模板", "key": "OpenList 模板"}],
-            table_rows, "暂无目录映射，请在插件配置中添加")
+                state += "（目录不可访问）"
+            local_path = html_escape(self.__shorten_path(row.get("strm_dir") or ""))
+            cloud_path = html_escape(self.__shorten_path(row.get("cloud_dir") or ""))
+            full_local = html_escape(row.get("strm_dir") or "")
+            full_cloud = html_escape(row.get("cloud_dir") or "")
+            rows_html.append(
+                '<div class="csm-mapping-row">'
+                f'<span class="csm-mapping-badge">{category}</span>'
+                '<div class="csm-mapping-paths">'
+                f'<div class="csm-mapping-path" title="{full_local}">{local_path}</div>'
+                '<div class="csm-mapping-arrow">→</div>'
+                f'<div class="csm-mapping-path" title="{full_cloud}">{cloud_path}</div>'
+                '</div>'
+                f'<span class="csm-mapping-state">{state}</span>'
+                '<span class="csm-mapping-actions">'
+                '<span title="编辑">✎</span><span title="删除">🗑</span>'
+                '</span>'
+                '</div>'
+            )
+        if not rows_html:
+            rows_html.append('<div class="csm-mapping-empty">暂无目录映射，请在插件配置中添加</div>')
+        return (
+            '<style>'
+            '.csm-mapping-row{display:flex;align-items:center;gap:10px;padding:10px 12px;'
+            'border:1px solid rgba(55,65,81,.55);border-radius:10px;background:#111827;margin-bottom:8px;'
+            'transition:background .15s ease,box-shadow .15s ease;}'
+            '.csm-mapping-row:hover{background:#1f2937;box-shadow:0 2px 10px rgba(0,0,0,.18);}'
+            '.csm-mapping-badge{flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;color:#38bdf8;'
+            'border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;white-space:nowrap;}'
+            '.csm-mapping-paths{flex:1 1 auto;display:flex;align-items:center;gap:8px;min-width:0;color:#e5e7eb;'
+            'font-family:Consolas,Monaco,monospace;font-size:12px;}'
+            '.csm-mapping-path{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38%;}'
+            '.csm-mapping-arrow{color:#6b7280;flex:0 0 auto;}'
+            '.csm-mapping-state{flex:0 0 auto;color:#9ca3af;font-size:11px;white-space:nowrap;}'
+            '.csm-mapping-actions{flex:0 0 auto;opacity:0;color:#9ca3af;font-size:14px;'
+            'transition:opacity .15s ease;}'
+            '.csm-mapping-row:hover .csm-mapping-actions{opacity:1;}'
+            '.csm-mapping-actions span{cursor:pointer;margin-left:6px;}'
+            '.csm-mapping-actions span:first-child{color:#38bdf8;}'
+            '.csm-mapping-actions span:last-child{color:#f43f5e;}'
+            '.csm-mapping-empty{color:#6b7280;padding:18px 12px;text-align:center;font-size:13px;}'
+            '</style>'
+            + "".join(rows_html)
+        )
+
 
     @staticmethod
     def __task_now() -> str:
@@ -3104,87 +3135,224 @@ class CloudStrmHelper(_PluginBase):
                 "text": filter_label,
                 "events": {"click": {"api": detail_url, "method": "GET",
                                              "params": ({"status": filter_status} if filter_status else {})}},
-            })
+             })
         monitor_rows = self.__monitor_config_rows()
         monitor_status, monitor_color, monitor_detail = self.__monitor_status()
         openlist_status, openlist_color, openlist_detail = self.__openlist_status()
         strm_total = len(self._generated_files)
         failed_total = overview_stats.get("failed", 0)
-        feed_rows = []
-        for item in latest_items[:8]:
-            feed_rows.append({
-                "时间": item.get("created_at") or "-",
-                "动作": item.get("action") or "-",
-                "来源": self.__shorten_path(item.get("source_file") or ""),
-                "结果": status_names.get(item.get("status"), item.get("status") or "-"),
-                "原因": item.get("reason") or "-",
-            })
-        overview_card = {
+        skipped_total = overview_stats.get("skipped", 0)
+        tasks_url = f"plugin/{self.__class__.__name__}/tasks"
+
+        def metric(title, value, color_class="text-body-1"):
+            metric_colors = {
+                "text-primary": "#38bdf8",
+                "text-success": "#10b981",
+                "text-error": "#f43f5e",
+            }
+            value_color = metric_colors.get(color_class, "#e5e7eb")
+            metric_html = (
+                f"<div style=\"background:#111827;border:1px solid rgba(55,65,81,.55);"
+                f"border-radius:10px;padding:10px 12px;\">"
+                f"<div style=\"color:#9ca3af;font-size:11px;\">{html_escape(title)}</div>"
+                f"<div style=\"color:{value_color};font-size:20px;font-weight:700;\">"
+                f"{html_escape(str(value))}</div></div>"
+            )
+            return {
+                "component": "VCol",
+                "props": {"cols": 6, "md": 6},
+                "content": [{"component": "div", "html": metric_html}],
+            }
+
+        def strategy_switch(label, subtitle, on):
+            return {
+                "component": "VListItem",
+                "props": {"title": label, "subtitle": subtitle, "lines": "two",
+                          "density": "compact"},
+                "content": [{
+                    "component": "VSwitch",
+                    "props": {"modelValue": bool(on), "disabled": True, "color": "primary",
+                              "hideDetails": True, "density": "compact"},
+                }],
+            }
+
+        scan_button = {
+            "component": "VBtn",
+            "props": {"prependIcon": "mdi-play", "color": "primary", "variant": "flat",
+                      "disabled": is_running},
+            "text": "立即全量扫描（运行中）" if is_running else "立即全量扫描",
+            "events": {"click": {"api": tasks_url, "method": "POST",
+                                 "params": {"kind": "full_scan"}}},
+        }
+        refresh_button = {
+            "component": "VBtn",
+            "props": {"prependIcon": "mdi-refresh", "variant": "text"},
+            "text": "查看日志",
+            "events": {"click": {"api": tasks_url, "method": "GET", "params": {}}},
+        }
+        save_button = {
+            "component": "VBtn",
+            "props": {"prependIcon": "mdi-content-save", "variant": "flat",
+                      "disabled": True, "title": "请到插件设置页修改并保存"},
+            "text": "保存配置",
+        }
+
+        header_card = {
             "component": "VCard",
             "props": {"variant": "tonal", "class": "mb-4"},
             "content": [
-                {"component": "VCardTitle", "text": "OpenList + CD2 监控台"},
                 {"component": "VCardText", "content": [
                     {"component": "VRow", "content": [
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(monitor_status, monitor_color)]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
+                        {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
+                            {"component": "div", "html":
+                                "<div class=\"text-h6\">中国移动云盘 STRM 助手</div>"
+                                "<div class=\"text-subtitle-1 text-medium-emphasis\">"
+                                "OpenList + CD2 · 自动化 STRM 生成与 MoviePilot 联动</div>"},
+                        ]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 2},
+                         "content": [chip(f"OpenList + CD2 · {monitor_status}", monitor_color)]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 2},
                          "content": [chip(openlist_status, openlist_color)]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"监控目录 {len(monitor_rows)}")]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"本地 STRM {strm_total}", "primary")]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [
+                            {"component": "VRow", "content": [
+                                {"component": "VCol", "props": {"cols": 6},
+                                 "content": [refresh_button]},
+                                {"component": "VCol", "props": {"cols": 6},
+                                 "content": [save_button]},
+                            ]},
+                        ]},
+                    ]},
+                ]},
+            ],
+        }
+
+        kpi_card = {
+            "component": "VCard",
+            "props": {"class": "mb-4"},
+            "content": [
+                {"component": "VCardTitle", "text": "账号与监控指标"},
+                {"component": "VCardText", "content": [
+                    {"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 6, "md": 6},
+                         "content": [chip(monitor_status, monitor_color)]},
+                        {"component": "VCol", "props": {"cols": 6, "md": 6},
+                         "content": [chip(openlist_status, openlist_color)]},
                     ]},
                     {"component": "VRow", "content": [
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"最近成功 {overview_stats.get('success', 0)}", "success")]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"跳过 {overview_stats.get('skipped', 0)}", "warning")]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"失败 {failed_total}", "error" if failed_total else "success")]},
-                        {"component": "VCol", "props": {"cols": 6, "md": 3},
-                         "content": [chip(f"当前任务：{current_label}", current_color)]},
+                        metric("本地 STRM 总数", f"{strm_total} 个", "text-primary"),
+                        metric("已跳过 / 失败", f"{skipped_total} / {failed_total}",
+                               "text-error" if failed_total else "text-success"),
                     ]},
-                    {"component": "VAlert", "props": {"type": "info", "variant": "tonal", "density": "compact", "class": "mt-2"},
+                    *([{"component": "VRow", "content": [
+                        {"component": "VCol", "props": {"cols": 12}, "content": [
+                            {"component": "VProgressLinear", "props": {
+                                "modelValue": current_progress, "height": 8, "rounded": True,
+                                "color": "primary",
+                                "indeterminate": not bool(current_stats.get("discovered"))}},
+                        ]},
+                    ]}] if is_running else []),
+                    {"component": "VAlert",
+                     "props": {"type": "info", "variant": "tonal", "density": "compact",
+                               "class": "mt-2"},
                      "text": f"移动云盘无官方 API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。{monitor_detail}{openlist_detail}"},
                 ]},
             ],
         }
+
+        strategy_items = [
+            strategy_switch("启用插件", "插件服务与定时任务", self._enabled),
+            strategy_switch("OpenList + CD2 实时监控", "CD2 挂载目录实时发现文件变化",
+                            self._enabled and self._monitor),
+            strategy_switch("入库通知", "任务完成与媒体入库通知", self._notify),
+            strategy_switch("同步删除生成文件", "源文件删除时清理本地 STRM", self._sync_delete),
+            strategy_switch("复制字幕文件", "同步字幕与旁车文件", self._copy_subtitles),
+        ]
+        strategy_card = {
+            "component": "VCard",
+            "props": {"class": "mb-4"},
+            "content": [
+                {"component": "VCardTitle", "text": "策略控制面板"},
+                {"component": "VCardText", "content": [
+                    {"component": "VList", "props": {"density": "compact"},
+                     "content": strategy_items},
+                ]},
+                {"component": "VCardActions", "content": [scan_button]},
+            ],
+        }
+
         mapping_card = {
             "component": "VCard",
             "props": {"class": "mb-4"},
             "content": [
                 {"component": "VCardTitle", "text": "路径监控与 STRM 映射策略"},
-                {"component": "VCardSubtitle", "text": "OpenList + CD2 · 移动云盘无官方 API"},
+                {"component": "VCardSubtitle",
+                 "text": f"本地 STRM 输出目录 → 移动云盘绝对路径 · 共 {len(monitor_rows)} 条映射"},
                 {"component": "VCardText", "content": [
-                    {"component": "div", "html": self.__monitor_table_html()},
+                    {"component": "div", "html": self.__mapping_rows_html()},
+                ]},
+                {"component": "VCardActions", "content": [
+                    {"component": "VBtn",
+                     "props": {"prependIcon": "mdi-plus", "variant": "tonal", "disabled": True,
+                               "title": "请到插件设置页添加映射规则"},
+                     "text": "添加映射规则"},
                 ]},
             ],
         }
-        feed_headers = [
-            {"title": "时间", "key": "时间"},
-            {"title": "动作", "key": "动作"},
-            {"title": "来源", "key": "来源"},
-            {"title": "结果", "key": "结果"},
-            {"title": "原因", "key": "原因"},
-        ]
+
+        feed_lines = []
+        for item in latest_items[:8]:
+            feed_time = item.get("created_at") or "-"
+            item_status = item.get("status") or ""
+            item_action = item.get("action") or "-"
+            item_reason = item.get("reason") or "-"
+            feed_source = self.__shorten_path(item.get("source_file") or "")
+            if item_status == "success":
+                feed_tag = "STRM-GEN"
+                feed_color = "#10b981"
+                feed_message = f"生成文件 -> {feed_source}"
+            elif item_status == "failed":
+                feed_tag = "FAIL"
+                feed_color = "#f43f5e"
+                feed_message = f"{feed_source} {item_reason}"
+            elif item_status == "skipped":
+                feed_tag = "SKIP"
+                feed_color = "#f59e0b"
+                feed_message = f"跳过 {feed_source} {item_reason}"
+            else:
+                feed_tag = "EVENT"
+                feed_color = "#38bdf8"
+                feed_message = f"{item_action} {feed_source} {item_reason}"
+            feed_lines.append(
+                f"<div><span style=\"color:#6b7280\">[{html_escape(feed_time)}]</span> "
+                f"<span style=\"color:{feed_color}\">[{feed_tag}]</span> "
+                f"<span style=\"color:#e5e7eb\">{html_escape(feed_message)}</span></div>"
+            )
+        if not feed_lines:
+            feed_lines.append("<div><span style=\"color:#6b7280\">暂无同步记录，等待任务开始...</span></div>")
+        feed_html = (
+            "<div style=\"background:#0b0f19;border:1px solid #1f2937;border-radius:10px;"
+            "padding:12px 14px;font-family:Consolas,Monaco,monospace;font-size:12px;"
+            "line-height:1.8;overflow:auto;height:180px;box-sizing:border-box;\">"
+            + "".join(feed_lines) + "</div>"
+        )
         feed_card = {
             "component": "VCard",
             "props": {"class": "mb-4"},
             "content": [
-                {"component": "VCardTitle", "text": "最近同步明细"},
-                {"component": "VCardSubtitle", "text": "来自当前任务或最近一次任务"},
+                {"component": "VCardTitle", "text": "实时同步任务与运行日志"},
+                {"component": "VCardSubtitle", "text": "Live Log Feed · 最近任务明细"},
                 {"component": "VCardText", "content": [
-                    {"component": "div", "html": self.__render_table_html(feed_headers, feed_rows, "暂无同步明细")},
+                    {"component": "div", "html": feed_html},
                 ]},
             ],
         }
         page = [
+            header_card,
             {
                 "component": "VRow",
                 "content": [
-                    {"component": "VCol", "props": {"cols": 12, "md": 5}, "content": [overview_card]},
-                    {"component": "VCol", "props": {"cols": 12, "md": 7}, "content": [mapping_card, feed_card]},
+                    {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [kpi_card, strategy_card]},
+                    {"component": "VCol", "props": {"cols": 12, "md": 8}, "content": [mapping_card, feed_card]},
                 ],
             },
             {
