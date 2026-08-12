@@ -74,7 +74,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.5"
+    plugin_version = "V1.5.6"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -1332,7 +1332,7 @@ class CloudStrmHelper(_PluginBase):
         "notify": "任务与入库通知",
     }
     _config_toggle_defaults = {"cron_enabled": True}
-    _form_ui_state_keys = {"mapping_new_rule_count", "mapping_panel_open"}
+    _form_ui_state_keys = {"mapping_panel_open"}
 
     def __api_config_toggle(self, payload: Optional[dict] = Body(default=None)):
         """页面开关：服务端翻转指定布尔配置并写入暂存，保存后生效。"""
@@ -3520,10 +3520,10 @@ class CloudStrmHelper(_PluginBase):
         saved_config = self.__current_saved_config()
         form_rules = self.__rules_from_config(saved_config) if saved_config else \
             self.__rules_from_monitor_confs(self._monitor_confs)
-        # The host renders a static form tree. Reserve hidden slots and reveal
-        # them on demand so the add action works without a page refresh.
-        new_rule_capacity = 12
-        rule_slot_count = len(form_rules) + new_rule_capacity
+        # Keep a single, concrete add editor in the static form tree. MoviePilot
+        # reliably updates expansion-panel state, while runtime style expressions
+        # do not reliably re-render dynamic form sections.
+        rule_slot_count = len(form_rules) + 1
 
         # The summary is intentionally plain HTML: it keeps the table compact
         # and avoids Vuetify data-table defaults changing the target proportions.
@@ -3580,7 +3580,6 @@ class CloudStrmHelper(_PluginBase):
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
-            new_rule_index = rule_index - len(form_rules)
             categories = self.__category_list(rule.get("category")) or ["未分类"]
             if is_new_rule:
                 rule_summary = "+ 新增映射规则（填写后保存）"
@@ -3641,12 +3640,9 @@ class CloudStrmHelper(_PluginBase):
                 "component": "VExpansionPanel",
                 "props": {
                     "value": rule_index, "elevation": 0,
-                    "style": (
-                        f"{{{{Number(mapping_new_rule_count || 0) > {new_rule_index} ? '"
-                        "background:#202b4b;border:1px solid #6366f1;' : 'display:none;'}}}}"
-                        if is_new_rule else
-                        "background:#172033;border-bottom:1px solid #334155;"
-                    ),
+                    "style": ("background:#202b4b;border:1px solid #6366f1;"
+                               if is_new_rule else
+                               "background:#172033;border-bottom:1px solid #334155;"),
                 },
                 "content": [
                     {"component": "VExpansionPanelTitle", "props": {"style": title_style},
@@ -3657,20 +3653,13 @@ class CloudStrmHelper(_PluginBase):
                 ],
             })
 
-        mapping_editors_style = (
-            "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:12px;"
-            if form_rules else
-            "{{Number(mapping_new_rule_count || 0) > 0 ? '"
-            "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:12px;'"
-            " : 'display:none;'}}"
-        )
         mapping_editors = {
             "component": "VExpansionPanels",
             "props": {
                 "variant": "accordion", "multiple": True,
                 "model": "mapping_panel_open",
                 "class": "cloudstrm-mapping-editors",
-                "style": mapping_editors_style,
+                "style": "background:transparent;border:1px solid #475569;border-radius:8px;overflow:hidden;margin-top:16px;",
             },
             "content": rule_cards,
         }
@@ -3679,22 +3668,17 @@ class CloudStrmHelper(_PluginBase):
             "component": "VRow",
             "props": {"align": "center", "noGutters": True, "class": "ma-0 mb-3"},
             "content": [
-                {"component": "VCol", "props": {"cols": 9, "class": "pa-0"},
+                {"component": "VCol", "props": {"cols": 8, "class": "pa-0"},
                  "content": [{"component": "span",
                               "props": {"style": "font-size:13px;color:#94a3b8;"},
                               "text": "分类、挂载目录、云盘路径与 STRM 模板"}]},
-                {"component": "VCol", "props": {"cols": 3, "class": "pa-0 d-flex justify-end"},
+                {"component": "VCol", "props": {"cols": 4, "class": "pa-0 d-flex justify-end"},
                  "content": [{
                      "component": "VBtn",
-                     "props": {"icon": "mdi-plus", "size": "small", "title": "新增映射规则",
-                               "aria-label": "新增映射规则", "variant": "flat",
-                               "disabled": f"{{{{Number(mapping_new_rule_count || 0) >= {new_rule_capacity}}}}}",
-                               "style": "width:36px;height:36px;background:#6366f1;color:#fff;",
-                               "onClick": (
-                                   "function () { const count = Math.min(Number(mapping_new_rule_count || 0), "
-                                   f"{new_rule_capacity - 1}); mapping_panel_open = [{len(form_rules)} + count]; "
-                                   "mapping_new_rule_count = count + 1; }"
-                               )},
+                     "props": {"prependIcon": "mdi-plus", "size": "small",
+                               "variant": "flat", "style": "height:36px;background:#6366f1;color:#fff;",
+                               "onClick": f"function () {{ mapping_panel_open = [{len(form_rules)}]; }}"},
+                     "text": "新增映射规则",
                  }]},
             ],
         }
@@ -3800,8 +3784,7 @@ class CloudStrmHelper(_PluginBase):
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             "cron_enabled": True, "scan_interval": 30,
             "_panel_open": [],
-            "mapping_new_rule_count": 0,
-            "mapping_panel_open": [],
+            "mapping_panel_open": [len(form_rules)],
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
