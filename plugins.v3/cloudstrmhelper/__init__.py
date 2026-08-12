@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.4.2"
+    plugin_version = "V1.4.3"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -158,6 +158,18 @@ class CloudStrmHelper(_PluginBase):
     _task_history_save_interval = 0.5
     _task_history_save_batch = 20
     _config_errors = []
+    # V1.4.3：任务明细保留策略，避免 task_history.json 因逐文件明细无限膨胀
+    _task_history_detail_tasks = 1
+    _task_history_item_limit = 10000
+    _task_history_failed_items_limit = 2000
+    # V1.4.3：远程挂载目录状态缓存，页面请求不再同步检查 is_dir
+    _dir_status_lock = threading.Lock()
+    _dir_status = {}
+    _dir_status_thread = None
+    _dir_status_generation = 0
+    _dir_status_last_refresh = 0.0
+    _dir_status_refresh_interval = 30.0
+    _dir_check_timeout = 2.0
     # V1.4.0：定时增量扫描（对应设计稿「定时增量扫描」开关）
     _cron_enabled = True
     _scan_interval = 30
@@ -509,6 +521,87 @@ class CloudStrmHelper(_PluginBase):
                 errors.append(f"{local_dir} 格式化模板缺少 {{local_file}} 或 {{cloud_file}}")
         return errors
 
+    def __probe_dir(self, path: str) -> dict:
+        path = str(path or "").strip()
+        if not path:
+            return {"state": "unavailable", "detail": "未配置本地目录", "checked_at": time.time()}
+        result = {"ok": False, "error": ""}
+
+        def probe():
+            try:
+                result["ok"] = Path(path).is_dir()
+            except Exception as err:
+                result["error"] = str(err)
+
+        thread = threading.Thread(target=probe, daemon=True)
+        thread.start()
+        thread.join(timeout=self._dir_check_timeout)
+        if thread.is_alive():
+            return {"state": "unavailable", "detail": "检查超时", "checked_at": time.time()}
+        if result["ok"]:
+            return {"state": "available", "detail": "", "checked_at": time.time()}
+        return {"state": "unavailable", "detail": result.get("error") or "目录不存在或不可访问",
+                "checked_at": time.time()}
+
+    def __refresh_dir_statuses(self):
+        generation = self._dir_status_generation
+        paths = []
+        for rule in self.__rules_from_monitor_confs(self._monitor_confs):
+            local_dir = str(rule.get("local") or "").strip()
+            if local_dir and local_dir not in paths:
+                paths.append(local_dir)
+        results = {}
+        threads = []
+        for path in paths:
+            results[path] = {"state": "checking", "detail": "", "checked_at": time.time()}
+
+            def probe(path=path):
+                results[path] = self.__probe_dir(path)
+
+            thread = threading.Thread(target=probe, daemon=True)
+            thread.start()
+            threads.append(thread)
+        for thread in threads:
+            thread.join(timeout=self._dir_check_timeout + 0.5)
+        with self._dir_status_lock:
+            if generation != self._dir_status_generation:
+                if self._dir_status_thread is threading.current_thread():
+                    self._dir_status_thread = None
+                return
+            for path in paths:
+                self._dir_status[path] = results.get(path) or {
+                    "state": "checking", "detail": "", "checked_at": time.time()}
+            self._dir_status_last_refresh = time.time()
+            if self._dir_status_thread is threading.current_thread():
+                self._dir_status_thread = None
+
+    def __ensure_dir_status_refresh(self, force: bool = False):
+        with self._dir_status_lock:
+            thread = self._dir_status_thread
+            if thread and thread.is_alive():
+                return
+            if not force and time.time() - self._dir_status_last_refresh < self._dir_status_refresh_interval:
+                return
+            self._dir_status_thread = threading.Thread(
+                target=self.__refresh_dir_statuses, daemon=True)
+            self._dir_status_thread.start()
+
+    def __dir_status(self, path: str) -> Tuple[str, str, str, str]:
+        path = str(path or "").strip()
+        if not path:
+            return "unavailable", "未配置", "#f43f5e", "未配置本地目录"
+        with self._dir_status_lock:
+            info = self._dir_status.get(path) or {}
+        state = info.get("state") or "checking"
+        detail = info.get("detail") or ""
+        if state == "available":
+            text, color = "可访问", "#10b981"
+        elif state == "unavailable":
+            text, color = "不可访问", "#f43f5e"
+        else:
+            text, color = "检查中", "#94a3b8"
+        return state, text, color, detail
+
     def __monitor_config_rows(self) -> List[Dict[str, Any]]:
         """把目录配置解析成页面可展示的映射行，不依赖插件是否已启用。"""
         rows: List[Dict[str, Any]] = []
@@ -546,6 +639,7 @@ class CloudStrmHelper(_PluginBase):
                 monitor_state = "监控中"
             else:
                 monitor_state = "已配置"
+            dir_state, dir_state_text, dir_state_color, dir_detail = self.__dir_status(local_dir)
             rows.append({
                 "category": category or "-",
                 "state": monitor_state,
@@ -553,7 +647,11 @@ class CloudStrmHelper(_PluginBase):
                 "strm_dir": strm_dir,
                 "cloud_dir": cloud_dir or "-",
                 "format_str": format_str or "-",
-                "mounted": Path(local_dir).is_dir(),
+                "mounted": dir_state == "available",
+                "dir_state": dir_state,
+                "dir_state_text": dir_state_text,
+                "dir_state_color": dir_state_color,
+                "dir_detail": dir_detail,
             })
         return rows
 
@@ -564,11 +662,17 @@ class CloudStrmHelper(_PluginBase):
             return "插件已停用", "default", "启用插件并保存配置后开始监控"
         if not rows:
             return "未配置目录", "warning", "请在“路径监控与 STRM 映射策略”中配置目录"
-        mounted = sum(1 for row in rows if row.get("mounted"))
-        if mounted == 0:
+        dir_states = [row.get("dir_state") for row in rows]
+        mounted = dir_states.count("available")
+        checking = dir_states.count("checking")
+        if not mounted and not checking:
             return "CD2 挂载异常", "error", f"{len(rows)} 个监控目录均不可访问"
+        if not mounted and checking:
+            return "CD2 挂载检查中", "info", "目录状态正在后台检查，请稍候"
+        if checking and mounted < len(rows):
+            return "CD2 部分检查中", "info", f"可用 {mounted}/{len(rows)}，其余目录状态检查中"
         if mounted < len(rows):
-            return "CD2 部分异常", "warning", f"仅 {mounted}/{len(rows)} 个监控目录可访问"
+            return "CD2 部分异常", "warning", f"可用 {mounted}/{len(rows)}，{len(rows) - mounted} 个目录异常"
         if not self._monitor:
             return "已启用（未开启实时监控）", "info", "可开启 OpenList + CD2 实时监控"
         return "OpenList + CD2 监控中", "success", f"{len(rows)} 个 CD2 目录正常"
@@ -638,7 +742,10 @@ class CloudStrmHelper(_PluginBase):
                 with open(path, "r", encoding="utf-8") as file:
                     data = json.load(file)
                 if isinstance(data, list):
-                    self._task_history = [item for item in data if isinstance(item, dict)][-self._task_history_limit:]
+                    tasks = [item for item in data if isinstance(item, dict)]
+                    if len(tasks) > self._task_history_limit:
+                        changed = True
+                    self._task_history = tasks[-self._task_history_limit:]
         except (OSError, ValueError) as err:
             logger.warning(f"读取任务历史失败：{err}")
             self._task_history = []
@@ -657,6 +764,8 @@ class CloudStrmHelper(_PluginBase):
             running = next((task for task in reversed(self._task_history)
                             if task.get("status") == "running"), None)
             self._task_active_id = running.get("id") if running else None
+            if self.__trim_task_history():
+                changed = True
         if changed:
             try:
                 self.__save_task_history(force=True)
@@ -664,16 +773,37 @@ class CloudStrmHelper(_PluginBase):
                 logger.warning(f"保存中断任务历史失败：{err}")
 
     def __task_snapshot(self, task: dict, include_items: bool = True) -> dict:
-        snapshot = deepcopy(task)
         if not include_items:
-            snapshot.pop("items", None)
-        return snapshot
+            return {key: deepcopy(value) for key, value in task.items() if key != "items"}
+        return deepcopy(task)
 
     def __trim_task_history(self):
+        trimmed = False
         with self._task_history_lock:
+            before = sum(len(task.get("items") or []) for task in self._task_history)
             ended = [item for item in self._task_history if item.get("status") != "running"]
             running = [item for item in self._task_history if item.get("status") == "running"]
-            self._task_history = ended[-self._task_history_limit:] + running
+            ended = ended[-self._task_history_limit:] if ended else ended
+            newest_first = list(reversed(ended))
+            for offset, task in enumerate(newest_first):
+                items = task.get("items") or []
+                if not items:
+                    continue
+                if offset < self._task_history_detail_tasks:
+                    if len(items) > self._task_history_item_limit:
+                        task["items"] = items[-self._task_history_item_limit:]
+                else:
+                    failed = [item for item in items if item.get("status") == "failed"]
+                    if len(failed) > self._task_history_failed_items_limit:
+                        failed = failed[-self._task_history_failed_items_limit:]
+                    task["items"] = failed
+            for task in running:
+                items = task.get("items") or []
+                if len(items) > self._task_history_item_limit:
+                    task["items"] = items[-self._task_history_item_limit:]
+            self._task_history = ended + running
+            trimmed = sum(len(task.get("items") or []) for task in self._task_history) < before
+        return trimmed
 
     def __task_summary(self, task: dict) -> dict:
         summary = self.__task_snapshot(task, include_items=False)
@@ -745,6 +875,7 @@ class CloudStrmHelper(_PluginBase):
         result.setdefault("id", uuid.uuid4().hex[:12])
         result.setdefault("status", "failed")
         result.setdefault("created_at", self.__task_now())
+        trim_now = False
         with self._task_history_lock:
             task = next((item for item in self._task_history if item.get("id") == task_id), None)
             if not task or task.get("status") != "running":
@@ -757,6 +888,7 @@ class CloudStrmHelper(_PluginBase):
             if duplicate:
                 return
             task["items"].append(result)
+            trim_now = len(task["items"]) % 500 == 0
             task["stats"]["processed"] += 1
             status = result.get("status")
             if status not in {"success", "skipped", "failed"}:
@@ -767,6 +899,8 @@ class CloudStrmHelper(_PluginBase):
             task["updated_at"] = self.__task_now()
             self._task_history_dirty += 1
         self.__save_task_history()
+        if trim_now:
+            self.__trim_task_history()
 
     def __task_is_stopped(self, task_id: str) -> bool:
         # Each worker keeps its own event so a plugin reload cannot clear the
@@ -843,17 +977,20 @@ class CloudStrmHelper(_PluginBase):
             self._task_stop_events.pop(task_id, None)
             self._task_generations.pop(task_id, None)
             self._task_history_dirty += 1
-            finished = self.__task_snapshot(task)
-            ended = [item for item in self._task_history if item.get("status") != "running"]
-            self._task_history = ended[-self._task_history_limit:] + [
-                item for item in self._task_history if item.get("status") == "running"
-            ]
+            finished = self.__task_snapshot(task, include_items=False)
+            self.__trim_task_history()
         self.__save_task_history(force=True)
         self.__notify_task(finished, channel=channel, userid=userid)
         # V1.4.0：任务结束写入实时事件流，供页面 Live Log Feed 展示
         finished_stats = (finished or {}).get("stats") or {}
         kind_names = {"full_scan": "全量扫描", "targeted": "定向同步", "retry": "失败重试"}
         status_names = {"success": "成功", "partial": "部分成功", "failed": "失败", "interrupted": "已中断"}
+        task_duration = self.__task_duration(finished or {}) or 0
+        logger.info(
+            f"{kind_names.get((finished or {}).get('kind'), '任务')}"
+            f"{status_names.get((finished or {}).get('status'), '结束')}："
+            f"新增 {finished_stats.get('success', 0)}，跳过 {finished_stats.get('skipped', 0)}，"
+            f"失败 {finished_stats.get('failed', 0)}，总耗时 {task_duration:.1f} 秒")
         self.__log_event(
             "TASK",
             f"{kind_names.get((finished or {}).get('kind'), '任务')}"
@@ -960,6 +1097,19 @@ class CloudStrmHelper(_PluginBase):
         except (TypeError, ValueError):
             return None
 
+    def __task_page_snapshot(self, task_id: str, status: str = None, limit: int = 100) -> Optional[dict]:
+        with self._task_history_lock:
+            task = next((item for item in self._task_history if item.get("id") == task_id), None)
+            if not task:
+                return None
+            summary = self.__task_summary(task)
+            items = task.get("items") or []
+            if status:
+                items = [item for item in items if item.get("status") == status]
+            summary["items"] = deepcopy(items[:limit])
+            summary["item_total"] = len(items)
+        return summary
+
     def __api_tasks(self, status: str = None):
         summaries = []
         with self._task_history_lock:
@@ -974,28 +1124,28 @@ class CloudStrmHelper(_PluginBase):
 
     def __api_task_detail(self, task_id: str, status: str = None, page: int = 1,
                           page_size: int = 50):
-        task = self.__get_task(task_id)
-        if not task:
-            return self.__api_error(404, f"任务不存在：{task_id}")
         try:
             page = max(1, int(page))
             page_size = min(200, max(1, int(page_size)))
         except (TypeError, ValueError):
             return self.__api_error(400, "page 和 page_size 必须是数字")
-        items = task.get("items") or []
-        if status:
-            if status not in {"success", "skipped", "failed"}:
-                return self.__api_error(400, "明细状态只能是 success、skipped 或 failed")
-            items = [item for item in items if item.get("status") == status]
-        total = len(items)
-        start = (page - 1) * page_size
-        detail = self.__task_snapshot(task)
-        detail["items"] = deepcopy(items[start:start + page_size])
-        detail["pagination"] = {
-            "page": page, "page_size": page_size, "total": total,
-            "pages": (total + page_size - 1) // page_size if total else 0,
-        }
-        detail["duration_seconds"] = self.__task_duration(detail)
+        if status and status not in {"success", "skipped", "failed"}:
+            return self.__api_error(400, "明细状态只能是 success、skipped 或 failed")
+        with self._task_history_lock:
+            task = next((item for item in self._task_history if item.get("id") == task_id), None)
+            if not task:
+                return self.__api_error(404, f"任务不存在：{task_id}")
+            detail = self.__task_summary(task)
+            items = task.get("items") or []
+            if status:
+                items = [item for item in items if item.get("status") == status]
+            total = len(items)
+            start = (page - 1) * page_size
+            detail["items"] = deepcopy(items[start:start + page_size])
+            detail["pagination"] = {
+                "page": page, "page_size": page_size, "total": total,
+                "pages": (total + page_size - 1) // page_size if total else 0,
+            }
         return detail
 
     def __api_start_task(self, payload: Optional[dict] = Body(default=None)):
@@ -1213,6 +1363,28 @@ class CloudStrmHelper(_PluginBase):
         return {"editing": editing,
                 "message": "映射规则的新增与编辑请在插件「设置 → 路径监控与 STRM 映射策略」中完成"}
 
+    def __api_mapping_toggle_monitor(self, index: int, payload: Optional[dict] = Body(default=None)):
+        try:
+            index = int(index)
+        except (TypeError, ValueError):
+            return self.__api_error(400, "index 必须是数字")
+        saved = self.__current_saved_config()
+        with self._staged_lock:
+            staged = dict(self._staged_config or {})
+            rules = deepcopy(staged["_rules"]) if "_rules" in staged \
+                else self.__rules_from_config(saved)
+            if index < 0 or index >= len(rules):
+                return self.__api_error(404, f"映射规则不存在：第 {index + 1} 条")
+            rules[index]["monitor"] = not bool(rules[index].get("monitor", True))
+            staged["_rules"] = rules
+            self._staged_config = staged
+        rule = rules[index]
+        rule_monitor = bool(rule.get("monitor", True))
+        label = rule.get("category") or rule.get("local") or f"第 {index + 1} 条"
+        self.__log_event("CONFIG",
+                        f"映射规则「{label}」实时监控已{'开启' if rule_monitor else '关闭'}（待保存）")
+        return {"index": index, "monitor": rule_monitor, "staged": True}
+
     def __api_extension_remove(self, payload: Optional[dict] = Body(default=None)):
         """从监控扩展名列表移除一个格式，变更写入暂存。"""
         ext = str((payload or {}).get("ext") or "").strip().lower()
@@ -1245,8 +1417,6 @@ class CloudStrmHelper(_PluginBase):
     def __api_get_task(self, task_id: str, status: str = None, page: int = 1, page_size: int = 50):
         if status and status not in {"success", "skipped", "failed"}:
             return self.__api_error(400, "明细状态只能是 success、skipped 或 failed")
-        if not self.__get_task(task_id):
-            return self.__api_error(404, f"任务不存在：{task_id}")
         self._page_task_id = task_id
         self._page_filter_status = status or None
         return self.__api_task_detail(task_id, status, page, page_size)
@@ -1299,6 +1469,10 @@ class CloudStrmHelper(_PluginBase):
         self._page_task_id = None
         self._task_selected_items = {}
         self._config_errors = []
+        with self._dir_status_lock:
+            self._dir_status = {}
+            self._dir_status_last_refresh = 0.0
+            self._dir_status_generation += 1
         self.mediaserver_helper = MediaServerHelper()
         self.__load_generated_files()
         self.__load_task_history()
@@ -1368,6 +1542,8 @@ class CloudStrmHelper(_PluginBase):
 
         self._media_exts = self.__normalise_extensions(self._rmt_mediaext, self._default_rmt_mediaext)
         self._other_exts = self.__normalise_extensions(self._other_mediaext, self._default_other_mediaext)
+
+        self.__ensure_dir_status_refresh(force=True)
 
         # Saving a disabled plugin still reinitializes it. Validate here so the
         # form can show actionable feedback before a task is ever started.
@@ -1441,6 +1617,14 @@ class CloudStrmHelper(_PluginBase):
                     try:
                         if self._monitor:
                             # 兼容模式，目录同步性能降低且NAS不能休眠，但可以兼容挂载的远程共享目录如SMB
+                            dir_state, _, _, dir_detail = self.__dir_status(local_dir)
+                            if dir_state == "unavailable":
+                                logger.warning(
+                                    f"{local_dir} 当前不可访问，已跳过实时监控："
+                                    f"{dir_detail or '目录不存在或不可访问'}")
+                                self.__log_event("MONITOR",
+                                                f"{local_dir} 不可访问，实时监控已跳过")
+                                continue
                             observer = PollingObserver(timeout=10)
                             self._observer.append(observer)
                             observer.schedule(FileMonitorHandler(local_dir, self), path=local_dir, recursive=True)
@@ -1503,12 +1687,15 @@ class CloudStrmHelper(_PluginBase):
         """
         if record_task and not task_id:
             scope = {"path": scan_path or "", "monitor_path": mon_path or ""}
-            return self.__start_task(
+            result = self.__start_task(
                 "full_scan", scope,
                 lambda _task_id: self.scan(scan_path=scan_path, mon_path=mon_path,
                                            task_id=_task_id, record_task=False),
                 channel=channel, userid=userid,
             )
+            if isinstance(result, dict) and not result.get("accepted", True):
+                logger.info("全量扫描请求被拒绝：已有任务正在运行，跳过本次")
+            return result
         logger.info("开始全量执行")
         monitor_paths = [mon_path] if mon_path else list(self._strm_dir_conf.keys())
         for current_mon_path in monitor_paths:
@@ -1972,7 +2159,7 @@ class CloudStrmHelper(_PluginBase):
                 shutil.copy2(str(source), str(temp_file))
                 os.replace(str(temp_file), str(target))
             self.__mark_generated_file(str(target))
-            logger.info(f"复制旁车文件 {source} 到 {target}")
+            logger.debug(f"复制旁车文件 {source} 到 {target}")
             return {"status": "success", "action": "copy", "stage": "copy"}
         except Exception as err:
             logger.error(f"复制旁车文件失败 {source} -> {target_file}：{err}")
@@ -2043,7 +2230,7 @@ class CloudStrmHelper(_PluginBase):
                 target.unlink()
             with self._state_lock:
                 self._generated_files.discard(path_key)
-            logger.info(f"清理已生成文件 {target}")
+            logger.debug(f"清理已生成文件 {target}")
             return True
         except OSError as err:
             logger.warning(f"清理已生成文件失败 {path}：{err}")
@@ -2115,7 +2302,7 @@ class CloudStrmHelper(_PluginBase):
         """
         保存json文件
         """
-        logger.info(f"开始写入本地文件 {self._cloud_files_json}")
+        logger.debug(f"开始写入本地文件 {self._cloud_files_json}")
         file = open(self._cloud_files_json, 'w')
         file.write(json.dumps(self._cloud_files))
         file.close()
@@ -2171,7 +2358,7 @@ class CloudStrmHelper(_PluginBase):
         try:
             # 文件
             if not Path(strm_file).parent.exists():
-                logger.info(f"创建目标文件夹 {Path(strm_file).parent}")
+                logger.debug(f"创建目标文件夹 {Path(strm_file).parent}")
                 os.makedirs(Path(strm_file).parent, exist_ok=True)
 
             # 构造.strm文件路径
@@ -2179,7 +2366,7 @@ class CloudStrmHelper(_PluginBase):
 
             # 媒体文件
             if Path(strm_file).exists() and not (self._cover or force):
-                logger.info(f"目标文件 {strm_file} 已存在")
+                logger.debug(f"目标文件 {strm_file} 已存在")
                 return {"status": "skipped", "action": "exists", "stage": "generate",
                         "reason": "目标文件已存在且未开启覆盖"}
             # 新增：应用自定义路径替换规则
@@ -2195,7 +2382,7 @@ class CloudStrmHelper(_PluginBase):
             os.replace(str(temp_file), strm_file)
             self.__mark_generated_file(strm_file)
 
-            logger.info(f"创建strm文件成功 {strm_file} -> {strm_content}")
+            logger.debug(f"创建strm文件成功 {strm_file} -> {strm_content}")
             if self._url and source_file and Path(source_file).suffix.lower() in self._media_exts:
                 push_result = self.__push_strm_file(strm_file, source_file)
                 if not push_result.get("ok"):
@@ -2261,7 +2448,7 @@ class CloudStrmHelper(_PluginBase):
                         headers={"Content-Type": "application/json"}
                     )
                     if res and res.status_code in [200, 204]:
-                        logger.info(f"媒体服务器 {emby_name} 已刷新 {mapped_file}")
+                        logger.debug(f"媒体服务器 {emby_name} 已刷新 {mapped_file}")
                     else:
                         status_code = res.status_code if res else "无响应"
                         failures.append(f"{emby_name}: HTTP {status_code}")
@@ -2318,7 +2505,7 @@ class CloudStrmHelper(_PluginBase):
                             if str(export_id) == str(result.get("data", {}).get("export_id")):
                                 return result.get("data", {}).get("pick_code"), result.get("data", {}).get("file_id")
                     retry_cnt -= 1
-                    logger.info(f"等待目录树生成完成，剩余重试 {retry_cnt} 次")
+                    logger.debug(f"等待目录树生成完成，剩余重试 {retry_cnt} 次")
                     time.sleep(3)
         return None
 
@@ -2696,6 +2883,13 @@ class CloudStrmHelper(_PluginBase):
                 "methods": ["POST"],
                 "auth": "bear",
                 "summary": "标记 CloudStrm 映射规则编辑入口",
+            },
+            {
+                "path": "/mappings/{index}/monitor",
+                "endpoint": self.__api_mapping_toggle_monitor,
+                "methods": ["POST"],
+                "auth": "bear",
+                "summary": "切换 CloudStrm 单条映射规则实时监控（暂存）",
             },
             {
                 "path": "/extensions/remove",
@@ -3230,17 +3424,19 @@ class CloudStrmHelper(_PluginBase):
         }
         # V1.4.0：结构化映射规则编辑器，运行时配置已由 init_plugin 归一化为旧版文本
         form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
-        rule_slot_count = min(12, max(4, len(form_rules) + 2))
+        rule_slot_count = min(12, len(form_rules) + 1)
         rule_cards = []
         for rule_index in range(rule_slot_count):
+            is_new_rule = rule_index >= len(form_rules)
             rule_cards.append({
                 "component": "VCard",
-                "props": {"variant": "tonal", "class": "mb-3"},
+                "props": {"variant": "tonal", "class": "mb-3",
+                          "style": "border:1px dashed rgba(56,189,248,.45);" if is_new_rule else ""},
                 "content": [{
                     "component": "VCardText", "content": [
                         {"component": "div",
                          "props": {"class": "text-caption text-medium-emphasis mb-1"},
-                         "text": f"映射规则 {rule_index + 1}"},
+                         "text": "新增映射规则" if is_new_rule else f"映射规则 {rule_index + 1}"},
                         row(
                             col({
                                 "component": "VCombobox",
@@ -3251,9 +3447,8 @@ class CloudStrmHelper(_PluginBase):
                                     "chips": True,
                                     "smallChips": True,
                                     "density": "compact",
-                                    "items": ["电影", "电视剧", "国产剧", "港剧", "台剧",
-                                              "美剧", "韩剧", "日剧", "综艺", "动漫", "纪录片"],
-                                    "placeholder": "输入后回车添加",
+                                    "items": [],
+                                    "placeholder": "输入自定义分类，回车添加",
                                 },
                             }, 4),
                             col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
@@ -3491,13 +3686,10 @@ class CloudStrmHelper(_PluginBase):
                 ],
             })
         latest_id = self._page_task_id or (current.get("id") if current else (summaries[0].get("id") if summaries else ""))
-        latest_task = self.__get_task(latest_id) if latest_id else None
+        latest_task = self.__task_page_snapshot(
+            latest_id, self._page_filter_status, 100) if latest_id else None
         latest_items = (latest_task or {}).get("items") or []
-        if self._page_filter_status:
-            latest_items = [item for item in latest_items
-                            if item.get("status") == self._page_filter_status]
-        items_total = len(latest_items)
-        latest_items = latest_items[:100]
+        items_total = (latest_task or {}).get("item_total") or len(latest_items)
         item_rows = []
         retryable_failed_ids = []
         for item in latest_items:
@@ -3615,6 +3807,7 @@ class CloudStrmHelper(_PluginBase):
                                              "params": ({"status": filter_status} if filter_status else {})}},
              })
         monitor_rows = self.__monitor_config_rows()
+        self.__ensure_dir_status_refresh()
         monitor_status, monitor_color, monitor_detail = self.__monitor_status()
         openlist_status, openlist_color, openlist_detail = self.__openlist_status()
         strm_total = len(self._generated_files)
@@ -3697,18 +3890,22 @@ class CloudStrmHelper(_PluginBase):
         def rule_state(rule):
             local_dir = rule.get("local") or ""
             format_str = rule.get("format") or ""
-            if local_dir and not Path(local_dir).is_dir():
-                return "目录不可访问", "#f43f5e"
+            if local_dir:
+                dir_state, dir_state_text, dir_state_color, dir_detail = self.__dir_status(local_dir)
+                if dir_state == "unavailable":
+                    return "目录不可访问", "#f43f5e", dir_detail or "目录不存在或不可访问"
+                if dir_state == "checking":
+                    return "目录检查中", "#94a3b8", ""
             if format_str and not any(token in format_str
                                       for token in ("{local_file}", "{cloud_file}")):
-                return "模板缺占位符", "#f59e0b"
+                return "模板缺占位符", "#f59e0b", ""
             if not rule.get("monitor", True):
-                return "实时已停用", "#9ca3af"
+                return "实时已停用", "#9ca3af", ""
             if self._enabled and self._monitor:
-                return "监控中", "#10b981"
-            return "已配置", "#38bdf8"
+                return "监控中", "#10b981", ""
+            return "已配置", "#38bdf8", ""
 
-        def mapping_rule_html(rule, state_text, state_color, extra_style=""):
+        def mapping_rule_html(rule, state_text, state_color, extra_style="", state_detail=""):
             category_tags = CloudStrmHelper.__category_list(rule.get("category")) or ["未分类"]
             category_badges = "".join(
                 f"<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
@@ -3718,6 +3915,11 @@ class CloudStrmHelper(_PluginBase):
             )
             strm_dir = html_escape(rule.get("strm") or "-")
             cloud_dir = html_escape(rule.get("cloud") or "-")
+            state_title = f" title=\"{html_escape(state_detail)}\"" if state_detail else ""
+            state_detail_html = (
+                f"<div style=\"color:#f87171;font-size:11px;white-space:nowrap;overflow:hidden;"
+                f"text-overflow:ellipsis;\" title=\"{html_escape(state_detail)}\">"
+                f"{html_escape(state_detail)}</div>" if state_detail else "")
             return (
                 "<div style=\"display:flex;align-items:center;gap:10px;padding:10px 12px;"
                 "border:1px solid rgba(55,65,81,.55);border-radius:10px;"
@@ -3729,8 +3931,9 @@ class CloudStrmHelper(_PluginBase):
                 f"text-overflow:ellipsis;\" title=\"{strm_dir}\">{strm_dir}</div>"
                 f"<div style=\"color:#6b7280;font-size:11px;white-space:nowrap;overflow:hidden;"
                 f"text-overflow:ellipsis;\" title=\"{cloud_dir}\">➜ {cloud_dir}</div></div>"
+                f"{state_detail_html}"
                 f"<span style=\"flex:0 0 auto;color:{state_color};font-size:11px;"
-                f"white-space:nowrap;\">{html_escape(state_text)}</span></div>"
+                f"white-space:nowrap;\"{state_title}>{html_escape(state_text)}</span></div>"
             )
 
         # 头部：标题 + 状态徽章 + 操作按钮（对应设计稿 Header Bar）
@@ -3910,15 +4113,25 @@ class CloudStrmHelper(_PluginBase):
                 "新增映射规则：请打开插件「设置 → 路径监控与 STRM 映射策略」，"
                 "在空白规则卡片中填写后保存，本页会自动同步。"))
         for rule_index, rule in enumerate(effective_rules):
-            state_text, state_color = rule_state(rule)
+            state_text, state_color, state_detail = rule_state(rule)
+            rule_monitor = bool(rule.get("monitor", True))
             mapping_row_views.append({
                 "component": "VRow", "props": {"align": "center", "noGutters": True, "class": "mb-2"},
                 "content": [
-                    {"component": "VCol", "props": {"cols": 10},
+                    {"component": "VCol", "props": {"cols": 9},
                      "content": [{"component": "div",
-                                  "html": mapping_rule_html(rule, state_text, state_color)}]},
-                    {"component": "VCol", "props": {"cols": 2, "class": "d-flex justify-end"},
+                                  "html": mapping_rule_html(rule, state_text, state_color,
+                                                              state_detail=state_detail)}]},
+                    {"component": "VCol", "props": {"cols": 3,
+                                               "class": "d-flex justify-end align-center", "style": "gap:2px;"},
                      "content": [
+                         {"component": "VBtn",
+                          "props": {"icon": "mdi-eye-off" if rule_monitor else "mdi-eye",
+                                     "size": "x-small", "variant": "text",
+                                     "color": "info" if rule_monitor else "grey",
+                                     "title": "停用实时监控" if rule_monitor else "启用实时监控"},
+                          "events": {"click": {"api": f"plugin/{self.__class__.__name__}/mappings/{rule_index}/monitor",
+                                               "method": "POST", "params": {}}}},
                          {"component": "VBtn",
                           "props": {"icon": "mdi-pencil-outline", "size": "x-small",
                                      "variant": "text", "color": "info"},
@@ -4134,6 +4347,7 @@ class CloudStrmHelper(_PluginBase):
         }
         is_running = bool(current)
         monitor_rows = self.__monitor_config_rows()
+        self.__ensure_dir_status_refresh()
         monitor_status, monitor_color = self.__monitor_status()[:2]
         discovered = stats.get("discovered", 0)
         progress = min(100, round(stats.get("processed", 0) * 100 / max(1, discovered))) if is_running else 0
