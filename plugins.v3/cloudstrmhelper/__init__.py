@@ -186,6 +186,32 @@ class CloudStrmHelper(_PluginBase):
 
     _default_rmt_mediaext = ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v"
     _default_other_mediaext = ".nfo, .jpg, .png, .json"
+
+    # Shared visual vocabulary for the settings form and the task dashboard.
+    # Keep these values here so the two entry points cannot quietly drift apart.
+    _ui_tokens = {
+        "page": "#0d1117",
+        "card": "#161b22",
+        "input": "#0d1117",
+        "border": "#30363d",
+        "divider": "#21262d",
+        "primary": "#8957e5",
+        "info": "#38bdf8",
+        "chip_bg": "#1f293d",
+        "text": "#e5e7eb",
+        "muted": "#8b949e",
+    }
+    _ui_card_style = (
+        f"background:{_ui_tokens['card']};border:1px solid {_ui_tokens['border']};"
+        f"border-radius:10px;color:{_ui_tokens['text']};"
+    )
+    _ui_button_style = (
+        f"height:34px;border-radius:6px;background:{_ui_tokens['primary']};color:#ffffff;"
+    )
+    _ui_switch_style = (
+        "--v-switch-track-width:34px;--v-switch-track-height:18px;"
+        "--v-selection-control-size:18px;"
+    )
     _subtitle_exts = {
         ".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt",
         ".smi", ".sami", ".ttml", ".dfxp"
@@ -3435,10 +3461,12 @@ class CloudStrmHelper(_PluginBase):
         }
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """Render a compact, flat configuration page while keeping legacy keys."""
+        """Render settings with the same visual tokens as the task dashboard."""
+        card_style = self._ui_card_style
         field_style = (
-            "--v-input-control-height:40px;--v-field-padding-start:12px;"
+            "--v-input-control-height:34px;--v-field-padding-start:10px;"
             "--v-field-padding-end:12px;font-size:14px;line-height:1.4;"
+            "background:#0d1117;border-radius:6px;"
         )
 
         def switch(model, label, color="primary"):
@@ -3448,6 +3476,7 @@ class CloudStrmHelper(_PluginBase):
                     "model": model, "label": label, "color": color,
                     "inset": True, "density": "compact",
                     "hideDetails": True, "class": "cloudstrm-config-switch",
+                    "style": self._ui_switch_style,
                 },
             }
 
@@ -3467,7 +3496,7 @@ class CloudStrmHelper(_PluginBase):
                 "content": content if isinstance(content, list) else [content],
             }
 
-        def row(*columns, class_name="ma-0"):
+        def row(*columns, class_name="ma-0 mb-2"):
             return {
                 "component": "VRow",
                 "props": {"noGutters": True, "class": class_name},
@@ -3479,42 +3508,42 @@ class CloudStrmHelper(_PluginBase):
 
         def section(title, icon_name, content):
             return {
-                "component": "div",
+                "component": "VCard",
                 "props": {
-                    "class": "cloudstrm-config-section",
-                    "style": "color:#e2e8f0;margin:0 0 28px;padding:0;",
+                    "variant": "flat", "class": "cloudstrm-config-section mb-4",
+                    "style": card_style,
                 },
                 "content": [
                     {
                         "component": "div",
                         "props": {
-                            "style": ("display:flex;align-items:center;gap:8px;height:34px;"
-                                      "border-bottom:1px solid #334155;margin-bottom:10px;"),
+                            "style": ("display:flex;align-items:center;gap:8px;min-height:34px;"
+                                      "padding:16px 16px 12px;border-bottom:1px solid #21262d;margin-bottom:12px;"),
                         },
                         "content": [
                             icon(icon_name),
-                            {"component": "span", "props": {"style": "font-size:16px;font-weight:600;"},
+                            {"component": "span", "props": {"style": "font-size:15px;font-weight:600;"},
                              "text": title},
                         ],
                     },
-                    {"component": "div", "props": {"style": "width:100%;"},
+                    {"component": "VCardText", "props": {"style": "padding:0 16px 16px!important;"},
                      "content": content},
                 ],
             }
 
         def banner(text, tone="info"):
             colors = {
-                "info": ("#0284c7", "#1e293b", "#e2e8f0", "i"),
-                "warning": ("#eab308", "#2b2412", "#fde68a", "!"),
-                "error": ("#f43f5e", "#351923", "#fecdd3", "!"),
+                "info": ("#38bdf8", "rgba(56,189,248,.10)", "#bae6fd", "i"),
+                "warning": ("#d29922", "rgba(210,153,34,.12)", "#f0d98a", "!"),
+                "error": ("#f85149", "rgba(248,81,73,.12)", "#fecaca", "!"),
             }
             border, background, foreground, mark = colors.get(tone, colors["info"])
             return {
                 "component": "div",
                 "html": (
                     f'<div style="display:flex;align-items:center;gap:12px;min-height:42px;'
-                    f'padding:8px 14px;margin:0 0 18px;border:1px solid {border};'
-                    f'border-radius:8px;background:{background};color:{foreground};font-size:13px;">'
+                    f'padding:8px 12px;margin:0 0 16px;border:1px solid {border};'
+                    f'border-radius:6px;background:{background};color:{foreground};font-size:12px;">'
                     f'<span style="width:22px;height:22px;display:inline-flex;align-items:center;'
                     f'justify-content:center;border-radius:50%;background:{border};color:#fff;'
                     f'font-weight:700;flex:0 0 auto;">{mark}</span>'
@@ -3530,6 +3559,71 @@ class CloudStrmHelper(_PluginBase):
         saved_config = self.__current_saved_config()
         form_rules = self.__rules_from_config(saved_config) if saved_config else \
             self.__rules_from_monitor_confs(self._monitor_confs)
+        form_status_color = "#3fb950" if self._enabled else "#8b949e"
+        form_status_text = "已启用" if self._enabled else "未启用"
+        form_header = {
+            "component": "VCard",
+            "props": {"variant": "flat", "class": "mb-4", "style": card_style},
+            "content": [{
+                "component": "VCardText",
+                "props": {"style": "padding:16px!important;"},
+                "content": [{
+                    "component": "VRow",
+                    "props": {"align": "center", "noGutters": True},
+                    "content": [
+                        {
+                            "component": "VCol",
+                            "props": {"cols": 12, "md": 7},
+                            "content": [{
+                                "component": "div",
+                                "html": (
+                                    "<div style=\"color:#f0f6fc;font-size:15px;font-weight:600;\">插件配置</div>"
+                                    "<div style=\"color:#8b949e;font-size:12px;margin-top:3px;\">"
+                                    "OpenList + CD2 监控与 STRM 生成规则</div>"
+                                ),
+                            }],
+                        },
+                        {
+                            "component": "VCol",
+                            "props": {
+                                "cols": 12,
+                                "md": 5,
+                                "class": "d-flex flex-wrap align-center justify-end mt-2 mt-md-0",
+                                "style": "gap:8px;",
+                            },
+                            "content": [
+                                {
+                                    "component": "div",
+                                    "html": (
+                                        f"<span style='display:inline-flex;align-items:center;gap:6px;background:#1f293d;"
+                                        f"border:1px solid #30363d;border-radius:4px;padding:4px 8px;color:{form_status_color};font-size:11px;'>"
+                                        f"<span style='width:6px;height:6px;border-radius:50%;background:{form_status_color};'></span>"
+                                        f"{form_status_text}</span>"
+                                    ),
+                                },
+                                {
+                                    "component": "VBtn",
+                                    "props": {
+                                        "prependIcon": "mdi-text-box-search-outline",
+                                        "size": "small",
+                                        "variant": "flat",
+                                        "style": "height:34px;border-radius:6px;background:#21262d;color:#c9d1d9;border:1px solid #30363d;",
+                                    },
+                                    "text": "查看任务",
+                                    "events": {
+                                        "click": {
+                                            "api": f"plugin/{self.__class__.__name__}/tasks",
+                                            "method": "GET",
+                                            "params": {},
+                                        }
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                }],
+            }],
+        }
         # Keep a single, concrete add editor in the static form tree. MoviePilot
         # reliably updates expansion-panel state, while runtime style expressions
         # do not reliably re-render dynamic form sections.
@@ -3542,7 +3636,7 @@ class CloudStrmHelper(_PluginBase):
             tags = self.__category_list(rule.get("category")) or ["未分类"]
             tag_html = "".join(
                 f'<span style="display:inline-block;margin:0 3px 3px 0;padding:3px 8px;'
-                f'border-radius:4px;background:#312e81;color:#a5b4fc;font-size:11px;">'
+                f'border-radius:4px;background:#1f293d;color:#38bdf8;font-size:11px;">'
                 f"{html_escape(tag)}</span>" for tag in tags
             )
             local = html_escape(rule.get("local") or "-")
@@ -3552,13 +3646,13 @@ class CloudStrmHelper(_PluginBase):
             monitor = bool(rule.get("monitor", True))
             toggle = (
                 '<span style="display:inline-block;width:36px;height:20px;border-radius:10px;'
-                f'background:{"#6366f1" if monitor else "#334155"};vertical-align:middle;">'
+                f'background:{"#8957e5" if monitor else "#30363d"};vertical-align:middle;">'
                 f'<span style="display:block;width:14px;height:14px;margin:{"3px 3px 3px 19px" if monitor else "3px 19px 3px 3px"};'
                 f'border-radius:50%;background:{"#fff" if monitor else "#94a3b8"};"></span></span>'
             )
             summary_rows.append(
                 '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;'
-                'align-items:center;min-height:68px;padding:8px 12px;border-top:1px dashed #334155;">'
+                'align-items:center;min-height:68px;padding:8px 12px;border-top:1px solid #21262d;">'
                 f'<div style="min-width:0;">{tag_html}</div>'
                 f'<div style="min-width:0;font-family:Consolas,monospace;font-size:12px;line-height:1.8;'
                 f'color:#e2e8f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
@@ -3577,9 +3671,9 @@ class CloudStrmHelper(_PluginBase):
         summary_table = {
             "component": "div",
             "html": (
-                '<div style="border:1px solid #334155;border-radius:8px;overflow:hidden;background:#1e293b;">'
+                '<div style="border:1px solid #30363d;border-radius:10px;overflow:hidden;background:#0d1117;">'
                 '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;padding:12px;'
-                'background:#0f172a;color:#94a3b8;font-size:12px;font-weight:600;">'
+                'background:#161b22;color:#8b949e;font-size:12px;font-weight:600;">'
                 '<span>分类标签</span><span>CD2 挂载目录 / STRM 生成目录</span>'
                 '<span>OpenList 云盘目录 &amp; 格式化模板</span><span style="text-align:center">监控 / 编辑</span>'
                 '</div>' + ''.join(summary_rows) + '</div>'
@@ -3601,9 +3695,9 @@ class CloudStrmHelper(_PluginBase):
                 )
             title_style = (
                 "min-height:46px!important;padding:9px 16px!important;font-size:14px!important;"
-                "font-weight:600;color:#fff;background:#3730a3;" if is_new_rule else
+                "font-weight:600;color:#fff;background:#8957e5;" if is_new_rule else
                 "min-height:44px!important;padding:8px 16px!important;font-size:14px!important;"
-                "font-weight:600;color:#dbeafe;background:#172033;"
+                "font-weight:600;color:#e5e7eb;background:#161b22;"
             )
             rule_content = [
                 {"component": "div", "props": {"style": "padding:12px 0 4px;color:#94a3b8;font-size:13px;"},
@@ -3651,13 +3745,13 @@ class CloudStrmHelper(_PluginBase):
                 "component": "VExpansionPanel",
                 "props": {
                     "value": rule_index, "elevation": 0,
-                    "style": "background:#202b4b;border:1px solid #6366f1;",
+                    "style": "background:#161b22;border:1px solid #30363d;",
                 },
                 "content": [
                     {"component": "VExpansionPanelTitle", "props": {"style": title_style},
                      "text": rule_summary},
                     {"component": "VExpansionPanelText",
-                     "props": {"style": "padding:0 16px 14px!important;background:#1e293b;"},
+                     "props": {"style": "padding:0 16px 14px!important;background:#161b22;"},
                      "content": rule_content},
                 ],
             }
@@ -3667,13 +3761,13 @@ class CloudStrmHelper(_PluginBase):
                 existing_rule_forms.append({
                     "component": "div",
                     "props": {
-                        "style": ("margin-top:16px;padding:14px 16px 12px;background:#1e293b;"
-                                  "border:1px solid #334155;border-radius:8px;"),
+                        "style": ("margin-top:16px;padding:14px 16px 12px;background:#161b22;"
+                                  "border:1px solid #30363d;border-radius:10px;"),
                     },
                     "content": [
                         {"component": "div",
                          "props": {"style": ("padding-bottom:10px;margin-bottom:4px;color:#e2e8f0;"
-                                               "font-size:14px;font-weight:600;border-bottom:1px solid #334155;")},
+                                               "font-size:14px;font-weight:600;border-bottom:1px solid #21262d;")},
                          "text": f"映射规则 {rule_index + 1}"},
                         *rule_content,
                     ],
@@ -3686,7 +3780,7 @@ class CloudStrmHelper(_PluginBase):
                 "props": {
                     "variant": "accordion", "multiple": False,
                     "model": "mapping_new_rule_panel_open",
-                    "style": ("background:transparent;border:1px solid #6366f1;border-radius:8px;"
+                    "style": ("background:transparent;border:1px solid #30363d;border-radius:10px;"
                               "overflow:hidden;margin-top:16px;"),
                 },
                 "content": [new_rule_card],
@@ -3705,7 +3799,7 @@ class CloudStrmHelper(_PluginBase):
                  "content": [{
                      "component": "VBtn",
                      "props": {"prependIcon": "mdi-plus", "size": "small",
-                               "variant": "flat", "style": "height:36px;background:#6366f1;color:#fff;",
+                               "variant": "flat", "style": self._ui_button_style,
                                "onClick": (
                                    "function () { mapping_new_rule_visible = true; "
                                    f"mapping_new_rule_panel_open = {len(form_rules)}; }}"
@@ -3719,7 +3813,7 @@ class CloudStrmHelper(_PluginBase):
         mapping_content.extend(existing_rule_forms)
         mapping_content.append(new_mapping_editor)
 
-        form_content = []
+        form_content = [form_header]
         if self._config_errors:
             form_content.append(banner("；".join(self._config_errors), "error"))
         form_content.extend([
@@ -3764,10 +3858,10 @@ class CloudStrmHelper(_PluginBase):
                 {
                     "component": "VExpansionPanels",
                     "props": {"variant": "accordion", "class": "mt-4",
-                              "style": "border:1px solid #334155;border-radius:6px;overflow:hidden;"},
+                              "style": "border:1px solid #30363d;border-radius:6px;overflow:hidden;"},
                     "content": [{
                         "component": "VExpansionPanel",
-                        "props": {"elevation": 0, "style": "background:#172033;color:#cbd5e1;"},
+                        "props": {"elevation": 0, "style": "background:#0d1117;color:#c9d1d9;"},
                         "content": [
                             {"component": "VExpansionPanelTitle", "text": "路径兼容设置（可选）"},
                             {"component": "VExpansionPanelText", "content": [row(
@@ -3782,10 +3876,10 @@ class CloudStrmHelper(_PluginBase):
                 {
                     "component": "VExpansionPanels",
                     "props": {"variant": "accordion", "class": "mt-3",
-                              "style": "border:1px solid #334155;border-radius:6px;overflow:hidden;"},
+                              "style": "border:1px solid #30363d;border-radius:6px;overflow:hidden;"},
                     "content": [{
                         "component": "VExpansionPanel",
-                        "props": {"elevation": 0, "style": "background:#172033;color:#cbd5e1;"},
+                        "props": {"elevation": 0, "style": "background:#0d1117;color:#c9d1d9;"},
                         "content": [
                             {"component": "VExpansionPanelTitle", "text": "执行与清理设置（可选）"},
                             {"component": "VExpansionPanelText", "content": [row(
@@ -3802,7 +3896,7 @@ class CloudStrmHelper(_PluginBase):
             "component": "VForm",
             "props": {
                 "class": "cloudstrm-config-form",
-                "style": "background:#0f172a;color:#e2e8f0;padding:0 0 18px;",
+                "style": "background:#0d1117;color:#e5e7eb;padding:0 0 16px;",
             },
             "content": form_content,
         }]
@@ -4111,8 +4205,7 @@ class CloudStrmHelper(_PluginBase):
         status_dot_colors = {"success": "#10b981", "warning": "#f59e0b", "error": "#f43f5e",
                              "info": "#38bdf8", "default": "#6b7280"}
         # GitHub dark theme - matches 仪表盘.svg design
-        dark_card_style = ("background:#161b22;border:1px solid #30363d;"
-                           "border-radius:10px;color:#e5e7eb;")
+        dark_card_style = self._ui_card_style
 
         def panel_title(title, subtitle=""):
             subtitle_html = (f"<div style=\"color:#8b949e;font-size:12px;margin-top:2px;\">"
@@ -4159,7 +4252,8 @@ class CloudStrmHelper(_PluginBase):
                      "content": [{
                          "component": "VSwitch",
                          "props": {"modelValue": effective, "color": "primary", "inset": True,
-                                   "hideDetails": True, "density": "compact"},
+                                   "hideDetails": True, "density": "compact",
+                                   "style": self._ui_switch_style},
                          "events": {"click": {"api": toggle_url, "method": "POST",
                                               "params": {"key": key}}},
                      }]},
@@ -4279,7 +4373,7 @@ class CloudStrmHelper(_PluginBase):
         header_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
+                      "style": dark_card_style},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "VRow", "props": {"align": "center", "noGutters": True},
@@ -4334,7 +4428,7 @@ class CloudStrmHelper(_PluginBase):
         kpi_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
+                      "style": dark_card_style},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "div", "html": panel_title("账号与运行指标")},
@@ -4528,7 +4622,7 @@ class CloudStrmHelper(_PluginBase):
         mapping_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;flex-shrink:0;"},
+                      "style": dark_card_style + "flex-shrink:0;"},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "VRow", "props": {"align": "center", "noGutters": True},
@@ -4603,7 +4697,7 @@ class CloudStrmHelper(_PluginBase):
         feed_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;flex:1 1 auto;display:flex;flex-direction:column;"},
+                      "style": dark_card_style + "flex:1 1 auto;display:flex;flex-direction:column;"},
             "content": [
                 {"component": "VCardText",
                  "props": {"style": "display:flex;flex-direction:column;flex:1 1 auto;"},
@@ -4616,7 +4710,7 @@ class CloudStrmHelper(_PluginBase):
         }
         page = [{
             "component": "div",
-            "props": {"style": "overflow-x:hidden;scrollbar-gutter:stable;width:100%;max-width:100%;"},
+            "props": {"style": "background:#0d1117;color:#e5e7eb;overflow-x:hidden;scrollbar-gutter:stable;width:100%;max-width:100%;"},
             "content": [
             header_card,
             {
