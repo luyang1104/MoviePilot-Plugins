@@ -3,11 +3,12 @@
     "name": "CloudStrm",
     "description": "Monitor a CD2-mounted China Mobile cloud disk without an official API, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
     "labels": "moviepilot",
-    "version": "V1.5.9",
+    "version": "V1.6.0",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
     "history": {
+      "V1.6.0": "Replaced dead dashboard placeholders with real controls (task refresh, save/discard, strategy switches, extension removal, full scan), kept a permanent add-rule form, fixed legacy rule migration, prune counting, task notification titles, and isolated per-media notification errors; removed unused legacy code.",
       "V1.5.9": "Unified the settings page and dashboard UI with shared GitHub-dark tokens: page and card colors, 15px titles, 16px card padding and gaps, consistent input, switch, button, and category-tag sizing, plus a settings header with status and task action.",
       "V1.5.8": "Existing mapping rules are now displayed as fully expanded inline forms, with the reference dark-blue palette, tighter 12px labels, 14px input text, and consistent spacing. The add editor remains on demand.",
       "V1.5.7": "The mapping-rule editor now stays hidden until Add Mapping Rule is clicked. The toolbar button reveals and expands the one blank editor, while existing rules remain separately collapsible.",

@@ -73,6 +73,10 @@ def rules_from_config(config: dict) -> List[dict]:
     config = config or {}
     rules: List[dict] = []
     structured_slots = count_rule_slots(config)
+    structured_authoritative = any(
+        _rule_slot_has_content(config, index)
+        for index in range(structured_slots)
+    )
     for index in range(structured_slots):
         delete_value = config.get(f"rule_{index}_delete")
         if ((isinstance(delete_value, str)
@@ -92,9 +96,20 @@ def rules_from_config(config: dict) -> List[dict]:
             "format": str(config.get(f"rule_{index}_format") or "").strip(),
             "monitor": bool(monitor_value) if monitor_value is not None else True,
         })
-    if rules or structured_slots:
+    if rules or structured_authoritative:
         return rules
     return rules_from_monitor_confs(config.get("monitor_confs") or "")
+
+
+def _rule_slot_has_content(config: dict, index: int) -> bool:
+    """Whether a structured slot carries a value or an explicit delete flag."""
+    delete_value = config.get(f"rule_{index}_delete")
+    if ((isinstance(delete_value, str)
+         and delete_value.strip().lower() in {"1", "true", "yes", "on"})
+            or delete_value is True):
+        return True
+    return bool(str(config.get(f"rule_{index}_local") or "").strip()
+            or str(config.get(f"rule_{index}_strm") or "").strip())
 
 
 def rules_to_monitor_confs(rules: List[dict]) -> str:

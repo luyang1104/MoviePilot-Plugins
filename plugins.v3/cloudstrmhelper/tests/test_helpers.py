@@ -74,6 +74,16 @@ class RuleHelperTests(unittest.TestCase):
         }
         self.assertEqual(rules.rules_from_config(config), [])
 
+    def test_blank_add_slot_falls_back_to_legacy_rules(self):
+        config = {
+            "monitor_confs": "/old#old-strm#/cloud#http://x/{cloud_file}",
+            "rule_0_local": "",
+            "rule_0_strm": "",
+        }
+        rules_out = rules.rules_from_config(config)
+        self.assertEqual(len(rules_out), 1)
+        self.assertEqual(rules_out[0]["local"], "/old")
+
     def test_rule_keys_clear_old_slots(self):
         config = {
             "rule_0_local": "/old",
@@ -101,3 +111,25 @@ class ManifestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class SourceRegressionTests(unittest.TestCase):
+    """Static checks that the dashboard keeps real controls and drops dead code."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = (PACKAGE_DIR / "__init__.py").read_text(encoding="utf-8")
+
+    def test_dashboard_has_no_decorative_pointer_only_controls(self):
+        self.assertNotIn("cursor:pointer", self.source)
+
+    def test_settings_form_has_no_client_side_show_hack(self):
+        self.assertNotIn("mapping_new_rule_visible", self.source)
+        self.assertNotIn('"onClick"', self.source)
+
+    def test_dead_legacy_code_is_removed(self):
+        for marker in ("__sava_json", "export_dir", "__handle_limit",
+                       "__legacy_get_form", "metric_card", "_cloud_files"):
+            self.assertNotIn(marker, self.source)
+
+    def test_version_is_v160(self):
+        self.assertIn('plugin_version = "V1.6.0"', self.source)

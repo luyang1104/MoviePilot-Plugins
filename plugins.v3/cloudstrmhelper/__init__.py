@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, List, Dict, Tuple, Optional
 
 import pytz
-import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi import Body
 from fastapi.responses import JSONResponse
@@ -74,7 +73,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.9"
+    plugin_version = "V1.6.0"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -103,7 +102,6 @@ class CloudStrmHelper(_PluginBase):
     _cloud_dir_conf = {}
     _category_conf = {}
     _format_conf = {}
-    _cloud_files = []
     _observer = []
     _medias = {}
     _rmt_mediaext = None
@@ -113,7 +111,6 @@ class CloudStrmHelper(_PluginBase):
     mediaserver_helper = None
     _emby_paths = {}
     _path_replacements = {}  # 新增：路径替换规则属性
-    _cloud_files_json = "cloud_files.json"
     _headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_2_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.192 Safari/537.36",
         "Cookie": "",
@@ -1149,7 +1146,10 @@ class CloudStrmHelper(_PluginBase):
         stats = task.get("stats") or {}
         scope = task.get("scope") or {}
         kind_names = {"full_scan": "全量扫描", "targeted": "定向同步", "retry": "失败重试"}
-        title = f"CloudStrm 任务完成：成功 {stats.get('success', 0)}，跳过 {stats.get('skipped', 0)}，失败 {stats.get('failed', 0)}"
+        status_names = {"running": "运行中", "success": "成功", "partial": "部分成功",
+                        "failed": "失败", "interrupted": "已中断"}
+        status_label = status_names.get(task.get("status"), task.get("status") or "完成")
+        title = f"CloudStrm 任务{status_label}：成功 {stats.get('success', 0)}，跳过 {stats.get('skipped', 0)}，失败 {stats.get('failed', 0)}"
         text = (
             f"类型：{kind_names.get(task.get('kind'), task.get('kind', '任务'))}\n"
             f"范围：{scope.get('path') or '全部监控目录'}\n"
@@ -1358,7 +1358,6 @@ class CloudStrmHelper(_PluginBase):
         "notify": "任务与入库通知",
     }
     _config_toggle_defaults = {"cron_enabled": True}
-    _form_ui_state_keys = {"mapping_new_rule_visible", "mapping_new_rule_panel_open"}
 
     def __api_config_toggle(self, payload: Optional[dict] = Body(default=None)):
         """页面开关：服务端翻转指定布尔配置并写入暂存，保存后生效。"""
@@ -1541,7 +1540,6 @@ class CloudStrmHelper(_PluginBase):
         self._generated_files = set()
         self._manifest_pending = False
         self._path_replacements = {}  # 新增：清空路径替换规则
-        self._cloud_files_json = os.path.join(self.get_data_path(), "cloud_files.json")
         self._generated_files_json = os.path.join(self.get_data_path(), "generated_files.json")
         self._task_history_json = os.path.join(self.get_data_path(), "task_history.json")
         self._task_history = []
@@ -1621,10 +1619,6 @@ class CloudStrmHelper(_PluginBase):
                 # 表单删除项只在提交时短暂存在，保存后清理旧槽位，避免删除的
                 # 规则在下一次打开配置页时又被空槽位重新占住。
                 normalized_config = dict(config)
-                # These keys only drive the client-side add editor and must
-                # not make a blank rule reappear after a later page reload.
-                for key in self._form_ui_state_keys:
-                    normalized_config.pop(key, None)
                 self.__remove_rule_config_keys(normalized_config)
                 normalized_config.update(self.__rules_to_config_keys(rules, len(rules)))
                 normalized_config["monitor_confs"] = self._monitor_confs
@@ -1641,18 +1635,6 @@ class CloudStrmHelper(_PluginBase):
                         self._emby_paths[source] = target
         else:
             self._monitor_confs = ""
-        # UI-only add-editor state must never survive a plugin restart.  Older
-        # releases could have stored it alongside the real plugin settings.
-        if any(key in config for key in self._form_ui_state_keys):
-            cleaned_config = dict(config)
-            for key in self._form_ui_state_keys:
-                cleaned_config.pop(key, None)
-            try:
-                self.update_config(cleaned_config)
-            except Exception:
-                pass
-            self._rmt_mediaext = self._default_rmt_mediaext
-            self._other_mediaext = self._default_other_mediaext
 
         self._media_exts = self.__normalise_extensions(self._rmt_mediaext, self._default_rmt_mediaext)
         self._other_exts = self.__normalise_extensions(self._other_mediaext, self._default_other_mediaext)
@@ -2378,9 +2360,6 @@ class CloudStrmHelper(_PluginBase):
                     pass
             if target.suffix.lower() in self._subtitle_exts or target.suffix.lower() in self._other_exts:
                 candidates.append(target)
-        removed = False
-        for candidate in candidates:
-            removed = self.__remove_file_if_generated(str(candidate)) or removed
         removed_count = 0
         for candidate in candidates:
             if self.__remove_file_if_generated(str(candidate)):
@@ -2403,16 +2382,6 @@ class CloudStrmHelper(_PluginBase):
                 elif not is_directory:
                     refresh_path = self.__related_strm_path(refresh_path)
                 self.__refresh_emby_file(refresh_path, update_type="Deleted")
-
-    def __sava_json(self):
-        """
-        保存json文件
-        """
-        logger.debug(f"开始写入本地文件 {self._cloud_files_json}")
-        file = open(self._cloud_files_json, 'w')
-        file.write(json.dumps(self._cloud_files))
-        file.close()
-
     @staticmethod
     def __format_content(format_str: str, local_file: str, cloud_file: str, uriencode: bool):
         return _format_content(format_str, local_file, cloud_file, uriencode)
@@ -2588,35 +2557,6 @@ class CloudStrmHelper(_PluginBase):
                     return os.path.normpath(os.path.join(target_root, relative_text))
         # 未匹配到路径，返回原路径
         return file_path
-
-    def export_dir(self, fid, destination_id="0"):
-        """
-        获取目录导出id
-        """
-        export_api = "https://webapi.115.com/files/export_dir"
-        response = requests.post(url=export_api,
-                                 headers=self._headers,
-                                 data={"file_ids": fid, "target": f"U_1_{destination_id}"})
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("state"):
-                export_id = result.get("data", {}).get("export_id")
-
-                retry_cnt = 60
-                while retry_cnt > 0:
-                    response = requests.get(url=export_api,
-                                            headers=self._headers,
-                                            data={"export_id": export_id})
-                    if response.status_code == 200:
-                        result = response.json()
-                        if result.get("state"):
-                            if str(export_id) == str(result.get("data", {}).get("export_id")):
-                                return result.get("data", {}).get("pick_code"), result.get("data", {}).get("file_id")
-                    retry_cnt -= 1
-                    logger.debug(f"等待目录树生成完成，剩余重试 {retry_cnt} 次")
-                    time.sleep(3)
-        return None
-
     def __iter_task_files(self, path: str):
         source = Path(path)
         if source.is_file():
@@ -2748,94 +2688,39 @@ class CloudStrmHelper(_PluginBase):
         related_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
 
         return related_paths
-
-    def __handle_limit(self, path, limit, mon_path, event):
-        """
-        处理文件数量限制
-        """
-        sub_paths = []
-        for entry in os.listdir(path):
-            full_path = os.path.join(path, entry)
-            if os.path.isdir(full_path):
-                sub_paths.append(full_path)
-
-        if not sub_paths:
-            logger.error(f"未找到 {path} 目录下的文件夹")
-            return
-
-        # 按照修改时间倒序排列
-        sub_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
-        logger.info(f"开始定向处理文件夹 ...{path}, 最新 {limit} 个文件夹")
-        for sub_path in sub_paths[:limit]:
-            logger.info(f"开始定向处理文件夹 ...{sub_path}")
-            for sroot, sdirs, sfiles in os.walk(sub_path):
-                for file_name in sdirs + sfiles:
-                    src_file = os.path.join(sroot, file_name)
-                    if Path(src_file).is_file():
-                        self.__handle_file(event_path=str(src_file), mon_path=mon_path)
-            if event.event_data.get("user"):
-                self.post_message(channel=event.event_data.get("channel"),
-                                  title=f"{sub_path} Strm生成完成！", userid=event.event_data.get("user"))
-            time.sleep(2)
-
     def send_msg(self):
-        """
-        定时检查是否有媒体处理完，发送统一消息
-        """
-        if not self._medias or not self._medias.keys():
-            return
-
-        # 遍历检查是否已刮削完，发送消息
+        """Check completed media groups and send aggregated notifications."""
         with self._state_lock:
             pending_medias = list(self._medias.items())
-        for medis_title_year_season, media_list in pending_medias:
-            logger.info(f"开始处理媒体 {medis_title_year_season} 消息")
-
-            if not media_list:
+        for key, media_list in pending_medias:
+            if not media_list or not media_list.get("time"):
                 continue
-
-            # 获取最后更新时间
-            last_update_time = media_list.get("time")
-            file_meta = media_list.get("file_meta")
-            mtype = media_list.get("type")
-            episodes = media_list.get("episodes")
-            if not last_update_time:
+            if (datetime.now() - media_list["time"]).total_seconds() <= int(self._interval) \
+                    and str(media_list.get("type")) != "movie":
                 continue
-
-            # 判断剧集最后更新时间距现在是已超过10秒或者电影，发送消息
-            if (datetime.now() - last_update_time).total_seconds() > int(self._interval) \
-                    or str(mtype) == "movie":
-                # 发送通知
+            try:
                 if self._notify:
+                    file_meta = media_list.get("file_meta")
+                    episodes = media_list.get("episodes") or []
                     file_count = len(episodes) if episodes else 1
-
-                    # 剧集季集信息 S01 E01-E04 || S01 E01、E02、E04
-                    # 处理文件多，说明是剧集，显示季入库消息
-                    media_type = None
-                    if str(mtype) == "tv":
-                        # 季集文本
-                        season_episode = f"{medis_title_year_season} {StringUtils.format_ep(episodes)}"
+                    if str(media_list.get("type")) == "tv":
+                        season_episode = f"{key} {StringUtils.format_ep(episodes)}"
                         media_type = MediaType.TV
                     else:
-                        # 电影文本
-                        season_episode = f"{medis_title_year_season}"
+                        season_episode = key
                         media_type = MediaType.MOVIE
-
-                    # 获取封面图片
-                    mediainfo: MediaInfo = self.chain.recognize_media(meta=file_meta,
-                                                                      mtype=media_type,
-                                                                      tmdbid=file_meta.tmdbid)
-
-                    # 发送消息
-                    self.send_transfer_message(msg_title=season_episode,
-                                               file_count=file_count,
-                                               image=(
-                                                   mediainfo.backdrop_path if mediainfo.backdrop_path else mediainfo.poster_path) if mediainfo else None)
-                # 发送完消息，移出 key；期间若有新文件更新则保留新记录。
-                with self._state_lock:
-                    if self._medias.get(medis_title_year_season) is media_list:
-                        self._medias.pop(medis_title_year_season, None)
-                continue
+                    mediainfo = self.chain.recognize_media(
+                        meta=file_meta, mtype=media_type, tmdbid=file_meta.tmdbid)
+                    image = None
+                    if mediainfo:
+                        image = mediainfo.backdrop_path or mediainfo.poster_path
+                    self.send_transfer_message(
+                        msg_title=season_episode, file_count=file_count, image=image)
+            except Exception as err:
+                logger.warning("Send media notification failed for %s: %s", key, err)
+            with self._state_lock:
+                if self._medias.get(key) is media_list:
+                    self._medias.pop(key, None)
 
     def send_transfer_message(self, msg_title, file_count, image):
         """
@@ -3008,458 +2893,6 @@ class CloudStrmHelper(_PluginBase):
                 "summary": "移除 CloudStrm 监控扩展名（暂存）",
             },
         ]
-
-    def __legacy_get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """保留旧版表单结构，便于回滚时参考；实际配置入口见下方 get_form。"""
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'warning',
-                                            'variant': 'tonal',
-                                            'text': '云盘实时监控任何问题不予处理，请自行消化。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'monitor',
-                                            'label': '实时监控',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'copy_files',
-                                            'label': '复制非媒体文件',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '发送通知',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'cover',
-                                            'label': '覆盖已存在文件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'uriencode',
-                                            'label': 'url编码',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'sync_delete',
-                                            'label': '同步删除（谨慎开启）',
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'refresh_emby',
-                                            'label': '刷新媒体库（Emby）',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'copy_subtitles',
-                                            'label': '复制字幕文件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'interval',
-                                            'label': '消息延迟',
-                                            'placeholder': '10'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'monitor_confs',
-                                            'label': '目录配置',
-                                            'rows': 5,
-                                            'placeholder': 'MoviePilot中云盘挂载本地的路径#MoviePilot中strm生成路径#alist/cd2上115路径#strm格式化'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'rmt_mediaext',
-                                            'label': '视频格式',
-                                            'rows': 2,
-                                            'placeholder': ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'other_mediaext',
-                                            'label': '非媒体文件格式',
-                                            'rows': 2,
-                                            'placeholder': ".nfo, .jpg"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'multiple': True,
-                                            'chips': True,
-                                            'clearable': True,
-                                            'model': 'mediaservers',
-                                            'label': '媒体服务器',
-                                            'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values() if
-                                                      config.type == "emby"]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 8
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'emby_path',
-                                            'rows': '1',
-                                            'label': '媒体库路径映射',
-                                            'placeholder': 'MoviePilot本地文件路径:Emby文件路径（多组路径英文逗号拼接）'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    # 新增：路径替换规则文本框
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'path_replacements',
-                                            'label': '路径替换规则',
-                                            'rows': 3,
-                                            'placeholder': '源路径:目标路径（每行一条规则）'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': 'MoviePilot中云盘挂载本地的路径：/mnt/media/series/国产剧/雪迷宫 (2024)；'
-                                                    'MoviePilot中strm生成路径：/mnt/library/series/国产剧/雪迷宫 (2024)；'
-                                                    '云盘路径：/cloud/media/series/国产剧/雪迷宫 (2024)；'
-                                                    '则目录配置为：/mnt/media#/mnt/library#/cloud/media#{local_file}'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': 'strm格式化方式，自行把()替换为alist/cd2上路径：'
-                                                    '1.本地源文件路径：{local_file}。'
-                                                    '2.alist路径：http://192.168.31.103:5244/d/115{cloud_file}。'
-                                                    '3.cd2路径：http://192.168.31.103:19798/static/http/192.168.31.103:19798/False/115{cloud_file}。'
-                                                    '4.其他api路径：http://192.168.31.103:2001/{cloud_file}'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "url",
-                                            "label": "任务推送url",
-                                            "placeholder": "post请求json方式推送path和type(add)字段",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ]
-            }
-        ], {
-            "enabled": False,
-            "notify": False,
-            "monitor": False,
-            "cover": False,
-            "onlyonce": False,
-            "copy_files": False,
-            "uriencode": False,
-            "copy_subtitles": False,
-            "sync_delete": False,
-            "refresh_emby": False,
-            "mediaservers": [],
-            "monitor_confs": "",
-            "emby_path": "",
-            "interval": 10,
-            "url": "",
-            "other_mediaext": ".nfo, .jpg, .png, .json",
-            "rmt_mediaext": ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v",
-            "path_replacements": ""  # 新增：路径替换规则默认值
-        }
-
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """Render settings with the same visual tokens as the task dashboard."""
         card_style = self._ui_card_style
@@ -3624,13 +3057,9 @@ class CloudStrmHelper(_PluginBase):
                 }],
             }],
         }
-        # Keep a single, concrete add editor in the static form tree. MoviePilot
-        # reliably updates expansion-panel state, while runtime style expressions
-        # do not reliably re-render dynamic form sections.
         rule_slot_count = len(form_rules) + 1
 
-        # The summary is intentionally plain HTML: it keeps the table compact
-        # and avoids Vuetify data-table defaults changing the target proportions.
+        # 规则摘要仅用于快速查看，编辑与删除在下方规则卡片中完成。
         summary_rows = []
         for rule_index, rule in enumerate(form_rules):
             tags = self.__category_list(rule.get("category")) or ["未分类"]
@@ -3643,13 +3072,6 @@ class CloudStrmHelper(_PluginBase):
             strm = html_escape(rule.get("strm") or "-")
             cloud = html_escape(rule.get("cloud") or "-")
             format_str = html_escape(rule.get("format") or "-")
-            monitor = bool(rule.get("monitor", True))
-            toggle = (
-                '<span style="display:inline-block;width:36px;height:20px;border-radius:10px;'
-                f'background:{"#8957e5" if monitor else "#30363d"};vertical-align:middle;">'
-                f'<span style="display:block;width:14px;height:14px;margin:{"3px 3px 3px 19px" if monitor else "3px 19px 3px 3px"};'
-                f'border-radius:50%;background:{"#fff" if monitor else "#94a3b8"};"></span></span>'
-            )
             summary_rows.append(
                 '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;'
                 'align-items:center;min-height:68px;padding:8px 12px;border-top:1px solid #21262d;">'
@@ -3660,8 +3082,7 @@ class CloudStrmHelper(_PluginBase):
                 f'<div style="min-width:0;font-family:Consolas,monospace;font-size:12px;line-height:1.8;'
                 f'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;title="{format_str}">'
                 f'{cloud}<br><span style="color:#64748b;">{format_str}</span></div>'
-                f'<div style="display:flex;align-items:center;justify-content:center;gap:10px;">'
-                f'{toggle}<span style="color:#94a3b8;font-size:11px;">规则 {rule_index + 1}</span></div></div>'
+                f'<div style="text-align:center;color:#94a3b8;font-size:11px;">规则 {rule_index + 1}</div></div>'
             )
         if not summary_rows:
             summary_rows.append(
@@ -3675,33 +3096,17 @@ class CloudStrmHelper(_PluginBase):
                 '<div style="display:grid;grid-template-columns:17% 39% 31% 13%;padding:12px;'
                 'background:#161b22;color:#8b949e;font-size:12px;font-weight:600;">'
                 '<span>分类标签</span><span>CD2 挂载目录 / STRM 生成目录</span>'
-                '<span>OpenList 云盘目录 &amp; 格式化模板</span><span style="text-align:center">监控 / 编辑</span>'
+                '<span>OpenList 云盘目录 &amp; 格式化模板</span><span style="text-align:center">规则编号</span>'
                 '</div>' + ''.join(summary_rows) + '</div>'
             ),
         }
 
         existing_rule_forms = []
-        new_rule_card = None
+        new_rule_form = None
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
-            categories = self.__category_list(rule.get("category")) or ["未分类"]
-            if is_new_rule:
-                rule_summary = "+ 新增映射规则（填写后保存）"
-            else:
-                rule_summary = (
-                    f"{' · '.join(categories)} | CD2: {self.__shorten_path(rule.get('local') or '未配置')}"
-                    f" → STRM: {self.__shorten_path(rule.get('strm') or '未配置')}"
-                )
-            title_style = (
-                "min-height:46px!important;padding:9px 16px!important;font-size:14px!important;"
-                "font-weight:600;color:#fff;background:#8957e5;" if is_new_rule else
-                "min-height:44px!important;padding:8px 16px!important;font-size:14px!important;"
-                "font-weight:600;color:#e5e7eb;background:#161b22;"
-            )
             rule_content = [
-                {"component": "div", "props": {"style": "padding:12px 0 4px;color:#94a3b8;font-size:13px;"},
-                 "text": "新增映射规则" if is_new_rule else f"编辑映射规则 {rule_index + 1}"},
                 row(
                     col({
                         "component": "VCombobox",
@@ -3741,77 +3146,28 @@ class CloudStrmHelper(_PluginBase):
                         "hideDetails": True,
                     },
                 })
-            rule_card = {
-                "component": "VExpansionPanel",
+            rule_form = {
+                "component": "div",
                 "props": {
-                    "value": rule_index, "elevation": 0,
-                    "style": "background:#161b22;border:1px solid #30363d;",
+                    "style": ("margin-top:16px;padding:14px 16px 12px;background:#161b22;"
+                              "border:1px solid #30363d;border-radius:10px;"),
                 },
                 "content": [
-                    {"component": "VExpansionPanelTitle", "props": {"style": title_style},
-                     "text": rule_summary},
-                    {"component": "VExpansionPanelText",
-                     "props": {"style": "padding:0 16px 14px!important;background:#161b22;"},
-                     "content": rule_content},
+                    {"component": "div",
+                     "props": {"style": ("padding-bottom:10px;margin-bottom:4px;color:#e2e8f0;"
+                                          "font-size:14px;font-weight:600;border-bottom:1px solid #21262d;")},
+                     "text": "新增映射规则" if is_new_rule else f"映射规则 {rule_index + 1}"},
+                    *rule_content,
                 ],
             }
             if is_new_rule:
-                new_rule_card = rule_card
+                new_rule_form = rule_form
             else:
-                existing_rule_forms.append({
-                    "component": "div",
-                    "props": {
-                        "style": ("margin-top:16px;padding:14px 16px 12px;background:#161b22;"
-                                  "border:1px solid #30363d;border-radius:10px;"),
-                    },
-                    "content": [
-                        {"component": "div",
-                         "props": {"style": ("padding-bottom:10px;margin-bottom:4px;color:#e2e8f0;"
-                                               "font-size:14px;font-weight:600;border-bottom:1px solid #21262d;")},
-                         "text": f"映射规则 {rule_index + 1}"},
-                        *rule_content,
-                    ],
-                })
-        new_mapping_editor = {
-            "component": "div",
-            "props": {"show": "{{ mapping_new_rule_visible }}"},
-            "content": [{
-                "component": "VExpansionPanels",
-                "props": {
-                    "variant": "accordion", "multiple": False,
-                    "model": "mapping_new_rule_panel_open",
-                    "style": ("background:transparent;border:1px solid #30363d;border-radius:10px;"
-                              "overflow:hidden;margin-top:16px;"),
-                },
-                "content": [new_rule_card],
-            }],
-        }
+                existing_rule_forms.append(rule_form)
 
-        mapping_toolbar = {
-            "component": "VRow",
-            "props": {"align": "center", "noGutters": True, "class": "ma-0 mb-3"},
-            "content": [
-                {"component": "VCol", "props": {"cols": 8, "class": "pa-0"},
-                 "content": [{"component": "span",
-                              "props": {"style": "font-size:13px;color:#94a3b8;"},
-                              "text": "分类、挂载目录、云盘路径与 STRM 模板"}]},
-                {"component": "VCol", "props": {"cols": 4, "class": "pa-0 d-flex justify-end"},
-                 "content": [{
-                     "component": "VBtn",
-                     "props": {"prependIcon": "mdi-plus", "size": "small",
-                               "variant": "flat", "style": self._ui_button_style,
-                               "onClick": (
-                                   "function () { mapping_new_rule_visible = true; "
-                                   f"mapping_new_rule_panel_open = {len(form_rules)}; }}"
-                               )},
-                     "text": "新增映射规则",
-                 }]},
-            ],
-        }
-
-        mapping_content = [mapping_toolbar, summary_table]
+        mapping_content = [summary_table]
         mapping_content.extend(existing_rule_forms)
-        mapping_content.append(new_mapping_editor)
+        mapping_content.append(new_rule_form)
 
         form_content = [form_header]
         if self._config_errors:
@@ -3911,9 +3267,6 @@ class CloudStrmHelper(_PluginBase):
             "other_mediaext": self._default_other_mediaext,
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             "cron_enabled": True, "scan_interval": 30,
-            "_panel_open": [],
-            "mapping_new_rule_visible": False,
-            "mapping_new_rule_panel_open": len(form_rules),
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
@@ -4212,20 +3565,6 @@ class CloudStrmHelper(_PluginBase):
                              f"{html_escape(subtitle)}</div>" if subtitle else "")
             return (f"<div style=\"color:#f0f6fc;font-size:15px;font-weight:600;\">"
                     f"{html_escape(title)}</div>" + subtitle_html)
-
-        def metric_card(title, value, unit, value_color):
-            return {
-                "component": "VCol", "props": {"cols": 6},
-                "content": [{"component": "div", "html": (
-                    "<div style=\"background:#0d1117;border-radius:8px;padding:10px 12px;border:1px solid #21262d;\">"
-                    f"<div style=\"color:#8b949e;font-size:11px;\">{html_escape(title)}</div>"
-                    f"<div style=\"color:{value_color};font-size:20px;font-weight:700;line-height:1.4;\">"
-                    f"{html_escape(str(value))}"
-                    f"<span style=\"color:#8b949e;font-size:10px;font-weight:400;\">"
-                    f" {html_escape(unit)}</span></div></div>"
-                )}],
-            }
-
         def hint_box(html_text):
             return {"component": "div", "html": (
                 "<div style=\"border:1px solid rgba(2,132,199,.45);background:rgba(2,132,199,.12);"
@@ -4343,7 +3682,7 @@ class CloudStrmHelper(_PluginBase):
             {"component": "VCol", "props": {"cols": "auto"},
              "content": [{
                  "component": "VBtn",
-                 "props": {"prependIcon": "mdi-text-box-search-outline", "size": "small",
+                 "props": {"prependIcon": "mdi-refresh", "size": "small",
                            "variant": "flat",
                            "style": "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"},
                  "text": "查看日志",
@@ -4389,42 +3728,20 @@ class CloudStrmHelper(_PluginBase):
                         {"component": "VCol", "props": {"cols": 12, "md": 6},
                          "content": [
                              {"component": "div", "html": (
-                                 "<div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap;\">"
-                                 f"<span style=\"background:#21262d;border:1px solid #30363d;border-radius:11px;"
-                                 f"padding:2px 12px;font-size:11px;color:#8b949e;\">OpenList + CD2 · "
-                                 f"<span style=\"color:#f85149;\">插件已停用</span></span>"
-                                 f"<span style=\"background:rgba(35,134,54,0.2);border:1px solid #238636;"
-                                 f"border-radius:4px;padding:2px 8px;font-size:10px;color:#3fb950;\">"
-                                 f"OpenList 已配置</span>"
-                                 f"<span style=\"background:rgba(158,106,3,0.2);border:1px solid #d29922;"
-                                 f"border-radius:4px;padding:2px 8px;font-size:10px;color:#d29922;\">"
-                                 f"有未保存修改</span>"
-                                 "</div>"
+                                 f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:#8b949e;font-size:11px;">'
+                                 f'<span>{html_escape(monitor_detail or monitor_status)}</span>'
+                                 f'<span>{html_escape(openlist_detail or openlist_status)}</span></div>'
                              )},
                          ]},
                         {"component": "VCol", "props": {"cols": 12, "md": 6,
                                           "class": "d-flex flex-wrap align-center justify-end mt-2 mt-md-0"},
-                         "content": [
-                             {"component": "div", "html": (
-                                 "<div style=\"display:flex;align-items:center;gap:8px;\">"
-                                 "<span style=\"background:rgba(137,87,229,0.2);border:1px solid #8957e5;"
-                                 "border-radius:6px;padding:6px 12px;font-size:12px;color:#d2a8ff;cursor:pointer;\">"
-                                 "\U0001f4eb 查看日志</span>"
-                                 "<span style=\"background:#8957e5;border-radius:6px;padding:6px 12px;"
-                                 "font-size:12px;font-weight:600;color:#ffffff;cursor:pointer;\">"
-                                 "\U0001f4be 保存配置</span>"
-                                 "<span style=\"font-size:12px;color:#d2a8ff;cursor:pointer;\">"
-                                 "\U0001f527 放弃修改</span>"
-                                 "</div>"
-                             )},
-                         ]},
+                         "content": header_button_cols},
                      ]},
                 ]},
             ],
         }
 
         # 左侧：账号与运行指标 (KPI Card)
-        dir_count = len(monitor_rows)
         kpi_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
@@ -4436,114 +3753,90 @@ class CloudStrmHelper(_PluginBase):
                      "content": [
                          {"component": "VCol", "props": {"cols": 6, "class": "pr-1"},
                           "content": [{"component": "div", "html": (
-                              "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
-                              "padding:8px 10px;\">"
-                              "<div style=\"color:#8b949e;font-size:10px;\">本地 STRM 总数</div>"
-                              f"<div style=\"color:#38bdf8;font-size:18px;font-weight:700;\">"
-                              f"{strm_total} <span style=\"color:#8b949e;font-size:11px;font-weight:400;\">个</span></div>"
-                              "</div>"
+                              '<div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;'
+                              'padding:8px 10px;">'
+                              '<div style="color:#8b949e;font-size:10px;">本地 STRM 总数</div>'
+                              f'<div style="color:#38bdf8;font-size:18px;font-weight:700;">'
+                              f'{strm_total} <span style="color:#8b949e;font-size:11px;font-weight:400;">个</span></div>'
+                              '</div>'
                           )}]},
                          {"component": "VCol", "props": {"cols": 6, "class": "pl-1"},
                           "content": [{"component": "div", "html": (
-                              "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
-                              "padding:8px 10px;\">"
-                              "<div style=\"color:#8b949e;font-size:10px;\">孤儿清理 (死链)</div>"
-                              f"<div style=\"color:#f85149;font-size:18px;font-weight:700;\">"
-                              f"{self._pruned_total} <span style=\"color:#8b949e;font-size:11px;font-weight:400;\">"
-                              f"个已剥离</span></div>"
-                              "</div>"
+                              '<div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;'
+                              'padding:8px 10px;">'
+                              '<div style="color:#8b949e;font-size:10px;">孤儿清理 (死链)</div>'
+                              f'<div style="color:#f85149;font-size:18px;font-weight:700;">'
+                              f'{self._pruned_total} <span style="color:#8b949e;font-size:11px;font-weight:400;">'
+                              f'个已剥离</span></div>'
+                              '</div>'
                           )}]},
                      ]},
                     {"component": "div", "class": "mt-2",
                      "html": (
-                         "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
-                         "padding:8px 10px;\">"
-                         "<div style=\"color:#c9d1d9;font-size:11px;\">OpenList + CD2 运行状态</div>"
-                         "<div style=\"color:#8b949e;font-size:10px;margin-top:2px;\">"
-                         f"插件已停用 · OpenList 已配置</div>"
-                         "<div style=\"display:flex;align-items:center;margin-top:4px;\">"
-                         "<svg width=\"8\" height=\"8\"><circle cx=\"4\" cy=\"4\" r=\"4\" fill=\"#8b949e\"/></svg>"
-                         "</div></div>"
+                         '<div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;'
+                         'padding:8px 10px;">'
+                         '<div style="color:#c9d1d9;font-size:11px;">OpenList + CD2 运行状态</div>'
+                         f'<div style="color:{status_dot_colors.get(monitor_color, "#8b949e")};'
+                         f'font-size:13px;font-weight:600;margin-top:2px;">'
+                         f'{html_escape(monitor_status)} · {html_escape(openlist_status)}</div>'
+                         f'<div style="color:#8b949e;font-size:10px;margin-top:2px;line-height:1.5;">'
+                         f'{html_escape(monitor_detail or "")}；{html_escape(openlist_detail or "")}</div>'
+                         '</div>'
                      )},
                     {"component": "div", "class": "mt-1",
                      "html": (
-                         "<div style=\"color:#6e7681;font-size:9px;line-height:1.5;\">"
-                         "移动云盘无官方API：文件变化通过 CD2 挂载目录监控，STRM 内容"
-                         "使用 OpenList 地址模板。启用插件并保存配置后开始监控3个地址模板"
-                         "</div>"
+                         '<div style="color:#6e7681;font-size:9px;line-height:1.5;">'
+                         '移动云盘无官方API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。'
+                         '</div>'
                      )},
                 ]},
             ],
         }
 
-        # 左侧：自动化与清理策略 (Strategy Card)
         strategy_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
+                      "style": dark_card_style},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "div", "html": panel_title("自动化与清理策略")},
-                    # Switch rows with SVG toggle icons
-                    {"component": "div", "class": "mt-2",
-                     "html": (
-                         "<div style=\"margin-bottom:10px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
-                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">监控 MoviePilot 整理入库</div>"
-                         "<div style=\"color:#6e7681;font-size:9px;\">CD2 挂载目录出现新文件（如MP整理完成）即刻生成STRM</div></div>"
-                         "<div><span style=\"color:#d29922;font-size:8px;border:1px solid #d29922;border-radius:3px;padding:0 4px;margin-right:4px;vertical-align:middle;\">待保存</span>"
-                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
-                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div></div>"
-                     )},
-                    {"component": "div",
-                     "html": (
-                         "<div style=\"margin-bottom:10px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
-                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">定时增量扫描</div>"
-                         "<div style=\"color:#6e7681;font-size:9px;\">每30分钟轮询 CD2 挂载目录</div></div>"
-                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
-                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div>"
-                     )},
-                    {"component": "div",
-                     "html": (
-                         "<div style=\"margin-bottom:12px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
-                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">云端同步删除 (Prune)</div>"
-                         "<div style=\"color:#6e7681;font-size:9px;\">网盘文件被删除时，同步清理本地STRM</div></div>"
-                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
-                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div>"
-                     )},
-                    # 监控扩展名限制
                     {"component": "div", "class": "mt-1",
-                     "html": (
-                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;margin-bottom:6px;\">监控扩展名限制</div>"
-                         "<div style=\"display:flex;flex-wrap:wrap;gap:4px;\">"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.3gp \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.asf \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.avi \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.f4v \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.flv \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.iso \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.m2ts \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.m4v \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mkv \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mov \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mp4 \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mpeg \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mpg \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.rmvb \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.strm \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.tp \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.ts \u2715</span>"
-                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.wmv \u2715</span>"
-                         "</div>"
-                         "<div style=\"color:#6e7681;font-size:9px;margin-top:8px;\">"
-                         "点击 \u2715 移除 (待保存)；新增格式请在插件设置中添加</div></div>"
-                     )},
-                    # 立即全量同步按钮
-                    {"component": "div", "class": "mt-3",
-                     "html": (
-                         "<div style=\"background:#8957e5;border-radius:6px;padding:10px 0;"
-                         "text-align:center;cursor:pointer;\">"
-                         "<span style=\"color:#ffffff;font-size:12px;font-weight:600;\">\U0001f527 立即全量同步</span></div>"
-                     )},
+                     "content": [
+                         strategy_row("监控 MoviePilot 整理入库",
+                                      "CD2 挂载目录出现新文件即刻生成 STRM", "monitor"),
+                         strategy_row("定时增量扫描",
+                                      f"每 {self._scan_interval} 分钟轮询 CD2 挂载目录", "cron_enabled"),
+                         strategy_row("云端同步删除 (Prune)",
+                                      "网盘文件被删除时同步清理本地 STRM", "sync_delete"),
+                     ]},
+                    {"component": "div", "class": "mt-2",
+                     "content": [
+                         {"component": "div", "html": (
+                             '<div style="color:#c9d1d9;font-size:13px;font-weight:500;margin-bottom:6px;">监控扩展名限制</div>'
+                         )},
+                         {"component": "div", "props": {"class": "d-flex flex-wrap", "style": "gap:4px;"},
+                          "content": [
+                              {"component": "VChip",
+                               "props": {"size": "small", "variant": "tonal", "color": "info", "class": "ma-1"},
+                               "content": [
+                                   {"component": "span", "text": ext},
+                                   {"component": "VBtn",
+                                    "props": {"icon": "mdi-close", "size": "x-small", "variant": "text",
+                                              "density": "compact", "color": "info"},
+                                    "events": {"click": {"api": extension_remove_url, "method": "POST",
+                                                          "params": {"ext": ext}}}},
+                               ]}
+                              for ext in sorted(self._media_exts)
+                          ]},
+                     ]},
+                    {"component": "VBtn",
+                     "props": {"prependIcon": "mdi-sync", "size": "small", "variant": "flat",
+                               "block": True, "class": "mt-3",
+                               "style": self._ui_button_style,
+                               "disabled": is_running},
+                     "text": "立即全量同步（运行中）" if is_running else "立即全量同步",
+                     "events": {"click": {"api": tasks_url, "method": "POST",
+                                          "params": {"kind": "full_scan"}}}},
                 ]},
             ],
         }
@@ -4553,6 +3846,9 @@ class CloudStrmHelper(_PluginBase):
         pending_deleted_rules = self.__pending_deleted_rules()
         mapping_row_views = []
         row_style = "border-bottom:1px solid rgba(51,65,85,.35);min-height:52px;"
+        if self._page_editing_rule == -1:
+            mapping_row_views.append(hint_box(
+                "新增映射规则：请前往插件「设置 → 路径监控与STRM映射策略」的规则表单填写并保存。"))
 
         for rule_index, rule in enumerate(effective_rules):
             rule_monitor = rule.get("monitor", True)
@@ -4617,7 +3913,7 @@ class CloudStrmHelper(_PluginBase):
         if not effective_rules and not pending_deleted_rules:
             mapping_row_views.append({"component": "div", "html": (
                 "<div style=\"color:#6e7681;padding:18px 12px;text-align:center;font-size:13px;\">"
-                "暂无映射规则，点击右上角\u300c添加映射规则\u300d开始配置</div>"
+                "暂无映射规则，点击右上角\u300c前往设置新增\u300d开始配置</div>"
             )})
         mapping_card = {
             "component": "VCard",
@@ -4636,7 +3932,7 @@ class CloudStrmHelper(_PluginBase):
                               "component": "VBtn",
                               "props": {"prependIcon": "mdi-plus", "size": "small", "variant": "flat",
                                         "style": "background:#8957e5;color:#ffffff;"},
-                              "text": "添加映射规则",
+                              "text": "前往设置新增",
                               "events": {"click": {"api": mapping_edit_url, "method": "POST",
                                                    "params": {"index": -1}}}},
                           ]},
