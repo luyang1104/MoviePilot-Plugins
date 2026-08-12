@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.4.0"
+    plugin_version = "V1.4.1"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -333,6 +333,24 @@ class CloudStrmHelper(_PluginBase):
             })
         return rules
 
+    @staticmethod
+    def __category_list(value: Any) -> List[str]:
+        """split category into tags"""
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        raw = str(value).strip()
+        if not raw:
+            return []
+        parts = re.split(r"[,，、]+", raw)
+        return [part.strip() for part in parts if part.strip()]
+
+    @staticmethod
+    def __category_string(value: Any) -> str:
+        """join tags as comma string"""
+        return ",".join(CloudStrmCompanion.__category_list(value))
+
     def __rules_from_config(self, config: dict) -> List[dict]:
         """优先读取结构化 rule_i_* 键，缺失时回退解析旧版 monitor_confs 文本。"""
         config = config or {}
@@ -344,7 +362,8 @@ class CloudStrmHelper(_PluginBase):
                 continue
             monitor_value = config.get(f"rule_{index}_monitor")
             rules.append({
-                "category": str(config.get(f"rule_{index}_category") or "").strip(),
+                "category": CloudStrmCompanion.__category_string(
+                    config.get(f"rule_{index}_category") or ""),
                 "local": local,
                 "strm": strm,
                 "cloud": str(config.get(f"rule_{index}_cloud") or "").strip(),
@@ -365,7 +384,7 @@ class CloudStrmHelper(_PluginBase):
             if not local and not strm:
                 continue
             line = f"{local}#{strm}#{str(rule.get('cloud') or '').strip()}#{str(rule.get('format') or '').strip()}"
-            category = str(rule.get("category") or "").strip()
+            category = CloudStrmCompanion.__category_string(rule.get("category"))
             if category:
                 line += f"@{category}"
             if not rule.get("monitor", True):
@@ -379,7 +398,8 @@ class CloudStrmHelper(_PluginBase):
         keys = {}
         for index in range(max(slots, len(rules or []))):
             rule = rules[index] if rules and index < len(rules) else {}
-            keys[f"rule_{index}_category"] = str(rule.get("category") or "")
+            keys[f"rule_{index}_category"] = CloudStrmCompanion.__category_string(
+                rule.get("category"))
             keys[f"rule_{index}_local"] = str(rule.get("local") or "")
             keys[f"rule_{index}_strm"] = str(rule.get("strm") or "")
             keys[f"rule_{index}_cloud"] = str(rule.get("cloud") or "")
@@ -2363,7 +2383,12 @@ class CloudStrmHelper(_PluginBase):
         for mon_path, mon_category in self._category_conf.items():
             if not mon_category:
                 continue
-            if category and str(category) in str(mon_category):
+            mon_categories = CloudStrmCompanion.__category_list(mon_category)
+            requested_categories = CloudStrmCompanion.__category_list(category) if category else []
+            category_matched = bool(
+                requested_categories and any(tag in mon_categories for tag in requested_categories)
+            ) or bool(category and str(category) in str(mon_category))
+            if category and category_matched:
                 parent_path = os.path.join(mon_path, category)
                 if limit is not None:
                     if Path(parent_path).is_dir():
@@ -2374,7 +2399,7 @@ class CloudStrmHelper(_PluginBase):
                     related_paths = self.__find_related_paths(requested)
                     targets.extend({"path": path, "monitor_path": mon_path}
                                     for path in related_paths)
-            elif not category and str(args) in str(mon_category):
+            elif not category and any(tag == str(args).strip() for tag in mon_categories):
                 parent_path = os.path.join(mon_path, args)
                 if Path(parent_path).exists():
                     targets.append({"path": parent_path, "monitor_path": mon_path})
@@ -3217,8 +3242,20 @@ class CloudStrmHelper(_PluginBase):
                          "props": {"class": "text-caption text-medium-emphasis mb-1"},
                          "text": f"映射规则 {rule_index + 1}"},
                         row(
-                            col(field("VTextField", f"rule_{rule_index}_category", "分类",
-                                      placeholder="如：华语电影", density="compact"), 2),
+                            col({
+                                "component": "VCombobox",
+                                "props": {
+                                    "model": f"rule_{rule_index}_category",
+                                    "label": "分类标签",
+                                    "multiple": True,
+                                    "chips": True,
+                                    "smallChips": True,
+                                    "density": "compact",
+                                    "items": ["电影", "电视剧", "国产剧", "港剧", "台剧",
+                                              "美剧", "韩剧", "日剧", "综艺", "动漫", "纪录片"],
+                                    "placeholder": "输入后回车添加",
+                                },
+                            }, 4),
                             col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
                             col(field("VTextField", f"rule_{rule_index}_local",
                                       "CD2 挂载目录（MoviePilot 中路径）",
@@ -3309,7 +3346,8 @@ class CloudStrmHelper(_PluginBase):
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
-            model[f"rule_{rule_index}_category"] = rule.get("category", "")
+            model[f"rule_{rule_index}_category"] = self.__category_list(
+                rule.get("category", ""))
             model[f"rule_{rule_index}_local"] = rule.get("local", "")
             model[f"rule_{rule_index}_strm"] = rule.get("strm", "")
             model[f"rule_{rule_index}_cloud"] = rule.get("cloud", "")
@@ -3350,40 +3388,49 @@ class CloudStrmHelper(_PluginBase):
             if not task_id_value:
                 continue
             task_status = task.get("status") or ""
-            task_stats = task.get("stats") or {}
-            row_content = [
-                chip(status_names.get(task_status, task_status),
-                     status_colors.get(task_status, "default")),
-            ]
             related_retries = retry_relations.get(task_id_value) or []
-            if related_retries:
-                row_content.append(chip(f"{len(related_retries)} 次关联重试"))
-            row_content.append({
-                "component": "VBtn",
-                "props": {"prependIcon": "mdi-file-document-outline", "size": "small",
-                           "variant": "tonal"},
-                "text": "详情",
-                "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks/{task_id_value}",
-                                             "method": "GET", "params": {}}},
-            })
+            task_time = str(task.get('finished_at') or task.get('created_at') or '-')
+            task_duration = task.get('duration_seconds', 0) or 0
             task_item_views.append({
-                "component": "VListItem",
-                "props": {
-                    "title": f"{kind_names.get(task.get('kind'), task.get('kind'))} · "
-                             f"{task.get('finished_at') or task.get('created_at') or '-'}",
-                    "subtitle": (
-                        f"成功 {task_stats.get('success', 0)}，跳过 {task_stats.get('skipped', 0)}，"
-                        f"失败 {task_stats.get('failed', 0)}；耗时 "
-                        f"{task.get('duration_seconds', 0) or 0:.1f}s；ID：{task_id_value}"
-                    ),
-                    "lines": "three",
-                },
-                "content": row_content,
+                "component": "VRow",
+                "props": {"align": "center", "noGutters": True,
+                          "class": "py-1 task-row",
+                          "style": "border-bottom:1px solid rgba(55,65,81,.25);"},
+                "content": [
+                    {"component": "VCol", "props": {"cols": 2, "class": "text-left text-caption"},
+                     "content": [{"component": "span",
+                                  "text": kind_names.get(task.get('kind'), task.get('kind'))}]},
+                    {"component": "VCol", "props": {"cols": 3, "class": "text-left text-caption"},
+                     "content": [{"component": "span",
+                                  "props": {"class": "text-truncate", "title": task_time},
+                                  "text": task_time}]},
+                    {"component": "VCol", "props": {"cols": 2, "class": "text-left"},
+                     "content": [chip(status_names.get(task_status, task_status),
+                                      status_colors.get(task_status, "default"))]},
+                    {"component": "VCol", "props": {"cols": 1, "class": "text-left text-caption"},
+                     "content": [{"component": "span",
+                                  "text": f"{len(related_retries)}" + ("重试" if related_retries else "")}]},
+                    {"component": "VCol", "props": {"cols": 1, "class": "text-left text-caption"},
+                     "content": [{"component": "span", "text": f"{task_duration:.1f}s"}]},
+                    {"component": "VCol", "props": {"cols": 2, "class": "text-left text-caption"},
+                     "content": [{"component": "span",
+                                  "props": {"class": "text-truncate", "title": task_id_value},
+                                  "text": task_id_value}]},
+                    {"component": "VCol", "props": {"cols": 1, "class": "text-right"},
+                     "content": [{
+                         "component": "VBtn",
+                         "props": {"prependIcon": "mdi-file-document-outline", "size": "x-small",
+                                   "variant": "tonal"},
+                         "text": "详情",
+                         "events": {"click": {"api": f"plugin/{self.__class__.__name__}/tasks/{task_id_value}",
+                                              "method": "GET", "params": {}}},
+                     }]},
+                ],
             })
         if task_item_views:
             recent_body = [{
-                "component": "VList",
-                "props": {"density": "compact", "lines": "three"},
+                "component": "div",
+                "props": {"class": "task-list", "style": "width:100%;"},
                 "content": task_item_views,
             }]
         else:
@@ -3414,23 +3461,33 @@ class CloudStrmHelper(_PluginBase):
                     "indeterminate": not bool(current_stats.get("discovered"))}}]},
             ] if is_running else []),
         }]
+        def stat_box(label, value, value_color="primary"):
+            return {
+                "component": "VCol", "props": {"cols": 6, "sm": 4, "md": 2, "class": "pa-1"},
+                "content": [{"component": "div", "html": (
+                    "<div style=\"background:#1f2937;border:1px solid #374151;border-radius:8px;"
+                    "padding:8px 10px;text-align:center;height:100%;box-sizing:border-box;\">"
+                    f"<div style=\"color:#9ca3af;font-size:10px;white-space:nowrap;overflow:hidden;"
+                    f"text-overflow:ellipsis;\">{html_escape(label)}</div>"
+                    f"<div style=\"color:{value_color};font-size:16px;font-weight:700;line-height:1.4;"
+                    f"white-space:nowrap;\">{html_escape(str(value))}</div></div>"
+                )}],
+            }
+
         if is_running or last_finished:
             overview_rows.append({
                 "component": "VRow",
                 "content": ([{
-                    "component": "VCol", "props": {"cols": 6, "md": 2},
-                    "content": [chip("最近任务结果")],
+                  "component": "VCol", "props": {"cols": 6, "md": 2},
+                    "content": [{"component": "div",
+                                  "props": {"class": "text-caption text-medium-emphasis text-center pa-2"},
+                                  "text": "最近任务结果"}]
                 }] if not is_running else []) + [
-                    {"component": "VCol", "props": {"cols": 6, "md": 2},
-                     "content": [chip(f"总数 {overview_stats.get('discovered', 0)}")]},
-                    {"component": "VCol", "props": {"cols": 6, "md": 2},
-                     "content": [chip(f"已处理 {overview_stats.get('processed', 0)}")]},
-                    {"component": "VCol", "props": {"cols": 6, "md": 2},
-                     "content": [chip(f"成功 {overview_stats.get('success', 0)}", "success")]},
-                    {"component": "VCol", "props": {"cols": 6, "md": 2},
-                     "content": [chip(f"跳过 {overview_stats.get('skipped', 0)}", "warning")]},
-                    {"component": "VCol", "props": {"cols": 6, "md": 2},
-                     "content": [chip(f"失败 {overview_stats.get('failed', 0)}", "error")]},
+                    stat_box("总数", overview_stats.get('discovered', 0), "#38bdf8"),
+                    stat_box("已处理", overview_stats.get('processed', 0), "#38bdf8"),
+                    stat_box("成功", overview_stats.get('success', 0), "#10b981"),
+                    stat_box("跳过", overview_stats.get('skipped', 0), "#f59e0b"),
+                    stat_box("失败", overview_stats.get('failed', 0), "#f43f5e"),
                 ],
             })
         latest_id = self._page_task_id or (current.get("id") if current else (summaries[0].get("id") if summaries else ""))
@@ -3652,16 +3709,21 @@ class CloudStrmHelper(_PluginBase):
             return "已配置", "#38bdf8"
 
         def mapping_rule_html(rule, state_text, state_color, extra_style=""):
-            category = html_escape(rule.get("category") or "未分类")
+            category_tags = CloudStrmCompanion.__category_list(rule.get("category")) or ["未分类"]
+            category_badges = "".join(
+                f"<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
+                f"color:#38bdf8;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;"
+                f"white-space:nowrap;margin-right:4px;\">{html_escape(tag)}</span>"
+                for tag in category_tags
+            )
             strm_dir = html_escape(rule.get("strm") or "-")
             cloud_dir = html_escape(rule.get("cloud") or "-")
             return (
                 "<div style=\"display:flex;align-items:center;gap:10px;padding:10px 12px;"
                 "border:1px solid rgba(55,65,81,.55);border-radius:10px;"
                 f"background:rgba(55,65,81,.22);{extra_style}\">"
-                "<span style=\"flex:0 0 auto;background:#1e293b;border:1px solid #3b82f6;"
-                "color:#38bdf8;border-radius:4px;padding:3px 8px;font-size:11px;font-weight:600;"
-                f"white-space:nowrap;\">{category}</span>"
+                "<span style=\"display:flex;flex:0 0 auto;align-items:center;flex-wrap:wrap;gap:2px;\">"
+                f"{category_badges}</span>"
                 "<div style=\"flex:1 1 auto;min-width:0;font-family:Consolas,Monaco,monospace;\">"
                 f"<div style=\"color:#e5e7eb;font-size:12px;white-space:nowrap;overflow:hidden;"
                 f"text-overflow:ellipsis;\" title=\"{strm_dir}\">{strm_dir}</div>"
@@ -3889,7 +3951,8 @@ class CloudStrmHelper(_PluginBase):
             )})
         mapping_card = {
             "component": "VCard",
-            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
+            "props": {"variant": "flat", "class": "mb-4",
+                      "style": dark_card_style + "flex-shrink:0;"},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "VRow", "props": {"align": "center", "noGutters": True},
@@ -3962,28 +4025,35 @@ class CloudStrmHelper(_PluginBase):
         feed_html = (
             "<div style=\"background:#0b0f19;border:1px solid #1f2937;border-radius:10px;"
             "padding:12px 14px;font-family:Consolas,Monaco,monospace;font-size:12px;"
-            "line-height:1.8;overflow:auto;height:180px;box-sizing:border-box;"
+            "line-height:1.8;overflow:auto;flex:1 1 auto;height:auto;min-height:120px;box-sizing:border-box;"
             "display:flex;flex-direction:column-reverse;\">"
             + "".join(feed_lines) + "</div>"
         )
         feed_card = {
             "component": "VCard",
-            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
+            "props": {"variant": "flat", "class": "mb-4",
+                      "style": dark_card_style + "flex:1 1 auto;display:flex;flex-direction:column;"},
             "content": [
-                {"component": "VCardText", "content": [
+                {"component": "VCardText",
+                 "props": {"style": "display:flex;flex-direction:column;flex:1 1 auto;"},
+                 "content": [
                     {"component": "div", "html": panel_title(
                         "实时同步任务与运行日志", "Live Log Feed · OpenList + CD2 事件流")},
                     {"component": "div", "props": {"class": "mt-2"}, "html": feed_html},
                 ]},
             ],
         }
-        page = [
+        page = [{
+            "component": "div",
+            "props": {"style": "overflow-x:hidden;scrollbar-gutter:stable;width:100%;max-width:100%;"},
+            "content": [
             header_card,
             {
                 "component": "VRow",
                 "content": [
                     {"component": "VCol", "props": {"cols": 12, "md": 4}, "content": [kpi_card, strategy_card]},
-                    {"component": "VCol", "props": {"cols": 12, "md": 8}, "content": [mapping_card, feed_card]},
+                    {"component": "VCol", "props": {"cols": 12, "md": 8, "class": "d-flex flex-column",
+                                        "style": "height:100%;"}, "content": [mapping_card, feed_card]},
                 ],
             },
             {"component": "VExpansionPanels", "props": {"variant": "accordion", "class": "mb-4"},
@@ -4046,6 +4116,8 @@ class CloudStrmHelper(_PluginBase):
                     ]},
                 ],
             },
+            ],
+        }
         ]
         return page
 

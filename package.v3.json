@@ -3,7 +3,7 @@
     "name": "CloudStrm",
     "description": "Monitor a CD2-mounted China Mobile cloud disk without an official API, generate OpenList STRM files, sync subtitles and sidecar files, then refresh Emby.",
     "labels": "moviepilot",
-    "version": "V1.4.0",
+    "version": "V1.4.1",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
@@ -14,7 +14,8 @@
       "V1.2.1": "Fixed task detail and dashboard tables rendering empty: MoviePilot's page renderer always injects a default slot, which suppresses VDataTable's built-in header/body, so tables now render as lightweight HTML.",
       "V1.2": "Polished task center UI: color-coded statuses, consolidated task list, always-visible details, auto-expanding config sections, new icon.",
       "V1.1": "Added task center history, per-file results, completion summaries, failure details, and selective retries.",
-      "V1.0": "Initial release with directory monitoring, full scan, STRM generation, subtitle and sidecar sync, and Emby refresh."
+      "V1.0": "Initial release with directory monitoring, full scan, STRM generation, subtitle and sidecar sync, and Emby refresh.",
+      "V1.4.1": "Fixed dashboard layout and interaction issues: right-column cards now stretch to equal height so the live log terminal fills remaining space, task stats use uniform metric tiles, recent tasks use a fixed-column aligned grid, page scrolling is stable with scrollbar-gutter, and mapping rule categories are editable as chip tags via VCombobox."
     }
   }
 }

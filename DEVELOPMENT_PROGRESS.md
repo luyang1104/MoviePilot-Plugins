@@ -1,3 +1,22 @@
+---
+
+# V1.4.1 布局对齐与交互稳定性修复（2026-08-12）
+
+## 修复内容
+
+- 首页双列布局：右栏改为 flex column，日志终端由固定 180px 改为自适应填充剩余空间，映射卡片固定不收缩。
+- 任务中心统计栏：改为等宽深色 metric tile（总数/已处理/成功/跳过/失败），统一对齐。
+- 最近任务列表：由 VList 改为固定列宽 VRow 网格（类型/时间/状态/重试/耗时/ID/详情），列宽合计 12。
+- 页面溢出修复：页面根节点增加 overflow-x:hidden 与 scrollbar-gutter:stable，筛选切换不再抖动。
+- 映射规则分类：VTextField 改为 VCombobox multiple + chips + smallChips，支持标签直接输入/删除；新增 __category_list/__category_string 兼容旧格式，看板映射行渲染多标签徽章，命令匹配支持标签级命中。
+
+## 验证
+
+- v3 py_compile 通过
+- AST 解析通过，无重复函数定义
+- API 11 个端点均正常注册
+- 分类序列化往返测试通过
+
 # CloudStrm 任务中心开发进度
 
 更新时间：2026-08-12
