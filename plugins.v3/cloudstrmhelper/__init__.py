@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.0"
+    plugin_version = "V1.5.1"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -487,6 +487,40 @@ class CloudStrmHelper(_PluginBase):
         if "_rules" in staged:
             return deepcopy(staged.get("_rules") or [])
         return self.__rules_from_config(saved)
+
+    def __pending_deleted_rules(self) -> List[dict]:
+        """Return saved mapping rules removed from the staged configuration.
+
+        The dashboard keeps a removed row visible until its pending change is
+        saved. Compare occurrence-by-occurrence so identical mapping rules
+        are handled correctly instead of all being treated as deleted. The
+        monitor toggle is deliberately excluded: changing it is an update,
+        not a deletion.
+        """
+        saved = self.__current_saved_config()
+        staged = self.__staged_snapshot()
+        if "_rules" not in staged:
+            return []
+
+        def identity(rule: dict) -> tuple:
+            return (
+                CloudStrmHelper.__category_string(rule.get("category")),
+                str(rule.get("local") or "").strip(),
+                str(rule.get("strm") or "").strip(),
+                str(rule.get("cloud") or "").strip(),
+                str(rule.get("format") or "").strip(),
+            )
+
+        remaining = self.__effective_rules(saved, staged)
+        pending = []
+        for saved_rule in self.__rules_from_config(saved):
+            for index, remaining_rule in enumerate(remaining):
+                if identity(saved_rule) == identity(remaining_rule):
+                    remaining.pop(index)
+                    break
+            else:
+                pending.append(deepcopy(saved_rule))
+        return pending
 
     def __validate_monitor_confs(self, monitor_confs: str) -> List[str]:
         """Validate directory configuration without starting monitors or scheduling work."""
@@ -3484,7 +3518,7 @@ class CloudStrmHelper(_PluginBase):
             "component": "VExpansionPanels",
             "props": {"variant": "accordion", "multiple": True, "model": "_panel_open"},
             "content": [
-                panel("基础设置", [
+                panel("基础与文件设置", [
                     row(col(switch("enabled", "启用插件"), 3),
                         col(switch("monitor", "OpenList + CD2 实时监控"), 3),
                         col(switch("cron_enabled", "定时增量扫描"), 3),
@@ -3494,23 +3528,19 @@ class CloudStrmHelper(_PluginBase):
                                  type="number", min=1, placeholder="10"), 4),
                         col(field("VTextField", "scan_interval", "定时增量扫描周期（分钟）",
                                  type="number", min=5, placeholder="30"), 5)),
-                ], "mdi-cog"),
-                panel("文件处理", [
                     row(col(switch("cover", "覆盖已存在文件"), 3),
                         col(switch("copy_files", "复制旁车文件"), 3),
                         col(switch("copy_subtitles", "复制字幕文件"), 3),
                         col(switch("sync_delete", "同步删除生成文件"), 3)),
-                ], "mdi-file-sync"),
+                ], "mdi-cog"),
                 panel("路径监控与 STRM 映射策略", [
                     *directory_content,
                 ], "mdi-folder-sync"),
-                panel("媒体格式", [
+                panel("媒体与高级设置", [
                     row(col(field("VTextarea", "rmt_mediaext", "视频格式", rows=2,
                                  placeholder=self._default_rmt_mediaext), 6),
                         col(field("VTextarea", "other_mediaext", "非媒体格式", rows=2,
                                  placeholder=self._default_other_mediaext), 6)),
-                ], "mdi-format-list-bulleted"),
-                panel("媒体库与高级设置", [
                     row(col({"component": "VSelect", "props": {
                         "multiple": True, "chips": True, "clearable": True,
                         "model": "mediaservers", "label": "Emby 媒体服务器", "items": emby_items,
