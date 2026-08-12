@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.5.2"
+    plugin_version = "V1.5.3"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -317,6 +317,14 @@ class CloudStrmHelper(_PluginBase):
         return slots
 
     @staticmethod
+    def __remove_rule_config_keys(config: dict):
+        """Remove the transient/structured rule fields before rewriting them."""
+        for key in list((config or {}).keys()):
+            if re.match(r"^rule_\d+_(category|local|strm|cloud|format|monitor|delete)$",
+                        str(key)):
+                config.pop(key, None)
+
+    @staticmethod
     def __rules_from_monitor_confs(monitor_confs: str) -> List[dict]:
         """把旧版 # 分隔文本解析为结构化映射规则列表。"""
         rules = []
@@ -367,7 +375,13 @@ class CloudStrmHelper(_PluginBase):
         """优先读取结构化 rule_i_* 键，缺失时回退解析旧版 monitor_confs 文本。"""
         config = config or {}
         rules = []
-        for index in range(self.__count_rule_slots(config)):
+        structured_slots = self.__count_rule_slots(config)
+        for index in range(structured_slots):
+            delete_value = config.get(f"rule_{index}_delete")
+            if (isinstance(delete_value, str)
+                    and delete_value.strip().lower() in {"1", "true", "yes", "on"}) \
+                    or delete_value is True:
+                continue
             local = str(config.get(f"rule_{index}_local") or "").strip()
             strm = str(config.get(f"rule_{index}_strm") or "").strip()
             if not local and not strm:
@@ -382,7 +396,10 @@ class CloudStrmHelper(_PluginBase):
                 "format": str(config.get(f"rule_{index}_format") or "").strip(),
                 "monitor": bool(monitor_value) if monitor_value is not None else True,
             })
-        if rules:
+        # An existing structured slot set is authoritative even when every
+        # rule was deleted; otherwise an old monitor_confs mirror could revive
+        # a rule that the user just removed.
+        if rules or structured_slots:
             return rules
         return self.__rules_from_monitor_confs(config.get("monitor_confs") or "")
 
@@ -1338,8 +1355,8 @@ class CloudStrmHelper(_PluginBase):
             if key in self._config_toggle_keys or key == "rmt_mediaext":
                 new_config[key] = value
         if rules is not None:
-            slots = max(len(rules), self.__count_rule_slots(saved))
-            new_config.update(self.__rules_to_config_keys(rules, slots))
+            self.__remove_rule_config_keys(new_config)
+            new_config.update(self.__rules_to_config_keys(rules, len(rules)))
             new_config["monitor_confs"] = self.__rules_to_monitor_confs(rules)
         try:
             self.update_config(new_config)
@@ -1555,12 +1572,15 @@ class CloudStrmHelper(_PluginBase):
             if self.__count_rule_slots(config):
                 rules = self.__rules_from_config(config)
                 self._monitor_confs = self.__rules_to_monitor_confs(rules)
-                # 旧版文本镜像与结构化规则保持一致，便于降级回滚与备份
-                if str(config.get("monitor_confs") or "") != self._monitor_confs:
+                # 表单删除项只在提交时短暂存在，保存后清理旧槽位，避免删除的
+                # 规则在下一次打开配置页时又被空槽位重新占住。
+                normalized_config = dict(config)
+                self.__remove_rule_config_keys(normalized_config)
+                normalized_config.update(self.__rules_to_config_keys(rules, len(rules)))
+                normalized_config["monitor_confs"] = self._monitor_confs
+                if normalized_config != config:
                     try:
-                        mirror_config = dict(config)
-                        mirror_config["monitor_confs"] = self._monitor_confs
-                        self.update_config(mirror_config)
+                        self.update_config(normalized_config)
                     except Exception:
                         pass
             if config.get("emby_path"):
@@ -3459,14 +3479,17 @@ class CloudStrmHelper(_PluginBase):
         # The compact mapping summary mirrors the reference table; fields are
         # expanded only for the rule being edited.
         form_rules = self.__rules_from_monitor_confs(self._monitor_confs)
-        rule_slot_count = min(12, len(form_rules) + 1)
+        # Keep one extra editor visible so a new rule can be entered directly.
+        # Do not cap the count here: saving the settings form must not silently
+        # drop legacy rules when a user has more than twelve mappings.
+        rule_slot_count = max(1, len(form_rules) + 1)
         rule_cards = []
         for rule_index in range(rule_slot_count):
             is_new_rule = rule_index >= len(form_rules)
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
             categories = self.__category_list(rule.get("category")) or ["未分类"]
             if is_new_rule:
-                rule_summary = "+ 新增映射规则"
+                rule_summary = "+ 新增映射规则（填写后保存）"
             else:
                 rule_summary = (
                     f"{' · '.join(categories)}    |    "
@@ -3474,14 +3497,35 @@ class CloudStrmHelper(_PluginBase):
                     f"STRM: {self.__shorten_path(rule.get('strm') or '未配置')}    |    "
                     f"OpenList: {self.__shorten_path(rule.get('cloud') or '未配置')}"
                 )
+            rule_actions = []
+            if is_new_rule:
+                rule_actions.append({
+                    "component": "VAlert",
+                    "props": {"type": "info", "variant": "tonal",
+                               "density": "compact",
+                               "text": "填写完整后保存配置，即可新增这条映射规则。"},
+                })
+            else:
+                rule_actions.append({
+                    "component": "VCheckbox",
+                    "props": {
+                        "model": f"rule_{rule_index}_delete",
+                        "label": "删除此映射规则（保存后生效）",
+                        "color": "error",
+                        "density": "compact",
+                        "hideDetails": True,
+                    },
+                })
             rule_cards.append({
                 "component": "VExpansionPanel",
                 "props": {"value": rule_index,
-                          "style": ("background:#1e293b;color:#e2e8f0;border:1px dashed #38bdf8;"
-                                    if is_new_rule else "background:#1e293b;color:#e2e8f0;")},
+                          "style": ("background:#172554;color:#e2e8f0;border:1px dashed #38bdf8;"
+                                    if is_new_rule else "background:#1e293b;color:#e2e8f0;"),
+                          "rounded": 0,
+                          "elevation": 0},
                 "content": [
                     {"component": "VExpansionPanelTitle", "props": {"style": "min-height:56px;"},
-                     "text": rule_summary},
+                      "text": rule_summary},
                     {"component": "VExpansionPanelText", "content": [
                         {"component": "div",
                          "props": {"class": "text-caption text-medium-emphasis mb-1"},
@@ -3500,27 +3544,31 @@ class CloudStrmHelper(_PluginBase):
                                     "placeholder": "输入自定义分类，回车添加",
                                 },
                             }, 4),
-                            col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
                             col(field("VTextField", f"rule_{rule_index}_local",
                                       "CD2 挂载目录（MoviePilot 中路径）",
-                                      placeholder="/mnt/media", density="compact"), 4),
-                            col(field("VTextField", f"rule_{rule_index}_strm", "STRM 生成目录",
-                                      placeholder="/mnt/library", density="compact"), 4),
+                                      placeholder="/mnt/media", density="compact"), 6),
+                            col(switch(f"rule_{rule_index}_monitor", "实时监控"), 2),
                         ),
                         row(
+                            col(field("VTextField", f"rule_{rule_index}_strm", "STRM 生成目录",
+                                      placeholder="/mnt/library", density="compact"), 4),
                             col(field("VTextField", f"rule_{rule_index}_cloud", "OpenList 云盘目录",
-                                      placeholder="/移动网盘/媒体库/电影", density="compact"), 6),
-                             col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板（必须包含 {cloud_file}）",
+                                      placeholder="/移动网盘/媒体库/电影", density="compact"), 4),
+                            col(field("VTextField", f"rule_{rule_index}_format", "STRM 格式化模板（必须包含 {cloud_file}）",
                                       placeholder="http://192.168.1.10:5244/d{cloud_file}",
-                                      density="compact"), 6),
+                                      density="compact"), 4),
                         ),
+                        *rule_actions,
                     ]},
                 ],
             })
         directory_content.extend([
             {"component": "div", "props": {"class": "d-none d-md-flex px-3 py-2",
                                                     "style": "font-size:12px;color:#94a3b8;background:#1e293b;border-bottom:1px solid #475569;"},
-             "html": "<span style='width:20%'>分类标签</span><span style='width:48%'>CD2 挂载目录 / STRM 生成目录</span><span style='width:32%'>OpenList 云盘目录</span>"},
+              "html": ("<span style='width:20%'>分类标签</span>"
+                        "<span style='width:46%'>CD2 挂载目录 / STRM 生成目录</span>"
+                        "<span style='width:24%'>OpenList 云盘目录 &amp; 格式化模板</span>"
+                        "<span style='width:10%;text-align:right'>操作</span>")},
             {"component": "VExpansionPanels",
              "props": {"variant": "accordion", "multiple": True, "model": "mapping_panel_open"},
              "content": rule_cards},
@@ -3588,9 +3636,9 @@ class CloudStrmHelper(_PluginBase):
             "rmt_mediaext": self._default_rmt_mediaext, "path_replacements": "",
             # V1.4.0：定时增量扫描与结构化映射规则默认值
             "cron_enabled": True, "scan_interval": 30,
-            # Keep the three workflow sections visible; mapping editors stay collapsed.
+            # Keep the three workflow sections visible and open the blank editor.
             "_panel_open": [0, 1, 2],
-            "mapping_panel_open": [],
+            "mapping_panel_open": [rule_slot_count - 1],
         }
         for rule_index in range(rule_slot_count):
             rule = form_rules[rule_index] if rule_index < len(form_rules) else {}
@@ -3601,6 +3649,7 @@ class CloudStrmHelper(_PluginBase):
             model[f"rule_{rule_index}_cloud"] = rule.get("cloud", "")
             model[f"rule_{rule_index}_format"] = rule.get("format", "")
             model[f"rule_{rule_index}_monitor"] = rule.get("monitor", True)
+            model[f"rule_{rule_index}_delete"] = False
         return form, model
 
     def get_page(self) -> List[dict]:
