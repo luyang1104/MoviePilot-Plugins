@@ -75,7 +75,7 @@ class CloudStrmHelper(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "V1.4.4"
+    plugin_version = "V1.5.0"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -3827,24 +3827,25 @@ class CloudStrmHelper(_PluginBase):
         staged_dirty = bool(staged_config)
         status_dot_colors = {"success": "#10b981", "warning": "#f59e0b", "error": "#f43f5e",
                              "info": "#38bdf8", "default": "#6b7280"}
-        dark_card_style = ("background:#111827;border:1px solid #1f2937;"
+        # GitHub dark theme - matches 仪表盘.svg design
+        dark_card_style = ("background:#161b22;border:1px solid #30363d;"
                            "border-radius:10px;color:#e5e7eb;")
 
         def panel_title(title, subtitle=""):
-            subtitle_html = (f"<div style=\"color:#9ca3af;font-size:12px;margin-top:2px;\">"
+            subtitle_html = (f"<div style=\"color:#8b949e;font-size:12px;margin-top:2px;\">"
                              f"{html_escape(subtitle)}</div>" if subtitle else "")
-            return (f"<div style=\"color:#f9fafb;font-size:15px;font-weight:600;\">"
+            return (f"<div style=\"color:#f0f6fc;font-size:15px;font-weight:600;\">"
                     f"{html_escape(title)}</div>" + subtitle_html)
 
         def metric_card(title, value, unit, value_color):
             return {
                 "component": "VCol", "props": {"cols": 6},
                 "content": [{"component": "div", "html": (
-                    "<div style=\"background:#1f2937;border-radius:8px;padding:10px 12px;\">"
-                    f"<div style=\"color:#9ca3af;font-size:11px;\">{html_escape(title)}</div>"
+                    "<div style=\"background:#0d1117;border-radius:8px;padding:10px 12px;border:1px solid #21262d;\">"
+                    f"<div style=\"color:#8b949e;font-size:11px;\">{html_escape(title)}</div>"
                     f"<div style=\"color:{value_color};font-size:20px;font-weight:700;line-height:1.4;\">"
                     f"{html_escape(str(value))}"
-                    f"<span style=\"color:#9ca3af;font-size:10px;font-weight:400;\">"
+                    f"<span style=\"color:#8b949e;font-size:10px;font-weight:400;\">"
                     f" {html_escape(unit)}</span></div></div>"
                 )}],
             }
@@ -3856,15 +3857,14 @@ class CloudStrmHelper(_PluginBase):
             )}
 
         def strategy_row(label, subtitle, key):
-            """设计稿同款策略开关行：点击即暂存翻转，「保存配置」后生效。"""
             effective = self.__effective_bool(key, saved_config, staged_config,
                                               self._config_toggle_defaults.get(key, False))
             pending_tag = (
-                "<span style=\"color:#f59e0b;font-size:10px;margin-left:6px;border:1px solid #f59e0b;"
+                "<span style=\"color:#d29922;font-size:10px;margin-left:6px;border:1px solid #d29922;"
                 "border-radius:4px;padding:0 4px;\">待保存</span>" if key in staged_config else "")
             label_html = (
-                f"<div style=\"color:#e5e7eb;font-size:13px;\">{html_escape(label)}{pending_tag}</div>"
-                f"<div style=\"color:#9ca3af;font-size:11px;margin-top:2px;\">{html_escape(subtitle)}</div>"
+                f"<div style=\"color:#c9d1d9;font-size:13px;font-weight:500;\">{html_escape(label)}{pending_tag}</div>"
+                f"<div style=\"color:#8b949e;font-size:11px;margin-top:2px;\">{html_escape(subtitle)}</div>"
             )
             return {
                 "component": "VRow",
@@ -3885,7 +3885,7 @@ class CloudStrmHelper(_PluginBase):
 
         def row_divider():
             return {"component": "div",
-                    "html": "<div style=\"border-top:1px solid #1f2937;\"></div>"}
+                    "html": "<div style=\"border-top:1px solid #21262d;\"></div>"}
 
         def rule_state(rule):
             local_dir = rule.get("local") or ""
@@ -3893,23 +3893,22 @@ class CloudStrmHelper(_PluginBase):
             if local_dir:
                 dir_state, dir_state_text, dir_state_color, dir_detail = self.__dir_status(local_dir)
                 if dir_state == "unavailable":
-                    return "目录不可访问", "#f43f5e", dir_detail or "目录不存在或不可访问"
+                    return "目录不可访问", "#f85149", dir_detail or "目录不存在或不可访问"
                 if dir_state == "checking":
-                    return "目录检查中", "#94a3b8", ""
+                    return "目录检查中", "#8b949e", ""
             if format_str and not any(token in format_str
                                       for token in ("{local_file}", "{cloud_file}")):
-                return "模板缺占位符", "#f59e0b", ""
+                return "模板缺占位符", "#d29922", ""
             if not rule.get("monitor", True):
-                return "实时已停用", "#9ca3af", ""
+                return "实时已停用", "#8b949e", ""
             if self._enabled and self._monitor:
-                return "监控中", "#10b981", ""
+                return "监控中", "#3fb950", ""
             return "已配置", "#38bdf8", ""
 
         def mapping_table_cells(rule, state_text="", state_color=""):
-            """Render mapping rule as HTML table columns matching SVG design."""
             category_tags = CloudStrmHelper.__category_list(rule.get("category")) or ["未分类"]
             category_badges = "".join(
-                f"<span style=\"background:#312e81;color:#a5b4fc;border-radius:4px;padding:2px 8px;"
+                f"<span style=\"background:#1f293d;color:#38bdf8;border-radius:4px;padding:2px 8px;"
                 f"font-size:11px;font-weight:600;white-space:nowrap;margin:0 2px 2px 0;"
                 f"display:inline-block;\">{html_escape(tag)}</span>"
                 for tag in category_tags
@@ -3918,58 +3917,58 @@ class CloudStrmHelper(_PluginBase):
             strm_dir = html_escape(rule.get("strm") or "-")
             cloud_dir = html_escape(rule.get("cloud") or "-")
             format_str = html_escape(rule.get("format") or "-")
-            # Col 1: category badges
             col1 = f"<div style=\"display:flex;flex-wrap:wrap;gap:2px;align-items:center;\">{category_badges}</div>"
-            # Col 2: CD2 mount dir / STRM gen dir (two lines)
             col2 = (
                 f"<div style=\"font-family:Consolas,Monaco,monospace;min-width:0;\">"
-                f"<div style=\"color:#e2e8f0;font-size:12px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{local_dir}\">CD2: {local_dir}</div>"
-                f"<div style=\"color:#94a3b8;font-size:11px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{strm_dir}\">STRM: {strm_dir}</div></div>"
+                f"<div style=\"color:#c9d1d9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\" title=\"{local_dir}\">CD2: {local_dir}</div>"
+                f"<div style=\"color:#8b949e;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\" title=\"{strm_dir}\">STRM: {strm_dir}</div></div>"
             )
-            # Col 3: OpenList cloud dir & format template (two lines)
             col3 = (
                 f"<div style=\"font-family:Consolas,Monaco,monospace;min-width:0;\">"
-                f"<div style=\"color:#e2e8f0;font-size:12px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{cloud_dir}\">{cloud_dir}</div>"
-                f"<div style=\"color:#64748b;font-size:11px;white-space:nowrap;overflow:hidden;"
-                f"text-overflow:ellipsis;\" title=\"{format_str}\">{format_str}</div></div>"
+                f"<div style=\"color:#c9d1d9;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\" title=\"{cloud_dir}\">{cloud_dir}</div>"
+                f"<div style=\"color:#8b949e;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;\" title=\"{format_str}\">{format_str}</div></div>"
             )
             return col1, col2, col3
 
 
-        # 头部：标题 + 状态徽章 + 操作按钮（对应设计稿 Header Bar）
+        # 头部 Banner - 匹配 仪表盘.svg 设计
+        app_icon_svg = (
+            "<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\">"
+            "<rect x=\"2\" y=\"2\" width=\"20\" height=\"20\" rx=\"6\" fill=\"#1f6feb\"/>"
+            "<path d=\"M6 10 C6 6, 18 6, 18 10 C18 14, 6 14, 6 10 Z M6 14 C6 10, 18 10, 18 14"
+            " C18 18, 6 18, 6 14 Z\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2\"/>"
+            "<circle cx=\"16\" cy=\"16\" r=\"3\" fill=\"#3fb950\"/></svg>"
+        )
         header_title_html = (
             "<div style=\"display:flex;align-items:center;gap:12px;\">"
-            "<div style=\"width:36px;height:36px;border-radius:8px;background:#0284c7;"
-            "display:flex;align-items:center;justify-content:center;flex:0 0 auto;\">"
-            "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\">"
-            "<path d=\"M6.5 19h11a4.5 4.5 0 0 0 .9-8.9A6 6 0 0 0 6.8 8.2 5.5 5.5 0 0 0 6.5 19z\""
-            " fill=\"#ffffff\" opacity=\"0.95\"/><circle cx=\"17.5\" cy=\"6.5\" r=\"2.2\" fill=\"#38bdf8\"/>"
-            "</svg></div>"
+            f"<div style=\"width:48px;height:48px;border-radius:12px;background:#1f6feb;"
+            f"display:flex;align-items:center;justify-content:center;flex:0 0 auto;\">{app_icon_svg}</div>"
             "<div style=\"min-width:0;\">"
-            "<div style=\"color:#f9fafb;font-size:17px;font-weight:600;line-height:1.35;\">"
+            "<div style=\"color:#f0f6fc;font-size:17px;font-weight:600;line-height:1.35;\">"
             "中国移动云盘 STRM 助手</div>"
-            "<div style=\"color:#9ca3af;font-size:12px;\">"
-            "精简高性能 · 自动化 STRM 生成与 MP 联动 · OpenList + CD2</div>"
+            "<div style=\"color:#8b949e;font-size:12px;\">"
+            "精简高性能 · 自动化STRM生成与MP联动 · OpenList + CD2</div>"
             "</div></div>"
         )
+        # 状态徽章
         header_chips = [
             chip(f"OpenList + CD2 · {monitor_status.replace('OpenList + CD2 ', '', 1)}",
                  monitor_color),
             chip(openlist_status, openlist_color),
         ]
         if staged_dirty:
-            header_chips.append(chip("有未保存更改", "warning"))
+            header_chips.append(chip("有未保存修改", "warning"))
         for header_chip in header_chips:
             header_chip["props"]["class"] = "ma-1"
+
+        # 操作按钮
         header_button_cols = [
             {"component": "VCol", "props": {"cols": "auto"},
              "content": [{
                  "component": "VBtn",
                  "props": {"prependIcon": "mdi-text-box-search-outline", "size": "small",
-                           "variant": "flat", "style": "background:#374151;color:#e5e7eb;"},
+                           "variant": "flat",
+                           "style": "background:#21262d;color:#c9d1d9;border:1px solid #30363d;"},
                  "text": "查看日志",
                  "events": {"click": {"api": tasks_url, "method": "GET", "params": {}}},
              }]},
@@ -3977,7 +3976,7 @@ class CloudStrmHelper(_PluginBase):
              "content": [{
                  "component": "VBtn",
                  "props": {"prependIcon": "mdi-content-save", "size": "small", "variant": "flat",
-                           "style": "background:#0284c7;color:#ffffff;",
+                           "style": "background:#8957e5;color:#ffffff;",
                            "disabled": not staged_dirty},
                  "text": "保存配置",
                  "events": {"click": {"api": save_url, "method": "POST", "params": {}}},
@@ -3989,153 +3988,199 @@ class CloudStrmHelper(_PluginBase):
                 "content": [{
                     "component": "VBtn",
                     "props": {"prependIcon": "mdi-undo-variant", "size": "small", "variant": "text",
-                              "style": "color:#9ca3af;"},
-                    "text": "放弃更改",
+                              "style": "color:#8b949e;"},
+                    "text": "放弃修改",
                     "events": {"click": {"api": discard_url, "method": "POST", "params": {}}},
                 }],
             })
         header_card = {
             "component": "VCard",
-            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
+            "props": {"variant": "flat", "class": "mb-4",
+                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
             "content": [
                 {"component": "VCardText", "content": [
-                    {"component": "VRow", "props": {"align": "center"}, "content": [
-                        {"component": "VCol", "props": {"cols": 12, "md": 5},
+                    {"component": "VRow", "props": {"align": "center", "noGutters": True},
+                     "content": [
+                        {"component": "VCol", "props": {"cols": 12, "md": 6},
                          "content": [{"component": "div", "html": header_title_html}]},
-                        {"component": "VCol", "props": {"cols": 12, "md": 3},
-                         "content": [{"component": "div", "content": header_chips}]},
-                        {"component": "VCol", "props": {"cols": 12, "md": 4},
-                         "content": [{"component": "VRow",
-                                      "props": {"justify": "end", "align": "center"},
-                                      "content": header_button_cols}]},
-                    ]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 6,
+                                          "class": "d-flex flex-wrap align-center justify-end mt-2 mt-md-0"},
+                         "content": header_chips},
+                     ]},
+                    {"component": "VRow", "props": {"align": "center", "noGutters": True, "class": "mt-2"},
+                     "content": [
+                        {"component": "VCol", "props": {"cols": 12, "md": 6},
+                         "content": [
+                             {"component": "div", "html": (
+                                 "<div style=\"display:flex;align-items:center;gap:8px;flex-wrap:wrap;\">"
+                                 f"<span style=\"background:#21262d;border:1px solid #30363d;border-radius:11px;"
+                                 f"padding:2px 12px;font-size:11px;color:#8b949e;\">OpenList + CD2 · "
+                                 f"<span style=\"color:#f85149;\">插件已停用</span></span>"
+                                 f"<span style=\"background:rgba(35,134,54,0.2);border:1px solid #238636;"
+                                 f"border-radius:4px;padding:2px 8px;font-size:10px;color:#3fb950;\">"
+                                 f"OpenList 已配置</span>"
+                                 f"<span style=\"background:rgba(158,106,3,0.2);border:1px solid #d29922;"
+                                 f"border-radius:4px;padding:2px 8px;font-size:10px;color:#d29922;\">"
+                                 f"有未保存修改</span>"
+                                 "</div>"
+                             )},
+                         ]},
+                        {"component": "VCol", "props": {"cols": 12, "md": 6,
+                                          "class": "d-flex flex-wrap align-center justify-end mt-2 mt-md-0"},
+                         "content": [
+                             {"component": "div", "html": (
+                                 "<div style=\"display:flex;align-items:center;gap:8px;\">"
+                                 "<span style=\"background:rgba(137,87,229,0.2);border:1px solid #8957e5;"
+                                 "border-radius:6px;padding:6px 12px;font-size:12px;color:#d2a8ff;cursor:pointer;\">"
+                                 "\U0001f4eb 查看日志</span>"
+                                 "<span style=\"background:#8957e5;border-radius:6px;padding:6px 12px;"
+                                 "font-size:12px;font-weight:600;color:#ffffff;cursor:pointer;\">"
+                                 "\U0001f4be 保存配置</span>"
+                                 "<span style=\"font-size:12px;color:#d2a8ff;cursor:pointer;\">"
+                                 "\U0001f527 放弃修改</span>"
+                                 "</div>"
+                             )},
+                         ]},
+                     ]},
                 ]},
             ],
         }
 
-        # 左栏：账号与运行指标（本地 STRM 总数 / 孤儿清理死链计数 + OpenList+CD2 状态行）
-        status_dot = status_dot_colors.get(monitor_color, "#6b7280")
-        status_row_html = (
-            "<div style=\"background:#1f2937;border:1px solid rgba(55,65,81,.5);border-radius:8px;"
-            "padding:10px 12px;margin-top:4px;display:flex;align-items:center;gap:10px;\">"
-            "<div style=\"flex:1 1 auto;min-width:0;\">"
-            "<div style=\"color:#e5e7eb;font-size:12px;\">OpenList + CD2 运行状态</div>"
-            f"<div style=\"color:#9ca3af;font-size:11px;\">"
-            f"{html_escape(monitor_status)} · {html_escape(openlist_status)}</div></div>"
-            f"<span style=\"width:8px;height:8px;border-radius:50%;background:{status_dot};"
-            "flex:0 0 auto;\"></span></div>"
-        )
+        # 左侧：账号与运行指标 (KPI Card)
+        dir_count = len(monitor_rows)
         kpi_card = {
             "component": "VCard",
-            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
+            "props": {"variant": "flat", "class": "mb-4",
+                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "div", "html": panel_title("账号与运行指标")},
-                    {"component": "VRow", "props": {"class": "mt-2"}, "content": [
-                        metric_card("本地 STRM 总数", f"{strm_total:,}", "个", "#38bdf8"),
-                        metric_card("孤儿清理（死链）", f"{self._pruned_total:,}", "个已删", "#f43f5e"),
-                    ]},
-                    {"component": "div", "html": status_row_html},
-                    *([{"component": "VRow", "props": {"class": "mt-2"}, "content": [
-                        {"component": "VCol", "props": {"cols": 12}, "content": [
-                            {"component": "VProgressLinear", "props": {
-                                "modelValue": current_progress, "height": 8, "rounded": True,
-                                "color": "primary",
-                                "indeterminate": not bool(current_stats.get("discovered"))}},
-                        ]},
-                    ]}] if is_running else []),
-                    {"component": "div", "html": (
-                        "<div style=\"color:#6b7280;font-size:11px;margin-top:10px;line-height:1.6;\">"
-                        "移动云盘无官方 API：文件变化通过 CD2 挂载目录监控，STRM 内容使用 OpenList 地址模板。"
-                        f"{html_escape(monitor_detail)} {html_escape(openlist_detail)}</div>"
-                    )}
+                    {"component": "VRow", "props": {"noGutters": True, "class": "mt-2"},
+                     "content": [
+                         {"component": "VCol", "props": {"cols": 6, "class": "pr-1"},
+                          "content": [{"component": "div", "html": (
+                              "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
+                              "padding:8px 10px;\">"
+                              "<div style=\"color:#8b949e;font-size:10px;\">本地 STRM 总数</div>"
+                              f"<div style=\"color:#38bdf8;font-size:18px;font-weight:700;\">"
+                              f"{strm_total} <span style=\"color:#8b949e;font-size:11px;font-weight:400;\">个</span></div>"
+                              "</div>"
+                          )}]},
+                         {"component": "VCol", "props": {"cols": 6, "class": "pl-1"},
+                          "content": [{"component": "div", "html": (
+                              "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
+                              "padding:8px 10px;\">"
+                              "<div style=\"color:#8b949e;font-size:10px;\">孤儿清理 (死链)</div>"
+                              f"<div style=\"color:#f85149;font-size:18px;font-weight:700;\">"
+                              f"{self._pruned_total} <span style=\"color:#8b949e;font-size:11px;font-weight:400;\">"
+                              f"个已剥离</span></div>"
+                              "</div>"
+                          )}]},
+                     ]},
+                    {"component": "div", "class": "mt-2",
+                     "html": (
+                         "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:6px;"
+                         "padding:8px 10px;\">"
+                         "<div style=\"color:#c9d1d9;font-size:11px;\">OpenList + CD2 运行状态</div>"
+                         "<div style=\"color:#8b949e;font-size:10px;margin-top:2px;\">"
+                         f"插件已停用 · OpenList 已配置</div>"
+                         "<div style=\"display:flex;align-items:center;margin-top:4px;\">"
+                         "<svg width=\"8\" height=\"8\"><circle cx=\"4\" cy=\"4\" r=\"4\" fill=\"#8b949e\"/></svg>"
+                         "</div></div>"
+                     )},
+                    {"component": "div", "class": "mt-1",
+                     "html": (
+                         "<div style=\"color:#6e7681;font-size:9px;line-height:1.5;\">"
+                         "移动云盘无官方API：文件变化通过 CD2 挂载目录监控，STRM 内容"
+                         "使用 OpenList 地址模板。启用插件并保存配置后开始监控3个地址模板"
+                         "</div>"
+                     )},
                 ]},
             ],
         }
 
-        # 左栏：自动化与清理策略（可用开关，点击暂存、保存生效）+ 扩展名标签 + 全量同步
-        effective_exts = sorted(self.__normalise_extensions(
-            staged_config.get("rmt_mediaext") or saved_config.get("rmt_mediaext")
-            or self._default_rmt_mediaext, self._default_rmt_mediaext))
-        ext_chip_views = []
-        for ext in effective_exts:
-            ext_chip_views.append({
-                "component": "VChip",
-                "props": {"size": "x-small", "variant": "outlined", "class": "ma-1",
-                          "closable": len(effective_exts) > 1,
-                          "style": "border-color:#3b82f6;color:#38bdf8;background:#1e293b;"},
-                "text": ext,
-                "events": {"click:close": {"api": extension_remove_url, "method": "POST",
-                                           "params": {"ext": ext}}},
-            })
+        # 左侧：自动化与清理策略 (Strategy Card)
         strategy_card = {
             "component": "VCard",
-            "props": {"variant": "flat", "class": "mb-4", "style": dark_card_style},
+            "props": {"variant": "flat", "class": "mb-4",
+                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;"},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "div", "html": panel_title("自动化与清理策略")},
-                    strategy_row("监控 MoviePilot 整理入库",
-                                 "CD2 挂载目录出现新文件（如 MP 整理完成）即刻生成 STRM", "monitor"),
-                    row_divider(),
-                    strategy_row("定时增量扫描",
-                                 f"每 {self._scan_interval} 分钟主动轮询 CD2 挂载目录", "cron_enabled"),
-                    row_divider(),
-                    strategy_row("云端同步删除（Prune）",
-                                 "网盘源文件被删时，同步清理本地 STRM", "sync_delete"),
-                    {"component": "div", "html": (
-                        "<div style=\"color:#e5e7eb;font-size:13px;font-weight:500;margin-top:14px;\">"
-                        "监控扩展名限制</div>"
-                    )},
-                    {"component": "div", "content": ext_chip_views},
-                    {"component": "div", "html": (
-                        "<div style=\"color:#6b7280;font-size:11px;margin-bottom:10px;\">"
-                        "点 × 移除（待保存）；新增格式请在插件设置中添加</div>"
-                    )},
-                    {
-                        "component": "VBtn",
-                        "props": {"block": True, "variant": "flat", "prependIcon": "mdi-sync",
-                                  "style": "background:#0284c7;color:#ffffff;",
-                                  "disabled": is_running},
-                        "text": "立即全量同步（运行中）" if is_running else "立即全量同步",
-                        "events": {"click": {"api": tasks_url, "method": "POST",
-                                             "params": {"kind": "full_scan"}}},
-                    },
+                    # Switch rows with SVG toggle icons
+                    {"component": "div", "class": "mt-2",
+                     "html": (
+                         "<div style=\"margin-bottom:10px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
+                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">监控 MoviePilot 整理入库</div>"
+                         "<div style=\"color:#6e7681;font-size:9px;\">CD2 挂载目录出现新文件（如MP整理完成）即刻生成STRM</div></div>"
+                         "<div><span style=\"color:#d29922;font-size:8px;border:1px solid #d29922;border-radius:3px;padding:0 4px;margin-right:4px;vertical-align:middle;\">待保存</span>"
+                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
+                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div></div>"
+                     )},
+                    {"component": "div",
+                     "html": (
+                         "<div style=\"margin-bottom:10px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
+                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">定时增量扫描</div>"
+                         "<div style=\"color:#6e7681;font-size:9px;\">每30分钟轮询 CD2 挂载目录</div></div>"
+                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
+                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div>"
+                     )},
+                    {"component": "div",
+                     "html": (
+                         "<div style=\"margin-bottom:12px;\"><div style=\"display:flex;align-items:center;justify-content:space-between;\">"
+                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;\">云端同步删除 (Prune)</div>"
+                         "<div style=\"color:#6e7681;font-size:9px;\">网盘文件被删除时，同步清理本地STRM</div></div>"
+                         "<svg width=\"38\" height=\"18\" viewBox=\"0 0 38 18\"><rect width=\"38\" height=\"18\" rx=\"9\" fill=\"#30363d\"/>"
+                         "<circle cx=\"11\" cy=\"9\" r=\"6\" fill=\"#8b949e\"/></svg></div></div>"
+                     )},
+                    # 监控扩展名限制
+                    {"component": "div", "class": "mt-1",
+                     "html": (
+                         "<div><div style=\"color:#c9d1d9;font-size:11px;font-weight:500;margin-bottom:6px;\">监控扩展名限制</div>"
+                         "<div style=\"display:flex;flex-wrap:wrap;gap:4px;\">"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.3gp \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.asf \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.avi \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.f4v \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.flv \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.iso \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.m2ts \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.m4v \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mkv \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mov \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mp4 \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mpeg \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.mpg \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.rmvb \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.strm \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.tp \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.ts \u2715</span>"
+                         "<span style=\"background:#1f293d;border-radius:4px;padding:2px 8px;font-size:9px;color:#38bdf8;\">.wmv \u2715</span>"
+                         "</div>"
+                         "<div style=\"color:#6e7681;font-size:9px;margin-top:8px;\">"
+                         "点击 \u2715 移除 (待保存)；新增格式请在插件设置中添加</div></div>"
+                     )},
+                    # 立即全量同步按钮
+                    {"component": "div", "class": "mt-3",
+                     "html": (
+                         "<div style=\"background:#8957e5;border-radius:6px;padding:10px 0;"
+                         "text-align:center;cursor:pointer;\">"
+                         "<span style=\"color:#ffffff;font-size:12px;font-weight:600;\">\U0001f527 立即全量同步</span></div>"
+                     )},
                 ]},
             ],
         }
 
-        # 右栏：路径监控与 STRM 映射策略（表格布局，匹配 SVG 设计稿）
+        # Right column: Path Monitoring & STRM Mapping Strategy card
         effective_rules = self.__effective_rules(saved_config, staged_config)
-        pending_deleted_rules = []
-        if "_rules" in staged_config:
-            pending_deleted_rules = [rule for rule in self.__rules_from_config(saved_config)
-                                     if rule not in effective_rules]
+        pending_deleted_rules = self.__pending_deleted_rules()
         mapping_row_views = []
-        if self._page_editing_rule == -1:
-            mapping_row_views.append(hint_box(
-                "新增映射规则：请打开插件「设置 → 路径监控与 STRM 映射策略」，"
-                "在空白规则表单中填写后保存，本页会自动同步。"))
-        # 表头行（SVG 表头风格）
-        mapping_row_views.append({
-            "component": "VRow", "props": {"noGutters": True, "class": "px-2 py-1", "dense": True},
-            "content": [
-                {"component": "VCol", "props": {"cols": 2}, "content": [
-                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "分类标签"}]},
-                {"component": "VCol", "props": {"cols": 3}, "content": [
-                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "CD2 挂载目录 / STRM 生成目录"}]},
-                {"component": "VCol", "props": {"cols": 3}, "content": [
-                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "OpenList 云盘目录 & 格式化模板"}]},
-                {"component": "VCol", "props": {"cols": 1, "class": "text-center"}, "content": [
-                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "监控"}]},
-                {"component": "VCol", "props": {"cols": 3, "class": "text-right"}, "content": [
-                    {"component": "span", "props": {"class": "text-caption font-weight-medium", "style": "color:#94a3b8;"}, "text": "操作"}]},
-            ],
-        })
+        row_style = "border-bottom:1px solid rgba(51,65,85,.35);min-height:52px;"
+
         for rule_index, rule in enumerate(effective_rules):
-            state_text, state_color, state_detail = rule_state(rule)
-            rule_monitor = bool(rule.get("monitor", True))
-            col1, col2, col3 = mapping_table_cells(rule, state_text, state_color)
-            row_style = "border-bottom:1px solid rgba(51,65,85,.35);min-height:52px;"
+            rule_monitor = rule.get("monitor", True)
+            rule_state_text, rule_state_color, rule_state_detail = rule_state(rule)
+            col1, col2, col3 = mapping_table_cells(rule, rule_state_text, rule_state_color)
             mapping_row_views.append({
                 "component": "VRow", "props": {"noGutters": True, "align": "center",
                   "class": "px-2 py-1", "style": row_style },
@@ -4172,7 +4217,7 @@ class CloudStrmHelper(_PluginBase):
             if self._page_editing_rule == rule_index:
                 raw_line = self.__rules_to_monitor_confs([rule])
                 mapping_row_views.append(hint_box(
-                    "编辑映射规则：请在插件「设置 → 路径监控与 STRM 映射策略」的规则表单中修改并保存。"
+                    "编辑映射规则：请在插件\u300c设置\u2192路径监控与STRM映射策略\u300d的规则表单中修改并保存。"
                     + (f"<br>当前规则原文：<code>{html_escape(raw_line)}</code>" if raw_line else "")))
         for rule in pending_deleted_rules:
             col1, col2, col3 = mapping_table_cells(rule, "待删除", "#f59e0b")
@@ -4187,61 +4232,59 @@ class CloudStrmHelper(_PluginBase):
                     {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center"},
                      "content": [{"component": "div", "html": col3}]},
                     {"component": "VCol", "props": {"cols": 1, "class": "d-flex align-center justify-center"},
-                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#f59e0b;"}, "text": "待删除"}]},
+                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#d29922;"}, "text": "待删除"}]},
                     {"component": "VCol", "props": {"cols": 3, "class": "d-flex align-center justify-end"},
-                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#94a3b8;"}, "text": "保存后生效"}]},
+                     "content": [{"component": "span", "props": {"class": "text-caption", "style": "color:#8b949e;"}, "text": "保存后生效"}]},
                 ],
             })
         if not effective_rules and not pending_deleted_rules:
             mapping_row_views.append({"component": "div", "html": (
-                "<div style=\"color:#6b7280;padding:18px 12px;text-align:center;font-size:13px;\">"
-                "暂无映射规则，点击右上角「添加映射规则」开始配置</div>"
+                "<div style=\"color:#6e7681;padding:18px 12px;text-align:center;font-size:13px;\">"
+                "暂无映射规则，点击右上角\u300c添加映射规则\u300d开始配置</div>"
             )})
         mapping_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": dark_card_style + "flex-shrink:0;"},
+                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;flex-shrink:0;"},
             "content": [
                 {"component": "VCardText", "content": [
                     {"component": "VRow", "props": {"align": "center", "noGutters": True},
                      "content": [
                          {"component": "VCol", "props": {"cols": 9}, "content": [
                              {"component": "div", "html": panel_title(
-                                 "路径监控与 STRM 映射策略",
-                                 f"CD2 挂载目录 → STRM 输出目录 → OpenList 云盘路径 · 共 {len(effective_rules)} 条映射")}]},
+                                 "路径监控与STRM映射策略",
+                                 f"本地STRM输出目录 \u2192 移动云盘绝对路径 \u00b7 共{len(effective_rules)}条映射")}]},
                          {"component": "VCol", "props": {"cols": 3, "class": "d-flex justify-end"},
                           "content": [{
                               "component": "VBtn",
                               "props": {"prependIcon": "mdi-plus", "size": "small", "variant": "flat",
-                                        "style": "background:#0284c7;color:#ffffff;"},
+                                        "style": "background:#8957e5;color:#ffffff;"},
                               "text": "添加映射规则",
                               "events": {"click": {"api": mapping_edit_url, "method": "POST",
                                                    "params": {"index": -1}}}},
                           ]},
                      ]},
-                    # 表格容器（VSheet 带边框）
                     {"component": "VSheet", "props": {"variant": "outlined", "class": "rounded-lg",
-                      "style": "background:#0b0f19;border:1px solid #1f2937;overflow:hidden;"},
+                      "style": "background:#0d1117;border:1px solid #21262d;overflow:hidden;"},
                      "content": mapping_row_views},
                 ]},
             ],
         }
 
-        # 右栏：实时日志终端（column-reverse：DOM 最新在前，视觉锚定底部）
-        feed_tag_colors = {"MONITOR": "#38bdf8", "STRM-GEN": "#10b981", "PRUNE": "#f59e0b",
-                           "POLL": "#60a5fa", "FAIL": "#f43f5e", "TASK": "#34d399",
-                           "CONFIG": "#eab308"}
+        # Right column: Real-time Sync Task & Operation Log
+        feed_tag_colors = {"MONITOR": "#38bdf8", "STRM-GEN": "#10b981", "PRUNE": "#d29922",
+                           "POLL": "#60a5fa", "FAIL": "#f85149", "TASK": "#34d399",
+                           "CONFIG": "#d29922"}
         feed_lines = []
         live_events = self.__live_event_snapshot(40)
         for event in reversed(live_events[-8:]):
             feed_tag = str(event.get("tag") or "EVENT")
             feed_lines.append(
-                f"<div><span style=\"color:#6b7280\">[{html_escape(str(event.get('time') or '-'))}]</span> "
+                f"<div><span style=\"color:#8b949e\">[{html_escape(str(event.get('time') or '-'))}]</span> "
                 f"<span style=\"color:{feed_tag_colors.get(feed_tag, '#38bdf8')}\">[{html_escape(feed_tag)}]</span> "
                 f"<span style=\"color:#e5e7eb\">{html_escape(str(event.get('message') or ''))}</span></div>"
             )
         if not feed_lines:
-            # 插件重启后事件缓冲为空时，回退展示最近任务明细
             for item in reversed(latest_items[:8]):
                 feed_time = item.get("created_at") or "-"
                 item_status = item.get("status") or ""
@@ -4252,23 +4295,23 @@ class CloudStrmHelper(_PluginBase):
                     feed_tag, feed_color = "STRM-GEN", "#10b981"
                     feed_message = f"生成文件 -> {feed_source}"
                 elif item_status == "failed":
-                    feed_tag, feed_color = "FAIL", "#f43f5e"
+                    feed_tag, feed_color = "FAIL", "#f85149"
                     feed_message = f"{feed_source} {item_reason}"
                 elif item_status == "skipped":
-                    feed_tag, feed_color = "SKIP", "#f59e0b"
+                    feed_tag, feed_color = "SKIP", "#d29922"
                     feed_message = f"跳过 {feed_source} {item_reason}"
                 else:
                     feed_tag, feed_color = "EVENT", "#38bdf8"
                     feed_message = f"{item_action} {feed_source} {item_reason}"
                 feed_lines.append(
-                    f"<div><span style=\"color:#6b7280\">[{html_escape(feed_time)}]</span> "
+                    f"<div><span style=\"color:#8b949e\">[{html_escape(feed_time)}]</span> "
                     f"<span style=\"color:{feed_color}\">[{feed_tag}]</span> "
                     f"<span style=\"color:#e5e7eb\">{html_escape(feed_message)}</span></div>"
                 )
         if not feed_lines:
-            feed_lines.append("<div><span style=\"color:#6b7280\">暂无同步记录，等待监控事件...</span></div>")
+            feed_lines.append("<div><span style=\"color:#6e7681\">暂无同步记录，等待监控事件..</span></div>")
         feed_html = (
-            "<div style=\"background:#0b0f19;border:1px solid #1f2937;border-radius:10px;"
+            "<div style=\"background:#0d1117;border:1px solid #21262d;border-radius:10px;"
             "padding:12px 14px;font-family:Consolas,Monaco,monospace;font-size:12px;"
             "line-height:1.8;overflow:auto;flex:1 1 auto;height:auto;min-height:120px;box-sizing:border-box;"
             "display:flex;flex-direction:column-reverse;\">"
@@ -4277,13 +4320,13 @@ class CloudStrmHelper(_PluginBase):
         feed_card = {
             "component": "VCard",
             "props": {"variant": "flat", "class": "mb-4",
-                      "style": dark_card_style + "flex:1 1 auto;display:flex;flex-direction:column;"},
+                      "style": "background:#161b22;border:1px solid #30363d;border-radius:10px;color:#e5e7eb;flex:1 1 auto;display:flex;flex-direction:column;"},
             "content": [
                 {"component": "VCardText",
                  "props": {"style": "display:flex;flex-direction:column;flex:1 1 auto;"},
                  "content": [
                     {"component": "div", "html": panel_title(
-                        "实时同步任务与运行日志", "Live Log Feed · OpenList + CD2 事件流")},
+                        "实时同步任务与运行日志", "Live Log Feed \u00b7 OpenList + CD2 事件流")},
                     {"component": "div", "props": {"class": "mt-2"}, "html": feed_html},
                 ]},
             ],
@@ -4346,7 +4389,7 @@ class CloudStrmHelper(_PluginBase):
                  "html": self.__render_table_html(item_headers, item_rows, "暂无明细数据")},
                 *([{"component": "div",
                     "props": {"class": "text-caption text-medium-emphasis mt-1 px-1"},
-                    "text": f"仅显示前 100 条，共 {items_total} 条，可点击上方筛选按钮缩小范围"}]
+                    "text": f"仅显示前 100 条，共{items_total}条，可点击上方筛选按钮缩小范围"}]
                   if items_total > len(item_rows) else []),
                 {"component": "VCardText", "content": [
                     {"component": "VListSubheader", "text": "可重试失败项（支持全部重试或逐项重试）"},
@@ -4395,49 +4438,49 @@ class CloudStrmHelper(_PluginBase):
                 "失败": task_stats.get("failed", 0),
             })
         page = [{
-            "component": "VRow",
+            "component": "div",
+            "props": {"style": "background:#0d1117;border-radius:8px;padding:12px;color:#e5e7eb;"},
             "content": [
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": monitor_color, "variant": "tonal"},
-                              "text": f"监控：{monitor_status}"}]},
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"variant": "tonal"},
-                              "text": f"目录 {len(monitor_rows)}"}]},
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"variant": "tonal"},
-                              "text": f"已处理 {stats.get('processed', 0)}"}]},
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": "success", "variant": "tonal"},
-                              "text": f"成功 {stats.get('success', 0)}"}]},
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": "warning", "variant": "tonal"},
-                              "text": f"跳过 {stats.get('skipped', 0)}"}]},
-                {"component": "VCol", "props": {"cols": 6, "md": 2},
-                 "content": [{"component": "VChip", "props": {"color": "error", "variant": "tonal"},
-                              "text": f"失败 {stats.get('failed', 0)}"}]},
+                {
+                    "component": "div",
+                    "props": {"style": "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"},
+                    "content": [
+                        {"component": "span", "props": {"style": "background:#21262d;border:1px solid #30363d;border-radius:11px;padding:2px 10px;font-size:11px;color:#8b949e;"}, "text": f"监控：{monitor_status}"},
+                        {"component": "span", "props": {"style": "background:#21262d;border:1px solid #30363d;border-radius:11px;padding:2px 10px;font-size:11px;color:#8b949e;"}, "text": f"目录 {len(monitor_rows)}"},
+                        {"component": "span", "props": {"style": "background:#21262d;border:1px solid #30363d;border-radius:11px;padding:2px 10px;font-size:11px;color:#8b949e;"}, "text": f"已处理 {stats.get('processed', 0)}"},
+                        {"component": "span", "props": {"style": "background:rgba(63,185,80,0.15);border:1px solid #238636;border-radius:11px;padding:2px 10px;font-size:11px;color:#3fb950;"}, "text": f"成功 {stats.get('success', 0)}"},
+                        {"component": "span", "props": {"style": "background:rgba(210,153,34,0.15);border:1px solid #9e6a03;border-radius:11px;padding:2px 10px;font-size:11px;color:#d29922;"}, "text": f"跳过 {stats.get('skipped', 0)}"},
+                        {"component": "span", "props": {"style": "background:rgba(248,81,73,0.15);border:1px solid #da3633;border-radius:11px;padding:2px 10px;font-size:11px;color:#f85149;"}, "text": f"失败 {stats.get('failed', 0)}"},
+                    ],
+                },
+                {
+                    "component": "div",
+                    "props": {"style": "margin-bottom:10px;" if is_running else "display:none;"},
+                    "content": [
+                        {
+                            "component": "div",
+                            "props": {"style": "background:#21262d;border-radius:10px;height:6px;overflow:hidden;"},
+                            "content": [
+                                {"component": "div",
+                                 "props": {"style": f"background:#58a6ff;width:{progress}%;height:6px;border-radius:10px;transition:width 0.3s;" if discovered else "background:#58a6ff;width:100%;height:6px;border-radius:10px;animation:pulse 1.5s infinite;"}}
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "component": "div",
+                    "props": {"style": "overflow:hidden;border:1px solid #30363d;border-radius:8px;"},
+                    "html": self.__render_table_html(
+                        [{"title": "时间", "key": "时间"}, {"title": "状态", "key": "状态"},
+                         {"title": "成功", "key": "成功"}, {"title": "跳过", "key": "跳过"},
+                         {"title": "失败", "key": "失败"}],
+                        rows, "暂无任务记录"),
+                },
             ],
         }]
-        if is_running:
-            page.append({
-                "component": "VRow",
-                "content": [{"component": "VCol", "props": {"cols": 12},
-                             "content": [{"component": "VProgressLinear", "props": {
-                                 "modelValue": progress, "height": 8, "rounded": True,
-                                 "color": "primary",
-                                 "indeterminate": not bool(discovered)}}]}],
-            })
-        page.append({
-            "component": "div",
-            "html": self.__render_table_html(
-                [{"title": "时间", "key": "时间"}, {"title": "状态", "key": "状态"},
-                 {"title": "成功", "key": "成功"}, {"title": "跳过", "key": "跳过"},
-                 {"title": "失败", "key": "失败"}],
-                rows, "暂无任务记录"),
-        })
         return ({"cols": 12, "md": 12},
                 {"refresh": refresh, "border": False, "title": "CloudStrm 任务中心"},
                 page)
-
     def get_dashboard_meta(self):
         return [{"key": "task_center", "name": "任务中心"}]
 
