@@ -57,6 +57,21 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(plugin._observer, [])
         self.assertIsNotNone(plugin._state_store)
 
+    def test_moviepilot_v3_abstract_interfaces_are_implemented(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+
+        self.assertEqual(plugin.get_service(), [])
+        self.assertEqual(plugin.get_api(), [])
+
+    def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        rules = plugin._parse_structured_rules(
+            {"monitor_confs": r"C:\media#C:\out#D:\cloud#{cloud_file}$nomonitor"}
+        )
+
+        self.assertEqual(len(rules), 1)
+        self.assertFalse(rules[0]["monitor"])
+
     def test_enabled_init_starts_scheduler_and_observer(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)

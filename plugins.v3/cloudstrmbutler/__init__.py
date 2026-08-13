@@ -56,7 +56,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.0.1"
+    plugin_version = "2.0.2"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1117,7 +1117,7 @@ class CloudStrmButler(_PluginBase):
                 "strm": strm_dir,
                 "cloud": cloud_dir,
                 "format": format_str,
-                "monitor": monitor_flag != "0",
+                "monitor": monitor_flag not in ("0", "nomonitor", "false", "off"),
             })
         return rules
 
