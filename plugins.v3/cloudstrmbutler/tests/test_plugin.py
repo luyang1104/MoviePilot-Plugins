@@ -61,7 +61,10 @@ class PluginTests(unittest.TestCase):
         plugin = self.make_plugin(self.new_temp() / "data")
 
         self.assertEqual(plugin.get_service(), [])
-        self.assertEqual(plugin.get_api(), [])
+        self.assertEqual(
+            [item["path"] for item in plugin.get_api()],
+            ["/sync_status", "/sync_failures", "/sync_retry_failure", "/sync_confirm_cleanup"],
+        )
 
     def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):
         plugin = self.make_plugin(self.new_temp() / "data")

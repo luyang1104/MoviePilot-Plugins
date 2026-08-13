@@ -167,6 +167,29 @@ class SyncStateStore:
             ).fetchall()
         return [self._row_to_record(row) for row in rows]
 
+    def delete_records_for_outputs(self, monitor_root: str, outputs: Iterable[str]) -> List[SyncRecord]:
+        """Forget only records whose plugin-owned outputs were explicitly confirmed for removal."""
+        wanted = {path_key(item) for item in outputs if item}
+        if not wanted:
+            return []
+        root = self._normalise_root(monitor_root)
+        deleted: List[SyncRecord] = []
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM sync_records WHERE monitor_root = ?", (root,)
+            ).fetchall()
+            for row in rows:
+                record = self._row_to_record(row)
+                if any(path_key(output) in wanted for output in record.outputs):
+                    deleted.append(record)
+            if deleted:
+                self._conn.executemany(
+                    "DELETE FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                    [(root, record.source_rel) for record in deleted],
+                )
+            self._conn.commit()
+        return deleted
+
     def close(self):
         with self._lock:
             try:

@@ -19,7 +19,7 @@ Features:
 
 ## CloudStrmButler
 
-`CloudStrmButler` is a lighter companion plugin for realtime monitoring, incremental scans, STRM generation, sidecar copying, deletion cleanup, and Emby refresh. Its plugin ID is `CloudStrmButler` and the initial release is version `1.0.0`.
+`CloudStrmButler` is a focused companion plugin for realtime monitoring, incremental scans, STRM generation, sidecar copying, deletion cleanup, and Emby refresh. Version `2.1.0` adds an optional reliable sync engine with a persistent queue, restart recovery, classified retries, protected scan cleanup, batch Emby updates, and an operational status page. Its plugin ID is `CloudStrmButler`.
 
 ## MoviePilot market source
 

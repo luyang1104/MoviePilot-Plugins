@@ -46,6 +46,34 @@
         </v-col>
       </v-row>
 
+      <v-divider class="my-4" />
+
+      <div class="text-subtitle-1 font-weight-bold mb-2">可靠同步</div>
+      <v-row dense>
+        <v-col cols="12" sm="4">
+          <v-switch v-model="config.reliable_engine" label="启用可靠同步引擎" color="primary" density="compact" hide-details />
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-select
+            v-model="config.cleanup_mode"
+            label="缺失文件清理"
+            :items="cleanupModes"
+            variant="outlined"
+            density="compact"
+            hide-details
+          />
+        </v-col>
+        <v-col cols="12" sm="4">
+          <v-text-field
+            v-model="config.cleanup_probe"
+            label="清理探针文件（可选）"
+            variant="outlined"
+            density="compact"
+            hide-details
+          />
+        </v-col>
+      </v-row>
+
       <v-row dense class="mt-2">
         <v-col cols="12" sm="4">
           <v-text-field v-model="config.interval" label="消息延迟(秒)" type="number" variant="outlined" density="compact" hide-details />
@@ -253,8 +281,17 @@ const defaultConfig = {
   emby_path: '',
   path_replacements: '',
   mediaservers: [],
+  reliable_engine: false,
+  cleanup_mode: 'off',
+  cleanup_probe: '',
   rules: [],
 }
+
+const cleanupModes = [
+  { title: '关闭自动清理', value: 'off' },
+  { title: '仅确认文件事件删除', value: 'event' },
+  { title: '扫描后进入待确认批次', value: 'confirm' },
+]
 
 const config = reactive(structuredClone(defaultConfig))
 
@@ -292,6 +329,9 @@ onMounted(() => {
     config.emby_path = String(ic.emby_path || '')
     config.path_replacements = String(ic.path_replacements || '')
     config.mediaservers = Array.isArray(ic.mediaservers) ? [...ic.mediaservers] : []
+    config.reliable_engine = Boolean(ic.reliable_engine)
+    config.cleanup_mode = ['off', 'event', 'confirm'].includes(ic.cleanup_mode) ? ic.cleanup_mode : 'off'
+    config.cleanup_probe = String(ic.cleanup_probe || '')
 
     // Parse rules from structured keys or from monitor_confs
     config.rules = parseRules(ic)
@@ -357,7 +397,7 @@ function parseRules(ic) {
         strm,
         cloud,
         format,
-        monitor: monitorFlag !== '0',
+        monitor: !['0', 'nomonitor', 'false', 'off'].includes(String(monitorFlag || '').toLowerCase()),
       }))
     }
   }
@@ -409,6 +449,9 @@ async function saveConfig() {
     payload.emby_path = config.emby_path
     payload.path_replacements = config.path_replacements
     payload.mediaservers = config.mediaservers
+    payload.reliable_engine = config.reliable_engine
+    payload.cleanup_mode = config.cleanup_mode
+    payload.cleanup_probe = config.cleanup_probe
 
     // Serialize rules to structured keys
     for (let i = 0; i < config.rules.length; i++) {
@@ -422,14 +465,7 @@ async function saveConfig() {
       payload[`rule_${i}_delete`] = false
     }
 
-    // Also generate legacy monitor_confs for backward compatibility
-    const lines = config.rules.map(rule => {
-      const line = `${rule.local}#${rule.strm}#${rule.cloud}#${rule.format}`
-      const category = (rule.category || []).join(',')
-      const suffix = (category ? `@${category}` : '') + (rule.monitor ? '' : '$0')
-      return line + suffix
-    })
-    payload.monitor_confs = lines.join('\n')
+    payload.config_version = 2
 
     emit('save', payload)
   } catch (err) {

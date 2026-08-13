@@ -47,6 +47,8 @@ from .core_paths import (
 )
 from .monitoring import FileMonitorHandler, is_ignored_path, is_temporary_path, wait_for_stable_file
 from .state_store import SyncStateStore
+from .sync_engine import SyncEngine
+from .task_store import PendingJob, TaskStore
 class CloudStrmButler(_PluginBase):
     # 插件名称
     plugin_name = "云盘Strm小管家"
@@ -56,7 +58,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.0.2"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -66,7 +68,7 @@ class CloudStrmButler(_PluginBase):
     # 加载顺序
     plugin_order = 26
     # 可使用的用户级别
-    auth_level = 1
+    auth_level = 2
 
     # 私有属性
     _enabled = False
@@ -94,6 +96,9 @@ class CloudStrmButler(_PluginBase):
     mediaserver_helper = None
     _emby_paths = {}
     _path_replacements = {}  # 新增：路径替换规则属性
+    _reliable_engine = False
+    _cleanup_mode = "off"
+    _cleanup_probe = ""
 
     # 定时器
     _scheduler: Optional[BackgroundScheduler] = None
@@ -130,6 +135,9 @@ class CloudStrmButler(_PluginBase):
         self._category_conf = {}
         self._format_conf = {}
         self._path_replacements = {}
+        self._reliable_engine = False
+        self._cleanup_mode = "off"
+        self._cleanup_probe = ""
         self._emby_paths = {}
         self._monitor_rules = []
         self._config_errors = []
@@ -138,11 +146,15 @@ class CloudStrmButler(_PluginBase):
         self._scheduler = None
         self._event = threading.Event()
         self._media_lock = threading.Lock()
+        self._emby_refresh_lock = threading.Lock()
+        self._pending_emby_refreshes = {}
         self._active_lock = threading.Lock()
         self._active_paths = set()
         self._scan_guard = threading.Lock()
         self._scan_running = False
         self._state_store = None
+        self._task_store = None
+        self._sync_engine = None
         self._config_fingerprint = ""
 
     def init_plugin(self, config: dict = None):
@@ -182,6 +194,9 @@ class CloudStrmButler(_PluginBase):
             except (TypeError, ValueError):
                 self._scan_interval = 0
             self._path_replacements = dict(parse_path_mappings(config.get("path_replacements")))
+            self._reliable_engine = bool(config.get("reliable_engine"))
+            self._cleanup_mode = str(config.get("cleanup_mode") or "off").lower()
+            self._cleanup_probe = str(config.get("cleanup_probe") or "").strip()
             self._rmt_mediaext = config.get("rmt_mediaext") or self._default_rmt_mediaext
             self._emby_paths = dict(parse_comma_path_mappings(config.get("emby_path")))
             # 结构化规则优先：从 rule_N_* 键生成 monitor_confs
@@ -200,7 +215,8 @@ class CloudStrmButler(_PluginBase):
                     normalized[f"rule_{i}_cloud"] = rule.get("cloud", "")
                     normalized[f"rule_{i}_format"] = rule.get("format", "")
                     normalized[f"rule_{i}_monitor"] = rule.get("monitor", True)
-                normalized["monitor_confs"] = self._monitor_confs
+                normalized.pop("monitor_confs", None)
+                normalized["config_version"] = 2
                 if normalized != config:
                     try:
                         self.update_config(normalized)
@@ -230,6 +246,11 @@ class CloudStrmButler(_PluginBase):
             self._uriencode,
         )
         self._state_store = SyncStateStore(self.get_data_path() / "sync_state.sqlite3")
+        self._task_store = TaskStore(self.get_data_path() / "task_state.sqlite3")
+        self._task_store.prune()
+        if self._reliable_engine:
+            self._sync_engine = SyncEngine(self._task_store, self._run_reliable_job, completion=self._complete_reliable_job)
+            self._sync_engine.start()
 
         for error in self._config_errors:
             logger.error(error)
@@ -261,6 +282,22 @@ class CloudStrmButler(_PluginBase):
                 trigger="interval",
                 minutes=self._scan_interval,
                 name="云盘Strm小管家周期全量扫描",
+            )
+
+        if self._refresh_emby and self._mediaservers:
+            self._scheduler.add_job(
+                func=self._flush_emby_refreshes,
+                trigger="interval",
+                seconds=5,
+                name="云盘Strm小管家 Emby 批量刷新",
+            )
+
+        if self._reliable_engine:
+            self._scheduler.add_job(
+                func=self._pump_reliable_queue,
+                trigger="interval",
+                seconds=2,
+                name="云盘Strm小管家可靠同步队列",
             )
 
         for rule in self._monitor_rules:
@@ -310,16 +347,23 @@ class CloudStrmButler(_PluginBase):
             return
         self._scan_running = True
         started = time.monotonic()
+        run_id = self._task_store.start_run("scan") if self._reliable_engine and self._task_store else None
         try:
             logger.info("开始增量执行")
             for rule in self._monitor_rules:
-                self._scan_rule(rule)
+                self._scan_rule(rule, run_id=run_id)
             logger.info("增量执行完成，耗时 %.1f 秒", time.monotonic() - started)
+            if run_id and self._task_store:
+                self._task_store.finish_run_if_settled(run_id)
+        except Exception as exc:
+            if run_id and self._task_store:
+                self._task_store.finish_run(run_id, status="failed", message=str(exc))
+            raise
         finally:
             self._scan_running = False
             self._scan_guard.release()
 
-    def _scan_rule(self, rule: MonitorRule):
+    def _scan_rule(self, rule: MonitorRule, run_id: Optional[str] = None):
         """Walk one monitor root and reconcile it with the persisted index."""
         if not Path(rule.local_dir).is_dir():
             logger.error(f"监控目录不可用：{rule.local_dir}")
@@ -336,17 +380,77 @@ class CloudStrmButler(_PluginBase):
                     seen.add(str(relative).replace("\\", "/"))
                     if is_ignored_path(source_file) or is_temporary_path(source_file):
                         continue
-                    self.__handle_file(event_path=source_file, mon_path=rule.local_dir)
+                    if self._reliable_engine and self._sync_engine:
+                        payload = {"run_id": run_id} if run_id else None
+                        if self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload) and run_id and self._task_store:
+                            self._task_store.update_run(run_id, queued=1)
+                    else:
+                        result = self.__handle_file(event_path=source_file, mon_path=rule.local_dir)
+                        self._record_run_result(run_id, result)
         except OSError as exc:
             completed = False
             logger.error(f"遍历监控目录失败：{rule.local_dir} - {exc}")
 
         if completed and self._state_store is not None:
-            for record in self._state_store.reap(rule.local_dir, seen):
-                self._remove_outputs(
-                    record.outputs,
-                    notify_emby=bool(record.content_hash),
-                )
+            self._reconcile_missing_records(rule.local_dir, seen, run_id)
+
+    def _reconcile_missing_records(self, monitor_root: str, seen: set, run_id: Optional[str] = None):
+        """Protect generated files from mount outages by staging scan-based cleanup."""
+        if not self._state_store:
+            return
+        probe = self._cleanup_probe
+        if probe and not Path(monitor_root, probe).exists():
+            logger.warning(f"清理探针不可用，跳过缺失对账：{monitor_root}")
+            return
+        stale = [
+            record for record in self._state_store.records_for_root(monitor_root)
+            if record.source_rel not in seen
+        ]
+        if not stale or self._cleanup_mode == "off":
+            return
+        if self._cleanup_mode == "event":
+            # Scans never perform immediate cleanup. Only explicit watcher deletions do.
+            return
+        outputs = [output for record in stale for output in record.outputs]
+        if self._task_store:
+            batch_id = self._task_store.create_cleanup_batch(monitor_root, outputs)
+            logger.warning(f"发现 {len(stale)} 个缺失源文件，已创建待确认清理批次：{batch_id}")
+
+    def _record_run_result(self, run_id: Optional[str], result: Optional[dict]) -> None:
+        if not run_id or not self._task_store:
+            return
+        status = (result or {}).get("status")
+        if status == "processed":
+            self._task_store.update_run(run_id, processed=1)
+        elif status == "unchanged":
+            self._task_store.update_run(run_id, unchanged=1)
+        elif status == "failed":
+            self._task_store.update_run(run_id, failed=1)
+        else:
+            self._task_store.update_run(run_id, processed=1)
+
+    def _pump_reliable_queue(self):
+        if self._sync_engine:
+            self._sync_engine.pump()
+
+    def _run_reliable_job(self, job: PendingJob) -> dict:
+        if job.action == "delete":
+            if self._cleanup_mode == "event":
+                self.__handle_deleted_file(job.path, job.monitor_root)
+                return {"status": "deleted"}
+            return {"status": "ignored"}
+        result = self.__handle_file(
+            event_path=job.path,
+            mon_path=job.monitor_root,
+            wait_stable=bool(job.payload.get("wait_stable")),
+        )
+        return result
+
+    def _complete_reliable_job(self, job: PendingJob, result: dict):
+        run_id = job.payload.get("run_id")
+        self._record_run_result(run_id, result)
+        if run_id and self._task_store:
+            self._task_store.finish_run_if_settled(run_id)
 
     @eventmanager.register(EventType.PluginAction)
     def strm_one(self, event: Event = None):
@@ -387,6 +491,14 @@ class CloudStrmButler(_PluginBase):
 
         action = kwargs.get("action", "created")
         old_event_path = kwargs.get("old_event_path")
+        if self._reliable_engine and self._sync_engine:
+            if action == "deleted":
+                self._sync_engine.enqueue(mon_path, event_path, "delete")
+            else:
+                if old_event_path and old_event_path != event_path:
+                    self._sync_engine.enqueue(mon_path, old_event_path, "delete")
+                self._sync_engine.enqueue(mon_path, event_path, "sync", payload={"wait_stable": True})
+            return
         if action == "deleted":
             logger.debug("监控到文件%s：%s", text, event_path)
             self.__handle_deleted_file(event_path=event_path, mon_path=mon_path)
@@ -619,7 +731,7 @@ class CloudStrmButler(_PluginBase):
                 logger.warning(f"清理生成文件失败 {path}：{exc}")
             if notify_emby and path.suffix.lower() == ".strm" and self._refresh_emby:
                 try:
-                    self.__refresh_emby_file(str(path), update_type="Deleted")
+                    self._queue_emby_refresh(str(path), update_type="Deleted")
                 except Exception as exc:
                     logger.warning(f"通知 Emby 删除失败 {path}：{exc}")
 
@@ -665,7 +777,7 @@ class CloudStrmButler(_PluginBase):
             if self._notify and source_suffix in self._media_extensions:
                 self._record_media_notification(strm_file)
             if self._refresh_emby and self._mediaservers:
-                self.__refresh_emby_file(strm_file)
+                self._queue_emby_refresh(strm_file)
             return strm_file
         except Exception as exc:
             logger.error(f"创建strm文件失败 {strm_file} -> {exc}")
@@ -694,30 +806,53 @@ class CloudStrmButler(_PluginBase):
 
     def __refresh_emby_file(self, strm_file: str, update_type: str = "Created"):
         """Notify configured Emby servers and keep failures observable."""
+        self._refresh_emby_updates([(strm_file, update_type)])
+
+    def _refresh_emby_updates(self, updates):
+        """Send a batch of created/deleted paths in one request per configured server."""
+        if not updates:
+            return
         emby_servers = self.mediaserver_helper.get_services(
             name_filters=self._mediaservers, type_filter="emby"
         )
         if not emby_servers:
             logger.error("未配置Emby媒体服务器")
             return
-        mapped_file = self.__get_path(paths=self._emby_paths, file_path=strm_file)
+        mapped_updates = [
+            {"Path": self.__get_path(paths=self._emby_paths, file_path=strm_file), "UpdateType": update_type}
+            for strm_file, update_type in updates
+        ]
         for emby_name, emby_server in emby_servers.items():
             emby = emby_server.instance
             try:
                 res = emby.post_data(
                     url="[HOST]emby/Library/Media/Updated?api_key=[APIKEY]&reqformat=json",
                     data=json.dumps({
-                        "Updates": [{"Path": mapped_file, "UpdateType": update_type}]
+                        "Updates": mapped_updates
                     }),
                     headers={"Content-Type": "application/json"},
                 )
                 if res and res.status_code in [200, 204]:
-                    logger.info(f"媒体服务器 {emby_name} 已刷新 {mapped_file}")
+                    logger.info(f"媒体服务器 {emby_name} 已刷新 {len(mapped_updates)} 个路径")
                 else:
                     status_code = getattr(res, "status_code", "无响应")
                     logger.error(f"通知媒体服务器 {emby_name} 失败，错误码：{status_code}")
             except Exception as err:
                 logger.error(f"通知媒体服务器 {emby_name} 失败：{err}")
+
+    def _queue_emby_refresh(self, strm_file: str, update_type: str = "Created"):
+        """Coalesce bursts of updates and flush them every five seconds or at 200 paths."""
+        with self._emby_refresh_lock:
+            self._pending_emby_refreshes[strm_file] = update_type
+            should_flush = len(self._pending_emby_refreshes) >= 200
+        if should_flush:
+            self._flush_emby_refreshes()
+
+    def _flush_emby_refreshes(self):
+        with self._emby_refresh_lock:
+            pending = list(self._pending_emby_refreshes.items())
+            self._pending_emby_refreshes.clear()
+        self._refresh_emby_updates(pending)
 
     def __get_path(self, paths, file_path: str):
         """Map a local file path using the longest matching library root."""
@@ -946,7 +1081,7 @@ class CloudStrmButler(_PluginBase):
 
     def __update_config(self):
         """
-        更新配置：保存时同时写入结构化 rule_N_* 键和 monitor_confs。
+        更新配置：结构化规则是唯一保存格式，旧版文本仅用于读取迁移。
         """
         payload = {
             "enabled": self._enabled,
@@ -960,13 +1095,16 @@ class CloudStrmButler(_PluginBase):
             "copy_subtitles": self._copy_subtitles,
             "refresh_emby": self._refresh_emby,
             "url": self._url,
-            "monitor_confs": self._monitor_confs,
+            "config_version": 2,
             "rmt_mediaext": self._rmt_mediaext,
             "other_mediaext": self._other_mediaext,
             "mediaservers": self._mediaservers,
             "uriencode": self._uriencode,
             "emby_path": ",".join(serialize_mapping_line(source, target) for source, target in self._emby_paths.items()),
             "path_replacements": serialize_path_mappings(list(self._path_replacements.items())),
+            "reliable_engine": self._reliable_engine,
+            "cleanup_mode": self._cleanup_mode,
+            "cleanup_probe": self._cleanup_probe,
         }
         # 写入结构化规则键供 Vue 组件读取
         for i, rule in enumerate(self._monitor_rules):
@@ -988,7 +1126,41 @@ class CloudStrmButler(_PluginBase):
 
     def get_api(self) -> List[Dict[str, Any]]:
         """注册插件 API，当前由 MoviePilot 原生命令和配置接口承担。"""
-        return []
+        return [
+            {"path": "/sync_status", "endpoint": self.sync_status_api, "methods": ["GET"], "auth": "bear", "summary": "同步状态"},
+            {"path": "/sync_failures", "endpoint": self.sync_failures_api, "methods": ["GET"], "auth": "bear", "summary": "同步失败记录"},
+            {"path": "/sync_retry_failure", "endpoint": self.sync_retry_failure_api, "methods": ["POST"], "auth": "bear", "summary": "重试同步失败"},
+            {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
+        ]
+
+    def sync_status_api(self) -> Dict[str, Any]:
+        status = self._task_store.status() if self._task_store else {"queued": 0, "running": [], "recent_runs": [], "cleanup_batches": []}
+        status.update({"enabled": self._enabled, "reliable_engine": self._reliable_engine, "scan_running": self._scan_running, "engine": self._sync_engine.snapshot() if self._sync_engine else {"memory_queued": 0, "inflight": 0, "workers": 0}})
+        return {"code": 0, "data": status}
+
+    def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:
+        failures = self._task_store.failures(limit=limit) if self._task_store else []
+        return {"code": 0, "data": {"items": failures, "total": len(failures)}}
+
+    def sync_retry_failure_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        failure_id = int((payload or {}).get("failure_id") or 0)
+        if not self._task_store or not self._sync_engine or not self._task_store.retry_failure(failure_id):
+            return {"code": 1, "msg": "未找到可重试的失败任务"}
+        self._sync_engine.pump()
+        return {"code": 0, "msg": "已重新加入同步队列"}
+
+    def sync_confirm_cleanup_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        batch_id = str((payload or {}).get("batch_id") or "")
+        outputs = self._task_store.claim_cleanup_batch(batch_id) if self._task_store else None
+        if outputs is None:
+            return {"code": 1, "msg": "未找到待确认清理批次"}
+        removed = 0
+        for root in self._strm_dir_conf:
+            records = self._state_store.delete_records_for_outputs(root, outputs) if self._state_store else []
+            for record in records:
+                self._remove_outputs(record.outputs, notify_emby=bool(record.content_hash))
+                removed += len(record.outputs)
+        return {"code": 0, "data": {"removed": removed}, "msg": f"已清理 {removed} 个生成文件"}
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -1044,8 +1216,11 @@ class CloudStrmButler(_PluginBase):
             "other_mediaext": self._other_mediaext,
             "emby_path": self._emby_path_serialized(),
             "path_replacements": self._path_replacements_serialized(),
+            "reliable_engine": self._reliable_engine,
+            "cleanup_mode": self._cleanup_mode,
+            "cleanup_probe": self._cleanup_probe,
             "mediaservers": self._mediaservers or [],
-            "monitor_confs": self._monitor_confs,
+            "config_version": 2,
         }
         for i, rule in enumerate(rules):
             model[f"rule_{i}_category"] = rule.get("category", "")
@@ -1170,6 +1345,12 @@ class CloudStrmButler(_PluginBase):
                 self._scheduler.shutdown()
                 self._event.clear()
             self._scheduler = None
+        if self._sync_engine:
+            self._sync_engine.stop()
+            self._sync_engine = None
         if self._state_store:
             self._state_store.close()
             self._state_store = None
+        if self._task_store:
+            self._task_store.close()
+            self._task_store = None
