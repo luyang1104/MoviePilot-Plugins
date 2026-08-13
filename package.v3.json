@@ -35,11 +35,12 @@
     "name": "云盘Strm小管家",
     "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
     "labels": "moviepilot",
-    "version": "2.0.0",
+    "version": "2.0.1",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 1,
     "history": {
+      "2.0.1": "修复 MoviePilot v3 抽象接口缺失导致的插件实例化失败，并补齐 get_service/get_api 实现。",
       "2.0.0": "Vue 联邦配置界面：目录规则改为动态增删输入框，支持自定义分类标签，并兼容旧版 monitor_confs 配置。",
       "1.0.0": "首个版本：目录监控、全量/增量扫描、STRM 生成、旁车文件复制、删除清理和 Emby 刷新。"
     }

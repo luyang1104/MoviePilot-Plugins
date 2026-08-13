@@ -56,7 +56,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.0.0"
+    plugin_version = "2.0.1"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -981,6 +981,14 @@ class CloudStrmButler(_PluginBase):
 
     def get_state(self) -> bool:
         return self._enabled
+
+    def get_service(self) -> List[Dict[str, Any]]:
+        """注册插件公共服务，当前无独立定时服务。"""
+        return []
+
+    def get_api(self) -> List[Dict[str, Any]]:
+        """注册插件 API，当前由 MoviePilot 原生命令和配置接口承担。"""
+        return []
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
