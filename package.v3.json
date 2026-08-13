@@ -35,11 +35,12 @@
     "name": "云盘Strm小管家",
     "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
     "labels": "moviepilot",
-    "version": "2.2.0",
+    "version": "2.2.1",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 2,
     "history": {
+      "2.2.1": "修复 MoviePilot 深色主题下新版工作台与设置页的对比度：组件改为自带浅色运维面板配色，避免浅色状态块上的文字不可读。",
       "2.2.0": "重构同步工作台与配置体验：异常和待清理事项优先展示，清理操作增加文件路径预览与确认；路径规则改为分步编辑、保存提示和映射校验。",
       "2.1.1": "修复可靠同步状态页请求接口大小写不一致导致的 404。",
       "2.1.0": "可靠同步：可恢复任务队列、失败重试、扫描缺失文件二次确认清理、Emby 批量刷新与状态页面。",

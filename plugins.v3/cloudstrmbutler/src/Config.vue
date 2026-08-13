@@ -110,7 +110,7 @@
   </v-card>
 
   <v-dialog v-model="ruleDialog" max-width="760" persistent scrollable>
-    <v-card>
+    <v-card class="config-dialog-card">
       <v-card-item>
         <div>
           <v-card-title class="pa-0">{{ editingRuleIndex === null ? '新增路径规则' : '编辑路径规则' }}</v-card-title>
@@ -164,7 +164,7 @@
   </v-dialog>
 
   <v-dialog v-model="removeRuleDialog" max-width="460">
-    <v-card>
+    <v-card class="config-dialog-card">
       <v-card-title>删除路径规则？</v-card-title>
       <v-card-text>这只会从尚未保存的配置中移除规则。点击“保存更改”后，新的规则列表才会生效。</v-card-text>
       <v-card-actions class="pa-4"><v-spacer /><v-btn variant="tonal" @click="removeRuleDialog = false">取消</v-btn><v-btn color="error" variant="flat" @click="removeRule">删除规则</v-btn></v-card-actions>
@@ -415,6 +415,37 @@ watch(() => props.initialConfig, value => {
 </script>
 
 <style scoped>
-.cloudstrm-config { overflow: hidden; }.config-header :deep(.v-card-title) { font-size: 22px; letter-spacing: 0; }.config-body { max-height: min(74vh, 920px); overflow-y: auto; }.setting-section + .setting-section { margin-top: 32px; }.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }.section-heading h2, .dialog-section-heading h2 { margin: 0; font-size: 17px; line-height: 1.4; letter-spacing: 0; }.section-heading p, .dialog-section-heading p { margin: 4px 0 0; color: rgb(var(--v-theme-on-surface-variant)); font-size: 13px; }.settings-surface { padding: 18px; border-radius: 8px !important; }.rule-list { overflow: hidden; border-radius: 8px !important; }.rule-row { padding: 18px; display: flex; align-items: center; gap: 20px; }.rule-row + .rule-row { border-top: 1px solid rgba(var(--v-border-color), .45); }.rule-flow { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }.rule-path { min-width: 0; display: flex; flex-direction: column; gap: 5px; }.rule-path > span, .rule-path > small { color: rgb(var(--v-theme-on-surface-variant)); font-size: 12px; }.rule-path strong { font-size: 14px; }.rule-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }.rule-tags small { color: rgb(var(--v-theme-on-surface-variant)); font-size: 12px; }.flow-arrow { color: rgb(var(--v-theme-on-surface-variant)); }.rule-actions { display: flex; align-items: center; gap: 4px; }.config-actions { min-height: 68px; }.unsaved-hint, .saved-hint { display: flex; align-items: center; font-size: 13px; }.unsaved-hint { color: #ad5a36; }.unsaved-hint :deep(.v-icon) { color: #d87348; }.saved-hint { color: rgb(var(--v-theme-on-surface-variant)); }.advanced-intro { margin: 0 0 20px; color: rgb(var(--v-theme-on-surface-variant)); font-size: 13px; }.rule-stepper { box-shadow: none !important; border: 1px solid rgba(var(--v-border-color), .5); border-radius: 8px; }.mapping-preview { padding: 16px; background: rgba(var(--v-theme-surface-variant), .2); }.preview-line { display: flex; align-items: center; gap: 10px; font-size: 13px; }.preview-link { padding: 10px; border-radius: 4px; background: rgba(var(--v-theme-surface), .8); overflow-wrap: anywhere; word-break: break-word; color: rgb(var(--v-theme-on-surface-variant)); font-family: Consolas, monospace; font-size: 12px; }.path { overflow-wrap: anywhere; word-break: break-word; } code { padding: 1px 4px; border-radius: 3px; background: rgba(var(--v-theme-surface-variant), .65); font-family: Consolas, monospace; font-size: .9em; }
+.cloudstrm-config,
+.config-dialog-card {
+  --v-theme-primary: 45, 96, 115;
+  --v-theme-on-primary: 255, 255, 255;
+  --v-theme-success: 47, 132, 90;
+  --v-theme-warning: 185, 112, 56;
+  --v-theme-error: 174, 77, 46;
+  --v-theme-surface: 255, 255, 255;
+  --v-theme-surface-variant: 237, 242, 246;
+  --v-theme-on-surface: 34, 48, 69;
+  --v-theme-on-surface-variant: 100, 117, 140;
+  color: #223045;
+}
+
+.cloudstrm-config {
+  overflow: hidden;
+  background: #fbfcfe !important;
+  border: 1px solid #d9e2eb !important;
+  border-radius: 10px !important;
+  box-shadow: 0 12px 28px rgba(27, 45, 67, .08) !important;
+}
+
+.cloudstrm-config :deep(.v-card-item),
+.cloudstrm-config :deep(.v-card-text),
+.cloudstrm-config :deep(.v-card-actions),
+.config-dialog-card :deep(.v-card-item),
+.config-dialog-card :deep(.v-card-text),
+.config-dialog-card :deep(.v-card-actions) { background: #fbfcfe; }
+.cloudstrm-config :deep(.v-card-title), .config-dialog-card :deep(.v-card-title) { color: #1f2d42 !important; }.cloudstrm-config :deep(.v-card-subtitle), .cloudstrm-config :deep(.text-medium-emphasis), .config-dialog-card :deep(.v-card-subtitle), .config-dialog-card :deep(.text-medium-emphasis) { color: #66758c !important; opacity: 1 !important; }.cloudstrm-config :deep(.v-divider), .config-dialog-card :deep(.v-divider) { border-color: #dfe6ee !important; opacity: 1 !important; }.cloudstrm-config :deep(.v-btn--variant-text) { color: #2d6073 !important; }
+
+.config-header :deep(.v-card-title) { font-size: 23px; letter-spacing: 0; }.config-body { max-height: min(74vh, 920px); overflow-y: auto; }.setting-section + .setting-section { margin-top: 32px; }.section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }.section-heading h2, .dialog-section-heading h2 { margin: 0; color: #26354b; font-size: 17px; line-height: 1.4; letter-spacing: 0; }.section-heading p, .dialog-section-heading p { margin: 4px 0 0; color: #66758c; font-size: 13px; }.settings-surface { padding: 18px; border-color: #d6e0e9 !important; border-radius: 8px !important; background: #fff !important; }.settings-surface :deep(.v-switch), .settings-surface :deep(.v-input), .config-dialog-card :deep(.v-input) { color: #26354b !important; }.settings-surface :deep(.v-label), .config-dialog-card :deep(.v-label) { color: #5d6f86 !important; opacity: 1 !important; }.settings-surface :deep(.v-field), .config-dialog-card :deep(.v-field) { background: #fff !important; color: #26354b !important; }.settings-surface :deep(.v-field__outline), .config-dialog-card :deep(.v-field__outline) { --v-field-border-opacity: 1; color: #b9c7d5 !important; }.settings-surface :deep(.v-messages), .config-dialog-card :deep(.v-messages) { color: #718096 !important; opacity: 1 !important; }.settings-surface :deep(.v-selection-control--dirty .v-selection-control__input), .config-dialog-card :deep(.v-selection-control--dirty .v-selection-control__input) { color: #2d6073 !important; }
+.rule-list { overflow: hidden; border-color: #d6e0e9 !important; border-radius: 8px !important; background: #fff !important; }.rule-row { padding: 18px; display: flex; align-items: center; gap: 20px; color: #26354b; }.rule-row + .rule-row { border-top: 1px solid #e3e9ef; }.rule-flow { min-width: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; }.rule-path { min-width: 0; display: flex; flex-direction: column; gap: 5px; }.rule-path > span, .rule-path > small { color: #6a7b91; font-size: 12px; }.rule-path strong { color: #26354b; font-size: 14px; }.rule-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }.rule-tags small { color: #6a7b91; font-size: 12px; }.flow-arrow { color: #718096; }.rule-actions { display: flex; align-items: center; gap: 4px; }.config-actions { min-height: 68px; }.unsaved-hint, .saved-hint { display: flex; align-items: center; font-size: 13px; }.unsaved-hint { color: #a45c3a; }.unsaved-hint :deep(.v-icon) { color: #c87445; }.saved-hint { color: #66758c; }.advanced-intro { margin: 0 0 20px; color: #66758c; font-size: 13px; }.cloudstrm-config :deep(.v-expansion-panel), .cloudstrm-config :deep(.v-expansion-panel-title), .cloudstrm-config :deep(.v-expansion-panel-text__wrapper) { background: #fff !important; color: #26354b !important; }.rule-stepper { box-shadow: none !important; border: 1px solid #d5e0e9; border-radius: 8px; background: #fff !important; }.config-dialog-card { background: #fbfcfe !important; color: #26354b; }.config-dialog-card :deep(.v-stepper-header) { box-shadow: none !important; }.mapping-preview { padding: 16px; border-color: #d5e0ea !important; background: #f4f8fb; color: #26354b; }.preview-line { display: flex; align-items: center; gap: 10px; font-size: 13px; }.preview-link { padding: 10px; border-radius: 4px; background: #fff; overflow-wrap: anywhere; word-break: break-word; color: #50677d; font-family: Consolas, monospace; font-size: 12px; }.path { overflow-wrap: anywhere; word-break: break-word; } code { padding: 1px 4px; border-radius: 3px; background: #eaf0f5; color: #304b60; font-family: Consolas, monospace; font-size: .9em; }
 @media (max-width: 760px) { .config-body { max-height: 72vh; }.settings-surface { padding: 14px; }.rule-row { align-items: flex-start; padding: 16px; }.rule-flow { grid-template-columns: 1fr; gap: 12px; }.flow-arrow { display: none; }.rule-actions { flex-wrap: wrap; justify-content: flex-end; }.config-actions { flex-wrap: wrap; }.config-actions :deep(.v-spacer) { display: none; }.saved-hint, .unsaved-hint { width: 100%; }.preview-line { align-items: flex-start; flex-direction: column; }.preview-line :deep(.v-icon) { transform: rotate(90deg); } }
 </style>
