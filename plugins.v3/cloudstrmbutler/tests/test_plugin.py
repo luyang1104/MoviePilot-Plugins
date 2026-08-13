@@ -63,14 +63,26 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(plugin.get_service(), [])
         self.assertEqual(
             [item["path"] for item in plugin.get_api()],
-            ["/sync_status", "/sync_failures", "/sync_retry_failure", "/sync_confirm_cleanup"],
+            ["/sync_status", "/sync_failures", "/sync_cleanup_preview", "/sync_retry_failure", "/sync_confirm_cleanup"],
         )
+
+    def test_cleanup_preview_api_reads_pending_batch_without_claiming_it(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin({"enabled": False})
+        batch_id = plugin._task_store.create_cleanup_batch("/media", ["/out/a.strm"])
+
+        response = plugin.sync_cleanup_preview_api(batch_id)
+
+        self.assertEqual(response["code"], 0)
+        self.assertEqual(response["data"]["paths"], ["/out/a.strm"])
+        self.assertEqual(plugin._task_store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
 
     def test_status_api_paths_use_moviepilot_plugin_id_case(self):
         page_source = (Path(__file__).resolve().parent.parent / "src" / "Page.vue").read_text(encoding="utf-8")
 
         self.assertIn("plugin/CloudStrmButler/sync_status", page_source)
         self.assertIn("plugin/CloudStrmButler/sync_failures", page_source)
+        self.assertIn("plugin/CloudStrmButler/sync_cleanup_preview", page_source)
         self.assertNotIn("plugin/cloudstrmbutler/", page_source)
 
     def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):

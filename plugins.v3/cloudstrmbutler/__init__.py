@@ -58,7 +58,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.1"
+    plugin_version = "2.1.0"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1129,6 +1129,7 @@ class CloudStrmButler(_PluginBase):
         return [
             {"path": "/sync_status", "endpoint": self.sync_status_api, "methods": ["GET"], "auth": "bear", "summary": "同步状态"},
             {"path": "/sync_failures", "endpoint": self.sync_failures_api, "methods": ["GET"], "auth": "bear", "summary": "同步失败记录"},
+            {"path": "/sync_cleanup_preview", "endpoint": self.sync_cleanup_preview_api, "methods": ["GET"], "auth": "bear", "summary": "待确认清理预览"},
             {"path": "/sync_retry_failure", "endpoint": self.sync_retry_failure_api, "methods": ["POST"], "auth": "bear", "summary": "重试同步失败"},
             {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
         ]
@@ -1141,6 +1142,12 @@ class CloudStrmButler(_PluginBase):
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:
         failures = self._task_store.failures(limit=limit) if self._task_store else []
         return {"code": 0, "data": {"items": failures, "total": len(failures)}}
+
+    def sync_cleanup_preview_api(self, batch_id: str) -> Dict[str, Any]:
+        batch = self._task_store.cleanup_batch(str(batch_id or "")) if self._task_store else None
+        if not batch:
+            return {"code": 1, "msg": "未找到待确认清理批次"}
+        return {"code": 0, "data": batch}
 
     def sync_retry_failure_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         failure_id = int((payload or {}).get("failure_id") or 0)
