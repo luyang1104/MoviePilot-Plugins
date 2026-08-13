@@ -30,5 +30,17 @@
       "V1.4.1": "Fixed dashboard layout and interaction issues: right-column cards now stretch to equal height so the live log terminal fills remaining space, task stats use uniform metric tiles, recent tasks use a fixed-column aligned grid, page scrolling is stable with scrollbar-gutter, and mapping rule categories are editable as chip tags via VCombobox.",
       "V1.4.2": "Fixed plugin page load failure: stale CloudStrmCompanion class references in category helpers caused get_page to raise NameError on MoviePilot v2/v3."
     }
+  },
+  "CloudStrmButler": {
+    "name": "云盘Strm小管家",
+    "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
+    "labels": "moviepilot",
+    "version": "1.0.0",
+    "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
+    "author": "Felix Yang",
+    "level": 1,
+    "history": {
+      "1.0.0": "首个版本：目录监控、全量/增量扫描、STRM 生成、旁车文件复制、删除清理和 Emby 刷新。"
+    }
   }
 }

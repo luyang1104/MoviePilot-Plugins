@@ -17,6 +17,10 @@ Features:
 - Keep the existing `/strm` command for manual generation, including category paths such as `/strm foreign-movies`.
 - Run a full scan with the `CloudStrmHelper` command.
 
+## CloudStrmButler
+
+`CloudStrmButler` is a lighter companion plugin for realtime monitoring, incremental scans, STRM generation, sidecar copying, deletion cleanup, and Emby refresh. Its plugin ID is `CloudStrmButler` and the initial release is version `1.0.0`.
+
 ## MoviePilot market source
 
 Subscribe to the repository itself in MoviePilot's plugin market settings:
@@ -36,7 +40,8 @@ existing sources, separated by commas, then refresh the plugin market:
 https://github.com/jxxghp/MoviePilot-Plugins,https://github.com/luyang1104/MoviePilot-Plugins
 ```
 
-The current plugin ID is `CloudStrmHelper` and its display name is
-`CloudStrm`. Future plugins can be added to this same repository by adding
+The repository currently contains `CloudStrmHelper` (displayed as
+`CloudStrm`) and `CloudStrmButler` (displayed as `云盘Strm小管家`). Future
+plugins can be added to this same repository by adding
 their metadata to the package index and their code under the matching
 `plugins.v3/<plugin-id>/` and/or `plugins.v2/<plugin-id>/` directory.
