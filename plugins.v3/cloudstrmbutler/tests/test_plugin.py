@@ -66,6 +66,13 @@ class PluginTests(unittest.TestCase):
             ["/sync_status", "/sync_failures", "/sync_retry_failure", "/sync_confirm_cleanup"],
         )
 
+    def test_status_api_paths_use_moviepilot_plugin_id_case(self):
+        page_source = (Path(__file__).resolve().parent.parent / "src" / "Page.vue").read_text(encoding="utf-8")
+
+        self.assertIn("plugin/CloudStrmButler/sync_status", page_source)
+        self.assertIn("plugin/CloudStrmButler/sync_failures", page_source)
+        self.assertNotIn("plugin/cloudstrmbutler/", page_source)
+
     def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):
         plugin = self.make_plugin(self.new_temp() / "data")
         rules = plugin._parse_structured_rules(

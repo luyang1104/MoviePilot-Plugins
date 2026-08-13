@@ -35,11 +35,12 @@
     "name": "云盘Strm小管家",
     "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
     "labels": "moviepilot",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 2,
     "history": {
+      "2.1.1": "修复可靠同步状态页请求接口大小写不一致导致的 404。",
       "2.1.0": "可靠同步：可恢复任务队列、失败重试、扫描缺失文件二次确认清理、Emby 批量刷新与状态页面。",
       "2.0.2": "兼容旧版 $nomonitor 规则，保持其在 Vue 配置页中的关闭状态；补充接口回归测试。",
       "2.0.1": "修复 MoviePilot v3 抽象接口缺失导致的插件实例化失败，并补齐 get_service/get_api 实现。",

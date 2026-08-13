@@ -78,8 +78,8 @@ async function load() {
   error.value = ''
   try {
     const [statusResponse, failureResponse] = await Promise.all([
-      props.api.get('plugin/cloudstrmbutler/sync_status'),
-      props.api.get('plugin/cloudstrmbutler/sync_failures'),
+      props.api.get('plugin/CloudStrmButler/sync_status'),
+      props.api.get('plugin/CloudStrmButler/sync_failures'),
     ])
     if (statusResponse?.code !== 0) throw new Error(statusResponse?.msg || '读取状态失败')
     Object.assign(status, statusResponse.data || {})
@@ -94,7 +94,7 @@ async function load() {
 async function retry(failureId) {
   pending.value = failureId
   try {
-    const response = await props.api.post('plugin/cloudstrmbutler/sync_retry_failure', { failure_id: failureId })
+    const response = await props.api.post('plugin/CloudStrmButler/sync_retry_failure', { failure_id: failureId })
     if (response?.code !== 0) throw new Error(response?.msg || '重试失败')
     await load()
   } catch (err) {
@@ -107,7 +107,7 @@ async function retry(failureId) {
 async function confirmCleanup(batchId) {
   pending.value = batchId
   try {
-    const response = await props.api.post('plugin/cloudstrmbutler/sync_confirm_cleanup', { batch_id: batchId })
+    const response = await props.api.post('plugin/CloudStrmButler/sync_confirm_cleanup', { batch_id: batchId })
     if (response?.code !== 0) throw new Error(response?.msg || '清理失败')
     await load()
   } catch (err) {
