@@ -1,4 +1,4 @@
-﻿import json
+import json
 import hashlib
 import os
 import re
@@ -56,7 +56,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "1.0.0"
+    plugin_version = "2.0.0"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -184,6 +184,28 @@ class CloudStrmButler(_PluginBase):
             self._path_replacements = dict(parse_path_mappings(config.get("path_replacements")))
             self._rmt_mediaext = config.get("rmt_mediaext") or self._default_rmt_mediaext
             self._emby_paths = dict(parse_comma_path_mappings(config.get("emby_path")))
+            # 结构化规则优先：从 rule_N_* 键生成 monitor_confs
+            structured_rules = self._parse_structured_rules(config)
+            if structured_rules:
+                self._monitor_confs = self._rules_to_monitor_confs(structured_rules)
+                # 清理旧的结构化槽位，写回规范化配置
+                normalized = dict(config)
+                for key in list(normalized.keys()):
+                    if key.startswith("rule_"):
+                        normalized.pop(key, None)
+                for i, rule in enumerate(structured_rules):
+                    normalized[f"rule_{i}_category"] = rule.get("category", "")
+                    normalized[f"rule_{i}_local"] = rule.get("local", "")
+                    normalized[f"rule_{i}_strm"] = rule.get("strm", "")
+                    normalized[f"rule_{i}_cloud"] = rule.get("cloud", "")
+                    normalized[f"rule_{i}_format"] = rule.get("format", "")
+                    normalized[f"rule_{i}_monitor"] = rule.get("monitor", True)
+                normalized["monitor_confs"] = self._monitor_confs
+                if normalized != config:
+                    try:
+                        self.update_config(normalized)
+                    except Exception:
+                        pass
 
         if migrated:
             self.__update_config()
@@ -743,7 +765,8 @@ class CloudStrmButler(_PluginBase):
                     for mon_path in self._category_conf.keys():
                         mon_category = self._category_conf.get(mon_path)
                         logger.info(f"开始检查 {mon_path} {mon_category}")
-                        if mon_category and str(category) in mon_category:
+                        mon_categories = [t.strip() for t in str(mon_category or "").split(",") if t.strip()]
+                        if mon_category and str(category) in mon_categories + [mon_category]:
                             parent_path = os.path.join(mon_path, category)
                             if limit:
                                 logger.info(f"获取到 {category} 对应的监控目录 {parent_path}")
@@ -807,7 +830,8 @@ class CloudStrmButler(_PluginBase):
                     for mon_path in self._category_conf.keys():
                         mon_category = self._category_conf.get(mon_path)
                         logger.info(f"开始检查 {mon_path} {mon_category}")
-                        if mon_category and str(args) in mon_category:
+                        mon_categories = [t.strip() for t in str(mon_category or "").split(",") if t.strip()]
+                        if mon_category and str(args) in mon_categories + [mon_category]:
                             parent_path = os.path.join(mon_path, args)
                             logger.info(f"获取到 {args} 对应的监控目录 {parent_path}")
                             for sroot, sdirs, sfiles in os.walk(parent_path):
@@ -922,9 +946,9 @@ class CloudStrmButler(_PluginBase):
 
     def __update_config(self):
         """
-        更新配置
+        更新配置：保存时同时写入结构化 rule_N_* 键和 monitor_confs。
         """
-        self.update_config({
+        payload = {
             "enabled": self._enabled,
             "onlyonce": self._onlyonce,
             "cover": self._cover,
@@ -943,10 +967,25 @@ class CloudStrmButler(_PluginBase):
             "uriencode": self._uriencode,
             "emby_path": ",".join(serialize_mapping_line(source, target) for source, target in self._emby_paths.items()),
             "path_replacements": serialize_path_mappings(list(self._path_replacements.items())),
-        })
+        }
+        # 写入结构化规则键供 Vue 组件读取
+        for i, rule in enumerate(self._monitor_rules):
+            payload[f"rule_{i}_category"] = rule.category or ""
+            payload[f"rule_{i}_local"] = rule.local_dir
+            payload[f"rule_{i}_strm"] = rule.strm_dir
+            payload[f"rule_{i}_cloud"] = rule.cloud_dir
+            payload[f"rule_{i}_format"] = rule.format_str
+            payload[f"rule_{i}_monitor"] = rule.monitor_override != "nomonitor"
+            payload[f"rule_{i}_delete"] = False
+        self.update_config(payload)
 
     def get_state(self) -> bool:
         return self._enabled
+
+    @staticmethod
+    def get_render_mode() -> Tuple[str, str]:
+        """声明插件使用 Vue 联邦组件渲染配置页面。"""
+        return "vue", "dist/assets"
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
@@ -975,478 +1014,134 @@ class CloudStrmButler(_PluginBase):
             },
         ]
 
-    def get_service(self) -> List[Dict[str, Any]]:
-        """
-        注册插件公共服务
-        [{
-            "id": "服务ID",
-            "name": "服务名称",
-            "trigger": "触发器：cron/interval/date/CronTrigger.from_crontab()",
-            "func": self.xxx,
-            "kwargs": {} # 定时器参数
-        }]
-        """
-        return []
-
-    def get_api(self) -> List[Dict[str, Any]]:
-        pass
-
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'warning',
-                                            'variant': 'tonal',
-                                            'text': '云盘实时监控任何问题不予处理，请自行消化。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'monitor',
-                                            'label': '实时监控',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'copy_files',
-                                            'label': '复制非媒体文件',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '发送通知',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'cover',
-                                            'label': '覆盖已存在文件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'uriencode',
-                                            'label': 'url编码',
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'refresh_emby',
-                                            'label': '刷新媒体库（Emby）',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'copy_subtitles',
-                                            'label': '复制字幕文件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'onlyonce',
-                                            'label': '立即运行一次',
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'interval',
-                                            'label': '消息延迟',
-                                            'placeholder': '10'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'scan_interval',
-                                            'label': '全量扫描周期(分钟)',
-                                            'placeholder': '0 表示关闭'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'monitor_confs',
-                                            'label': '目录配置',
-                                            'rows': 5,
-                                            'placeholder': 'MoviePilot中云盘挂载本地的路径#MoviePilot中strm生成路径#alist/cd2上115路径#strm格式化'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'rmt_mediaext',
-                                            'label': '视频格式',
-                                            'rows': 2,
-                                            'placeholder': ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'other_mediaext',
-                                            'label': '非媒体文件格式',
-                                            'rows': 2,
-                                            'placeholder': ".nfo, .jpg"
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'multiple': True,
-                                            'chips': True,
-                                            'clearable': True,
-                                            'model': 'mediaservers',
-                                            'label': '媒体服务器',
-                                            'items': [{"title": config.name, "value": config.name}
-                                                      for config in self.mediaserver_helper.get_configs().values() if
-                                                      config.type == "emby"]
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 8
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'emby_path',
-                                            'rows': '1',
-                                            'label': '媒体库路径映射',
-                                            'placeholder': 'MoviePilot本地文件路径=>Emby文件路径（多组路径英文逗号拼接）'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    # 新增：路径替换规则文本框
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'path_replacements',
-                                            'label': '路径替换规则',
-                                            'rows': 3,
-                                             'placeholder': '源路径=>目标路径（每行一条规则）'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': 'MoviePilot中云盘挂载本地的路径：/mnt/media/series/国产剧/雪迷宫 (2024)；'
-                                                    'MoviePilot中strm生成路径：/mnt/library/series/国产剧/雪迷宫 (2024)；'
-                                                    '云盘路径：/cloud/media/series/国产剧/雪迷宫 (2024)；'
-                                                    '则目录配置为：/mnt/media#/mnt/library#/cloud/media#{local_file}'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': 'strm格式化方式，自行把()替换为alist/cd2上路径：'
-                                                    '1.本地源文件路径：{local_file}。'
-                                                    '2.alist路径：http://192.168.31.103:5244/d/115{cloud_file}。'
-                                                    '3.cd2路径：http://192.168.31.103:19798/static/http/192.168.31.103:19798/False/115{cloud_file}。'
-                                                    '4.其他api路径：http://192.168.31.103:2001/{cloud_file}'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        "component": "VRow",
-                        "content": [
-                            {
-                                "component": "VCol",
-                                "props": {
-                                    "cols": 12,
-                                },
-                                "content": [
-                                    {
-                                        "component": "VTextField",
-                                        "props": {
-                                            "model": "url",
-                                            "label": "任务推送url",
-                                            "placeholder": "post请求json方式推送path和type(add)字段",
-                                        },
-                                    }
-                                ],
-                            },
-                        ],
-                    },
-                ]
-            }
-        ], {
-            "enabled": False,
-            "notify": False,
-            "monitor": False,
-            "cover": False,
-            "onlyonce": False,
-            "copy_files": False,
-            "uriencode": False,
-            "copy_subtitles": False,
-            "refresh_emby": False,
-            "mediaservers": [],
-            "monitor_confs": "",
-            "emby_path": "",
-            "interval": 10,
-            "scan_interval": 0,
-            "url": "",
-            "other_mediaext": ".nfo, .jpg, .png, .json",
-            "rmt_mediaext": ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v",
-            "path_replacements": ""  # 新增：路径替换规则默认值
+        """Vue 模式：返回空表单和完整配置模型。"""
+        saved = self.get_config() or {}
+        rules = self._parse_structured_rules(saved)
+
+        model = {
+            "enabled": self._enabled,
+            "monitor": self._monitor,
+            "cover": self._cover,
+            "notify": self._notify,
+            "copy_files": self._copy_files,
+            "copy_subtitles": self._copy_subtitles,
+            "refresh_emby": self._refresh_emby,
+            "uriencode": self._uriencode,
+            "onlyonce": self._onlyonce,
+            "interval": self._interval,
+            "scan_interval": self._scan_interval,
+            "url": self._url,
+            "rmt_mediaext": self._rmt_mediaext,
+            "other_mediaext": self._other_mediaext,
+            "emby_path": self._emby_path_serialized(),
+            "path_replacements": self._path_replacements_serialized(),
+            "mediaservers": self._mediaservers or [],
+            "monitor_confs": self._monitor_confs,
         }
+        for i, rule in enumerate(rules):
+            model[f"rule_{i}_category"] = rule.get("category", "")
+            model[f"rule_{i}_local"] = rule.get("local", "")
+            model[f"rule_{i}_strm"] = rule.get("strm", "")
+            model[f"rule_{i}_cloud"] = rule.get("cloud", "")
+            model[f"rule_{i}_format"] = rule.get("format", "")
+            model[f"rule_{i}_monitor"] = rule.get("monitor", True)
+            model[f"rule_{i}_delete"] = False
+        return [], model
+
+    def _parse_structured_rules(self, config: dict) -> list:
+        """从结构化 rule_N_* 键或旧 monitor_confs 解析规则列表。"""
+        rules = []
+        structured_slots = 0
+        for key in (config or {}).keys():
+            if str(key).startswith("rule_") and (str(key).endswith("_local") or str(key).endswith("_strm")):
+                try:
+                    idx = int(str(key).split("_")[1])
+                    structured_slots = max(structured_slots, idx + 1)
+                except (ValueError, IndexError):
+                    pass
+
+        has_structured = any(
+            str(config.get(f"rule_{i}_local") or "").strip() or str(config.get(f"rule_{i}_strm") or "").strip()
+            for i in range(structured_slots)
+        )
+
+        if has_structured:
+            for i in range(structured_slots):
+                delete_val = str(config.get(f"rule_{i}_delete") or "").strip().lower()
+                if delete_val in ("1", "true", "yes", "on"):
+                    continue
+                local = str(config.get(f"rule_{i}_local") or "").strip()
+                strm = str(config.get(f"rule_{i}_strm") or "").strip()
+                if not local and not strm:
+                    continue
+                rules.append({
+                    "category": str(config.get(f"rule_{i}_category") or ""),
+                    "local": local,
+                    "strm": strm,
+                    "cloud": str(config.get(f"rule_{i}_cloud") or "").strip(),
+                    "format": str(config.get(f"rule_{i}_format") or "").strip(),
+                    "monitor": bool(config.get(f"rule_{i}_monitor", True)),
+                })
+            return rules
+
+        # Fallback to legacy monitor_confs
+        for raw_line in str(config.get("monitor_confs") or "").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            monitor_flag = None
+            if line.count("$") == 1:
+                line, monitor_flag = line.split("$", 1)
+                monitor_flag = monitor_flag.strip()
+            category = None
+            if line.count("@") == 1:
+                line, category = line.split("@", 1)
+                category = category.strip()
+            if line.count("#") < 3:
+                continue
+            local_dir, strm_dir, cloud_dir, format_str = [p.strip() for p in line.split("#", 3)]
+            if not local_dir or not strm_dir:
+                continue
+            rules.append({
+                "category": category or "",
+                "local": local_dir,
+                "strm": strm_dir,
+                "cloud": cloud_dir,
+                "format": format_str,
+                "monitor": monitor_flag != "0",
+            })
+        return rules
+
+    @staticmethod
+    def _rules_to_monitor_confs(rules: list) -> str:
+        """把规则列表序列化为旧版 monitor_confs 文本。"""
+        lines = []
+        for rule in rules or []:
+            local = str(rule.get("local") or "").strip()
+            strm = str(rule.get("strm") or "").strip()
+            if not local or not strm:
+                continue
+            category_str = str(rule.get("category") or "").strip()
+            cloud = str(rule.get("cloud") or "").strip()
+            fmt = str(rule.get("format") or "").strip()
+            line = f"{local}#{strm}#{cloud}#{fmt}"
+            if category_str:
+                line += f"@{category_str}"
+            if not rule.get("monitor", True):
+                line += "$0"
+            lines.append(line)
+        return "\n".join(lines)
+
+    def _emby_path_serialized(self) -> str:
+        return ",".join(f"{s}=>{t}" for s, t in self._emby_paths.items())
+
+    def _path_replacements_serialized(self) -> str:
+        return "\n".join(f"{s}=>{t}" for s, t in self._path_replacements.items())
 
     def get_page(self) -> List[dict]:
-        pass
+        """Vue 模式：详情页由远程 Page 组件渲染。"""
+        return []
 
     def stop_service(self):
         """
