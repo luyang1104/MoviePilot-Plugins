@@ -274,12 +274,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import Config from './Config.vue'
 import { unwrapApiResponse } from './api_response.js'
+import { readPluginConfig } from './config_persistence.js'
 
 const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.6' },
+  version: { type: String, default: '2.1.7' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -302,7 +303,7 @@ const status = reactive({
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.6')
+const version = computed(() => props.version || '2.1.7')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -378,6 +379,16 @@ async function load() {
   }
 }
 
+async function loadConfig() {
+  if (!props.api?.get) return
+  try {
+    const persisted = await readPluginConfig(props.api)
+    savedConfig.value = { ...persisted }
+  } catch (err) {
+    error.value = err.message || '读取插件配置失败'
+  }
+}
+
 async function retry(failureId) {
   pending.value = failureId
   error.value = ''
@@ -408,12 +419,16 @@ async function confirmCleanup(batchId) {
   }
 }
 
-function handleConfigSave(payload) {
+async function handleConfigSave(payload) {
   savedConfig.value = payload && typeof payload === 'object' ? { ...payload } : null
   emit('save', payload)
+  await load()
 }
 
-onMounted(load)
+onMounted(async () => {
+  await loadConfig()
+  await load()
+})
 </script>
 
 <style scoped>

@@ -35,11 +35,12 @@
     "name": "云盘Strm小管家",
     "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
     "labels": "moviepilot",
-    "version": "2.1.6",
+    "version": "2.1.7",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 2,
     "history": {
+      "2.1.7": "修复插件数据页配置保存未进入 MoviePilot 宿主接口的问题：嵌入式配置现在直接保存并回读校验，重新打开页面会加载已保存配置；同时保留标准配置弹窗的宿主保存流程，并记录结构化配置规范化异常。",
       "2.1.6": "修复 Vue 配置组件重复调用 MoviePilot 配置接口导致保存结果被覆盖的问题：改由宿主统一执行配置保存和插件重载。",
       "2.1.5": "修复配置保存后未真正持久化或重新打开恢复默认的问题：以 MoviePilot 已保存配置为准、保存后回读校验，并用宿主返回值刷新界面。",
       "2.1.4": "修复配置保存必须调用 MoviePilot 宿主接口；修正可靠同步处理中数量统计，并为 NAS/FUSE I/O 超时增加可重试失败处理。",

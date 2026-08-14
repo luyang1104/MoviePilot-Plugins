@@ -168,7 +168,7 @@
     <footer class="config-action-footer">
       <div class="save-state" :class="{ 'is-saved': saved }">
         <v-icon size="17">{{ saved ? 'mdi-check-circle-outline' : 'mdi-information-outline' }}</v-icon>
-        <span>{{ saved ? '配置已提交给宿主保存流程' : '修改后记得保存配置' }}</span>
+        <span>{{ saved ? (embedded ? '配置已保存并回读确认' : '配置已提交给宿主保存流程') : '修改后记得保存配置' }}</span>
       </div>
       <div class="footer-actions">
         <v-btn v-if="!embedded && hasPage" variant="text" prepend-icon="mdi-chart-box-outline" @click="emit('switch')">查看数据</v-btn>
@@ -183,6 +183,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { buildConfigPayload, normalizeBoolean, parseConfigRules, serializeConfig } from './config_payload.js'
+import { savePluginConfig } from './config_persistence.js'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -321,18 +322,26 @@ function resetForm() {
   error.value = null
 }
 
-function saveConfig() {
+async function saveConfig() {
   if (!isDirty.value || saving.value) return
   saving.value = true
   saved.value = false
   error.value = null
   try {
     const payload = buildConfigPayload(config, savedRuleSlotCount.value)
-    // MoviePilot owns persistence for Vue plugin forms. Emitting the payload
-    // lets the host perform its standard PUT and plugin reinitialization.
-    emit('save', payload)
-    savedRuleSlotCount.value = Math.max(savedRuleSlotCount.value, config.rules.length)
-    savedSnapshot.value = serializeConfig(config)
+    if (props.embedded) {
+      // The data-page host does not listen for the Config save event. Persist
+      // through MoviePilot here and hydrate from its canonical response.
+      const persisted = await savePluginConfig(props.api, payload)
+      hydrate(persisted)
+      savedSnapshot.value = serializeConfig(config)
+      emit('save', persisted)
+    } else {
+      // The standard config dialog owns persistence for Vue plugin forms.
+      emit('save', payload)
+      savedRuleSlotCount.value = Math.max(savedRuleSlotCount.value, config.rules.length)
+      savedSnapshot.value = serializeConfig(config)
+    }
     saved.value = true
   } catch (err) {
     error.value = err.message || '保存失败'

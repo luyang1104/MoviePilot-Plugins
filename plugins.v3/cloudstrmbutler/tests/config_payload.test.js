@@ -56,6 +56,24 @@ test('buildConfigPayload preserves settings and marks removed rule slots', () =>
   assert.equal(payload.rule_0_format, 'http://host/{cloud_file}')
 })
 
+test('buildConfigPayload preserves Chinese paths, categories, and cloud template tokens', () => {
+  const payload = buildConfigPayload({
+    rules: [{
+      category: ['\u56fd\u4ea7\u5267', '\u65e5\u97e9\u5267'],
+      local: '/CloudNAS/\u4e91\u76d8/\u56fd\u4ea7\u5267',
+      strm: '/CloudNAS/STRM/\u56fd\u4ea7\u5267',
+      cloud: '/media/\u56fd\u4ea7\u5267',
+      format: 'http://192.168.1.10:5244/d{cloud_file}',
+    }],
+  })
+
+  assert.equal(payload.rule_0_category, '\u56fd\u4ea7\u5267,\u65e5\u97e9\u5267')
+  assert.equal(payload.rule_0_local, '/CloudNAS/\u4e91\u76d8/\u56fd\u4ea7\u5267')
+  assert.equal(payload.rule_0_strm, '/CloudNAS/STRM/\u56fd\u4ea7\u5267')
+  assert.equal(payload.rule_0_cloud, '/media/\u56fd\u4ea7\u5267')
+  assert.equal(payload.rule_0_format, 'http://192.168.1.10:5244/d{cloud_file}')
+})
+
 test('invalid rules are rejected before a save payload is created', () => {
   assert.match(
     validateRuleForSave({ local: '', strm: '/strm', format: '{cloud_file}', cloud: '/cloud' }),
