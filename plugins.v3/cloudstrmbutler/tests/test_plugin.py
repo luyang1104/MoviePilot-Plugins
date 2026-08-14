@@ -254,6 +254,51 @@ class PluginTests(unittest.TestCase):
             plugin._state_store.get(str(source), str(media_file.relative_to(source)))
         )
 
+    def test_sidecar_timeout_is_reported_as_retryable_failure(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.nfo"
+        media_file.write_bytes(b"movie bytes")
+        sidecar.write_text("sidecar", encoding="utf-8")
+
+        with patch("shutil.copy2", side_effect=OSError(110, "Connection timed out")):
+            result = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(result["retryable"])
+        self.assertIn("Connection timed out", result["reason"])
+
+    def test_strm_write_timeout_is_reported_as_retryable_failure(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie bytes")
+
+        with patch("os.replace", side_effect=OSError(110, "Connection timed out")):
+            result = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        self.assertEqual(result["status"], "failed")
+        self.assertTrue(result["retryable"])
+        self.assertIn("Connection timed out", result["reason"])
+
 
 if __name__ == "__main__":
     unittest.main()

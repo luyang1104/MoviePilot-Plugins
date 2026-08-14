@@ -32,6 +32,32 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(seen, ["/media/movie.mkv"])
         self.assertEqual(self.store.status()["queued"], 0)
 
+    def test_snapshot_counts_only_active_workers_as_inflight(self):
+        started = []
+        release = __import__("threading").Event()
+
+        def handler(job):
+            started.append(job.path)
+            release.wait(2)
+            return {"status": "processed"}
+
+        engine = SyncEngine(self.store, handler, workers=2, max_queue=100)
+        engine.start()
+        for index in range(8):
+            engine.enqueue("/media", f"/media/{index}.mkv")
+
+        deadline = time.time() + 2
+        while len(started) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+
+        snapshot = engine.snapshot()
+        release.set()
+        engine.stop()
+
+        self.assertEqual(snapshot["inflight"], 2)
+        self.assertEqual(snapshot["memory_queued"], 6)
+        self.assertEqual(snapshot["scheduled"], 8)
+
 
 if __name__ == "__main__":
     unittest.main()

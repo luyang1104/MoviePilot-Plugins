@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.3"
+    plugin_version = "2.1.4"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -641,7 +641,11 @@ class CloudStrmButler(_PluginBase):
             return {"status": "processed", "outputs": outputs}
         except Exception as exc:
             logger.error("目录监控发生错误：%s - %s", str(exc), traceback.format_exc())
-            return {"status": "failed", "reason": str(exc)}
+            return {
+                "status": "failed",
+                "reason": str(exc),
+                "retryable": self._is_retryable_io_error(exc),
+            }
         finally:
             with self._active_lock:
                 self._active_paths.discard(active_key)
@@ -680,10 +684,25 @@ class CloudStrmButler(_PluginBase):
             return target_file
         except PermissionError:
             logger.error(f"复制{kind}失败：目标目录没有写入权限 {os.path.dirname(target_file)}")
+            raise
         except Exception as exc:
             logger.error(f"复制{kind}失败：{exc}")
-        return None
+            raise
 
+    @staticmethod
+    def _is_retryable_io_error(error: Exception) -> bool:
+        """Classify transient NAS/FUSE failures for durable queue retries."""
+        errno = getattr(error, "errno", None)
+        if errno in {5, 6, 11, 110, 111, 113, 116}:
+            return True
+        message = str(error).lower()
+        return any(token in message for token in (
+            "connection timed out",
+            "i/o error",
+            "input/output error",
+            "temporarily unavailable",
+            "stale file handle",
+        ))
 
 
     def _record_is_current(
@@ -803,7 +822,7 @@ class CloudStrmButler(_PluginBase):
             return strm_file
         except Exception as exc:
             logger.error(f"创建strm文件失败 {strm_file} -> {exc}")
-        return None
+            raise
 
     def _record_media_notification(self, strm_file: str):
         """Queue a media notification entry behind a dedicated lock."""
@@ -1157,7 +1176,7 @@ class CloudStrmButler(_PluginBase):
 
     def sync_status_api(self) -> Dict[str, Any]:
         status = self._task_store.status() if self._task_store else {"queued": 0, "running": [], "recent_runs": [], "cleanup_batches": []}
-        status.update({"enabled": self._enabled, "reliable_engine": self._reliable_engine, "scan_running": self._scan_running, "engine": self._sync_engine.snapshot() if self._sync_engine else {"memory_queued": 0, "inflight": 0, "workers": 0}})
+        status.update({"enabled": self._enabled, "reliable_engine": self._reliable_engine, "scan_running": self._scan_running, "engine": self._sync_engine.snapshot() if self._sync_engine else {"memory_queued": 0, "inflight": 0, "scheduled": 0, "workers": 0}})
         return {"code": 0, "data": status}
 
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:

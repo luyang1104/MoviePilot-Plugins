@@ -23,7 +23,10 @@ class SyncEngine:
         self._queue: queue.Queue[Optional[PendingJob]] = queue.Queue(maxsize=max(100, int(max_queue)))
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
-        self._inflight: set[int] = set()
+        # Scheduled jobs include both the bounded in-memory queue and jobs
+        # currently being handled. Only the latter are reported as inflight.
+        self._scheduled: set[int] = set()
+        self._active: set[int] = set()
         self._lock = threading.RLock()
 
     def start(self) -> None:
@@ -46,19 +49,24 @@ class SyncEngine:
         with self._lock:
             capacity = max(0, self._queue.maxsize - self._queue.qsize())
             for job in self.store.claim_ready(min(capacity, 500)):
-                if job.id in self._inflight:
+                if job.id in self._scheduled:
                     continue
                 try:
                     self._queue.put_nowait(job)
                 except queue.Full:
                     break
-                self._inflight.add(job.id)
+                self._scheduled.add(job.id)
                 moved += 1
         return moved
 
     def snapshot(self) -> dict:
         with self._lock:
-            return {"memory_queued": self._queue.qsize(), "inflight": len(self._inflight), "workers": len(self._threads)}
+            return {
+                "memory_queued": self._queue.qsize(),
+                "inflight": len(self._active),
+                "scheduled": len(self._scheduled),
+                "workers": len(self._threads),
+            }
 
     def stop(self, timeout: float = 20) -> None:
         # Keep workers alive while draining work already accepted into memory.
@@ -75,7 +83,8 @@ class SyncEngine:
             thread.join(timeout=max(0, deadline - time.monotonic()))
         self._threads = []
         with self._lock:
-            self._inflight.clear()
+            self._scheduled.clear()
+            self._active.clear()
 
     def _worker(self) -> None:
         while True:
@@ -89,6 +98,8 @@ class SyncEngine:
             if job is None:
                 self._queue.task_done()
                 return
+            with self._lock:
+                self._active.add(job.id)
             try:
                 result = self.handler(job) or {}
                 status = result.get("status", "processed")
@@ -113,7 +124,8 @@ class SyncEngine:
                     self._complete(job, {"status": "failed", "reason": str(exc)})
             finally:
                 with self._lock:
-                    self._inflight.discard(job.id)
+                    self._active.discard(job.id)
+                    self._scheduled.discard(job.id)
                 self._queue.task_done()
                 self.pump()
 

@@ -183,6 +183,7 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { buildConfigPayload, normalizeBoolean, parseConfigRules, serializeConfig } from './config_payload.js'
+import { savePluginConfig } from './config_persistence.js'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -328,6 +329,7 @@ async function saveConfig() {
   error.value = null
   try {
     const payload = buildConfigPayload(config, savedRuleSlotCount.value)
+    await savePluginConfig(props.api, payload)
     emit('save', payload)
     savedRuleSlotCount.value = Math.max(savedRuleSlotCount.value, config.rules.length)
     savedSnapshot.value = serializeConfig(config)

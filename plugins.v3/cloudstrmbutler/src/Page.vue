@@ -279,7 +279,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.3' },
+  version: { type: String, default: '2.1.4' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -296,12 +296,12 @@ const status = reactive({
   reliable_engine: false,
   scan_running: false,
   queued: 0,
-  engine: { memory_queued: 0, inflight: 0, workers: 0 },
+  engine: { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0 },
   recent_runs: [],
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.3')
+const version = computed(() => props.version || '2.1.4')
 const initialConfig = computed(() => {
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
   return props.config || {}
@@ -348,7 +348,7 @@ function displayStatus(value) {
 
 function applyStatus(data = {}) {
   Object.assign(status, data)
-  status.engine = { memory_queued: 0, inflight: 0, workers: 0, ...(data.engine || {}) }
+  status.engine = { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0, ...(data.engine || {}) }
   status.recent_runs = Array.isArray(data.recent_runs) ? data.recent_runs : []
   status.cleanup_batches = Array.isArray(data.cleanup_batches) ? data.cleanup_batches : []
 }
