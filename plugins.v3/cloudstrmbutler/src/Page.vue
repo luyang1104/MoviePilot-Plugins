@@ -279,7 +279,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.4' },
+  version: { type: String, default: '2.1.5' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -291,6 +291,7 @@ const pending = ref(null)
 const error = ref('')
 const lastUpdated = ref(null)
 const failures = ref([])
+const savedConfig = ref(null)
 const status = reactive({
   enabled: false,
   reliable_engine: false,
@@ -301,8 +302,9 @@ const status = reactive({
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.4')
+const version = computed(() => props.version || '2.1.5')
 const initialConfig = computed(() => {
+  if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
   return props.config || {}
 })
@@ -407,6 +409,7 @@ async function confirmCleanup(batchId) {
 }
 
 function handleConfigSave(payload) {
+  savedConfig.value = payload && typeof payload === 'object' ? { ...payload } : null
   emit('save', payload)
 }
 

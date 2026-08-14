@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.4"
+    plugin_version = "2.1.5"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1240,28 +1240,48 @@ class CloudStrmButler(_PluginBase):
         saved = self.get_config() or {}
         rules = self._parse_structured_rules(saved)
 
+        def saved_value(key: str, fallback: Any) -> Any:
+            return saved[key] if key in saved else fallback
+
+        def saved_bool(key: str, fallback: bool) -> bool:
+            return _as_bool(saved_value(key, fallback), fallback)
+
+        def saved_int(key: str, fallback: int) -> int:
+            try:
+                return max(0, int(saved_value(key, fallback)))
+            except (TypeError, ValueError):
+                return fallback
+
+        saved_mediaservers = saved_value("mediaservers", self._mediaservers)
+        if isinstance(saved_mediaservers, (list, tuple)):
+            mediaservers = list(saved_mediaservers)
+        elif saved_mediaservers:
+            mediaservers = [saved_mediaservers]
+        else:
+            mediaservers = []
+
         model = {
-            "enabled": self._enabled,
-            "monitor": self._monitor,
-            "cover": self._cover,
-            "notify": self._notify,
-            "copy_files": self._copy_files,
-            "copy_subtitles": self._copy_subtitles,
-            "refresh_emby": self._refresh_emby,
-            "uriencode": self._uriencode,
-            "onlyonce": self._onlyonce,
-            "interval": self._interval,
-            "scan_interval": self._scan_interval,
-            "url": self._url,
-            "rmt_mediaext": self._rmt_mediaext,
-            "other_mediaext": self._other_mediaext,
-            "emby_path": self._emby_path_serialized(),
-            "path_replacements": self._path_replacements_serialized(),
-            "reliable_engine": self._reliable_engine,
-            "cleanup_mode": self._cleanup_mode,
-            "cleanup_probe": self._cleanup_probe,
-            "mediaservers": self._mediaservers or [],
-            "config_version": 2,
+            "enabled": saved_bool("enabled", self._enabled),
+            "monitor": saved_bool("monitor", self._monitor),
+            "cover": saved_bool("cover", self._cover),
+            "notify": saved_bool("notify", self._notify),
+            "copy_files": saved_bool("copy_files", self._copy_files),
+            "copy_subtitles": saved_bool("copy_subtitles", self._copy_subtitles),
+            "refresh_emby": saved_bool("refresh_emby", self._refresh_emby),
+            "uriencode": saved_bool("uriencode", self._uriencode),
+            "onlyonce": saved_bool("onlyonce", self._onlyonce),
+            "interval": saved_int("interval", self._interval),
+            "scan_interval": saved_int("scan_interval", self._scan_interval),
+            "url": str(saved_value("url", self._url) or ""),
+            "rmt_mediaext": str(saved_value("rmt_mediaext", self._rmt_mediaext) or ""),
+            "other_mediaext": str(saved_value("other_mediaext", self._other_mediaext) or ""),
+            "emby_path": str(saved_value("emby_path", self._emby_path_serialized()) or ""),
+            "path_replacements": str(saved_value("path_replacements", self._path_replacements_serialized()) or ""),
+            "reliable_engine": saved_bool("reliable_engine", self._reliable_engine),
+            "cleanup_mode": str(saved_value("cleanup_mode", self._cleanup_mode) or "off").lower(),
+            "cleanup_probe": str(saved_value("cleanup_probe", self._cleanup_probe) or ""),
+            "mediaservers": mediaservers,
+            "config_version": saved_value("config_version", 2),
         }
         for i, rule in enumerate(rules):
             model[f"rule_{i}_category"] = rule.get("category", "")

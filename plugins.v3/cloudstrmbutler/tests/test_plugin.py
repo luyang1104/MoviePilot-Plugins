@@ -73,6 +73,27 @@ class PluginTests(unittest.TestCase):
         self.assertIn("plugin/CloudStrmButler/sync_failures", page_source)
         self.assertNotIn("plugin/cloudstrmbutler/", page_source)
 
+    def test_get_form_prefers_persisted_configuration_over_stale_instance_state(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin({"enabled": False, "monitor": False})
+        plugin.get_config = lambda: {
+            "enabled": True,
+            "monitor": True,
+            "interval": 25,
+            "rule_0_local": "/source",
+            "rule_0_strm": "/strm",
+            "rule_0_cloud": "/cloud",
+            "rule_0_format": "http://host/{cloud_file}",
+        }
+
+        _, model = plugin.get_form()
+
+        self.assertTrue(model["enabled"])
+        self.assertTrue(model["monitor"])
+        self.assertEqual(model["interval"], 25)
+        self.assertEqual(model["rule_0_local"], "/source")
+        self.assertEqual(model["rule_0_strm"], "/strm")
+
     def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):
         plugin = self.make_plugin(self.new_temp() / "data")
         rules = plugin._parse_structured_rules(

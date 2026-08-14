@@ -329,10 +329,12 @@ async function saveConfig() {
   error.value = null
   try {
     const payload = buildConfigPayload(config, savedRuleSlotCount.value)
-    await savePluginConfig(props.api, payload)
-    emit('save', payload)
-    savedRuleSlotCount.value = Math.max(savedRuleSlotCount.value, config.rules.length)
+    const persisted = await savePluginConfig(props.api, payload)
+    // Rehydrate from MoviePilot's canonical response so the next render cannot
+    // fall back to the pre-save prop snapshot or stale local rule slots.
+    hydrate(persisted)
     savedSnapshot.value = serializeConfig(config)
+    emit('save', persisted)
     saved.value = true
   } catch (err) {
     error.value = err.message || '保存失败'
