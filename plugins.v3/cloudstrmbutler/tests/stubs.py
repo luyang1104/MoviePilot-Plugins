@@ -42,6 +42,7 @@ class FakePluginBase:
         self.systemmessage = FakeSystemMessage()
         self.chain = FakeChain()
         self.config = None
+        self.messages = []
 
     def get_config(self, name=None):
         return None
@@ -53,6 +54,7 @@ class FakePluginBase:
         self.config = dict(config)
 
     def post_message(self, **kwargs):
+        self.messages.append(kwargs)
         return None
 
 

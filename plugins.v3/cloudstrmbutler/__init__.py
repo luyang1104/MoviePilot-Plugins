@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.7"
+    plugin_version = "2.1.8"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -127,6 +127,7 @@ class CloudStrmButler(_PluginBase):
 
     def __init__(self):
         super().__init__()
+        self._command_guard = threading.Lock()
         self._reset_runtime_state()
 
     def _reset_runtime_state(self):
@@ -170,6 +171,7 @@ class CloudStrmButler(_PluginBase):
         self._active_paths = set()
         self._scan_guard = threading.Lock()
         self._scan_running = False
+        self._command_running = False
         self._state_store = None
         self._task_store = None
         self._sync_engine = None
@@ -270,7 +272,7 @@ class CloudStrmButler(_PluginBase):
         self._state_store = SyncStateStore(self.get_data_path() / "sync_state.sqlite3")
         self._task_store = TaskStore(self.get_data_path() / "task_state.sqlite3")
         self._task_store.prune()
-        if self._reliable_engine:
+        if self._reliable_engine and (self._enabled or self._onlyonce):
             self._sync_engine = SyncEngine(self._task_store, self._run_reliable_job, completion=self._complete_reliable_job)
             self._sync_engine.start()
 
@@ -369,14 +371,19 @@ class CloudStrmButler(_PluginBase):
             return
         self._scan_running = True
         started = time.monotonic()
-        run_id = self._task_store.start_run("scan") if self._reliable_engine and self._task_store else None
+        run_id = self._task_store.start_run("scan") if self._task_store else None
         try:
             logger.info("开始增量执行")
             for rule in self._monitor_rules:
                 self._scan_rule(rule, run_id=run_id)
             logger.info("增量执行完成，耗时 %.1f 秒", time.monotonic() - started)
             if run_id and self._task_store:
-                self._task_store.finish_run_if_settled(run_id)
+                if self._reliable_engine:
+                    self._task_store.finish_run_if_settled(run_id)
+                elif self._scan_run_failed(run_id):
+                    self._task_store.finish_run(run_id, status="completed_with_errors")
+                else:
+                    self._task_store.finish_run(run_id, status="completed")
         except Exception as exc:
             if run_id and self._task_store:
                 self._task_store.finish_run(run_id, status="failed", message=str(exc))
@@ -384,6 +391,15 @@ class CloudStrmButler(_PluginBase):
         finally:
             self._scan_running = False
             self._scan_guard.release()
+
+    def _scan_run_failed(self, run_id: str) -> bool:
+        if not self._task_store:
+            return False
+        return any(
+            int(run.get("failed") or 0) > 0
+            for run in self._task_store.status().get("recent_runs", [])
+            if run.get("run_id") == run_id
+        )
 
     def _scan_rule(self, rule: MonitorRule, run_id: Optional[str] = None):
         """Walk one monitor root and reconcile it with the persisted index."""
@@ -401,12 +417,16 @@ class CloudStrmButler(_PluginBase):
                         continue
                     seen.add(str(relative).replace("\\", "/"))
                     if is_ignored_path(source_file) or is_temporary_path(source_file):
+                        if run_id and self._task_store:
+                            self._task_store.update_run(run_id, queued=1, skipped=1)
                         continue
                     if self._reliable_engine and self._sync_engine:
                         payload = {"run_id": run_id} if run_id else None
                         if self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload) and run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
                     else:
+                        if run_id and self._task_store:
+                            self._task_store.update_run(run_id, queued=1)
                         result = self.__handle_file(event_path=source_file, mon_path=rule.local_dir)
                         self._record_run_result(run_id, result)
         except OSError as exc:
@@ -446,10 +466,12 @@ class CloudStrmButler(_PluginBase):
             self._task_store.update_run(run_id, processed=1)
         elif status == "unchanged":
             self._task_store.update_run(run_id, unchanged=1)
-        elif status == "failed":
+        elif status in {"failed", "unstable", "invalid_target", "invalid_cloud", "invalid_content"}:
             self._task_store.update_run(run_id, failed=1)
+        elif status == "deleted":
+            self._task_store.update_run(run_id, deleted=1)
         else:
-            self._task_store.update_run(run_id, processed=1)
+            self._task_store.update_run(run_id, skipped=1)
 
     def _pump_reliable_queue(self):
         if self._sync_engine:
@@ -899,6 +921,137 @@ class CloudStrmButler(_PluginBase):
         """Map a local file path using the longest matching library root."""
         return map_library_path(paths or {}, file_path)
 
+    @staticmethod
+    def _new_command_summary() -> Dict[str, Any]:
+        return {
+            "total": 0,
+            "processed": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+        }
+
+    def _record_command_file(self, summary: Dict[str, Any], run_id: Optional[str], event_path: str, mon_path: str) -> None:
+        summary["total"] += 1
+        if run_id and self._task_store:
+            self._task_store.update_run(run_id, queued=1)
+        try:
+            result = self.__handle_file(event_path=event_path, mon_path=mon_path) or {}
+        except Exception as exc:
+            result = {"status": "failed", "reason": str(exc)}
+            logger.exception("手动 /strm 处理文件失败：%s", event_path)
+
+        status = str(result.get("status") or "skipped").lower()
+        if status == "processed":
+            summary["processed"] += 1
+        elif status == "unchanged":
+            summary["unchanged"] += 1
+        elif status in {"failed", "unstable", "invalid_target", "invalid_cloud", "invalid_content"}:
+            summary["failed"] += 1
+            reason = str(result.get("reason") or status).replace("\n", " ").strip()
+            detail = f"{event_path}: {reason}"
+            if detail not in summary["errors"] and len(summary["errors"]) < 3:
+                summary["errors"].append(detail[:200])
+        else:
+            summary["skipped"] += 1
+
+        self._record_run_result(run_id, result)
+
+    def _command_summary_title(self, label: str, summary: Dict[str, Any]) -> str:
+        total = int(summary.get("total", 0))
+        failed = int(summary.get("failed", 0))
+        if total == 0:
+            state = "未找到可处理文件"
+        elif failed == total:
+            state = "失败"
+        elif failed:
+            state = "部分完成"
+        else:
+            state = "完成"
+        title = (
+            f"{label} Strm生成{state}：总数 {total}，成功 {summary.get('processed', 0)}，"
+            f"未变化 {summary.get('unchanged', 0)}，跳过 {summary.get('skipped', 0)}，失败 {failed}"
+        )
+        errors = summary.get("errors") or []
+        if errors:
+            title += "；失败示例：" + "；".join(errors)
+        return title
+
+    def _post_command_summary(self, event: Event, label: str, summary: Dict[str, Any]) -> None:
+        if not event.event_data.get("user"):
+            return
+        self.post_message(
+            channel=event.event_data.get("channel"),
+            title=self._command_summary_title(label, summary),
+            userid=event.event_data.get("user"),
+        )
+
+    def _run_command_paths(
+        self,
+        paths,
+        mon_path: str,
+        event: Event,
+        label: str,
+        initial_failures: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        summary = self._new_command_summary()
+        for reason in initial_failures or []:
+            summary["total"] += 1
+            summary["failed"] += 1
+            if len(summary["errors"]) < 3:
+                summary["errors"].append(str(reason).replace("\n", " ")[:200])
+        if not self._command_guard.acquire(blocking=False):
+            summary["total"] += 1
+            summary["failed"] += 1
+            if len(summary["errors"]) < 3:
+                summary["errors"].append("已有手动同步命令正在处理")
+            self._post_command_summary(event, label + "（无法执行）", summary)
+            return summary
+
+        self._command_running = True
+        run_id = self._task_store.start_run("command", mon_path) if self._task_store else None
+        try:
+            for candidate in paths or []:
+                candidate_path = Path(candidate)
+                if candidate_path.is_file():
+                    self._record_command_file(summary, run_id, str(candidate_path), mon_path)
+                    continue
+                if not candidate_path.is_dir():
+                    continue
+                for root, _dirs, files in os.walk(str(candidate_path)):
+                    for file_name in files:
+                        src_file = os.path.join(root, file_name)
+                        if Path(src_file).is_file():
+                            self._record_command_file(summary, run_id, str(src_file), mon_path)
+        except Exception as exc:
+            summary["total"] += 1
+            summary["failed"] += 1
+            summary["errors"].append(str(exc)[:160])
+            logger.exception("手动 /strm 扫描失败：%s", label)
+            if run_id and self._task_store:
+                self._task_store.update_run(run_id, queued=1, failed=1)
+        finally:
+            if run_id and self._task_store:
+                for _ in range(len(initial_failures or [])):
+                    self._task_store.update_run(run_id, queued=1, failed=1)
+                if summary["failed"]:
+                    status = "completed_with_errors"
+                elif not summary["total"]:
+                    status = "completed_empty"
+                else:
+                    status = "completed"
+                self._task_store.finish_run(
+                    run_id,
+                    status=status,
+                    message=self._command_summary_title(label, summary),
+                )
+            self._command_running = False
+            self._command_guard.release()
+
+        self._post_command_summary(event, label, summary)
+        return summary
+
     @eventmanager.register(EventType.PluginAction)
     def remote_sync_one(self, event: Event = None):
         if event:
@@ -958,22 +1111,7 @@ class CloudStrmButler(_PluginBase):
                                                       title=f"未查找到 {category} {args} 对应的具体目录",
                                                       userid=event.event_data.get("user"))
                                     return
-                                for target_path in target_paths:
-                                    logger.info(f"开始定向处理文件夹 ...{target_path}")
-                                    for sroot, sdirs, sfiles in os.walk(target_path):
-                                        for file_name in sdirs + sfiles:
-                                            src_file = os.path.join(sroot, file_name)
-                                            if Path(src_file).is_file():
-                                                self.__handle_file(event_path=str(src_file), mon_path=mon_path)
-
-                                    if event.event_data.get("user"):
-                                        self.post_message(channel=event.event_data.get("channel"),
-                                                          title=f"{target_path} Strm生成完成！",
-                                                          userid=event.event_data.get("user"))
-                                    time.sleep(2)
-
-                                    if limit is None and event_data and event_data.get("action") == "strm_one":
-                                        return
+                                self._run_command_paths(target_paths[:1], mon_path, event, all_args)
                             return
             else:
                 # 遍历所有监控目录
@@ -983,24 +1121,24 @@ class CloudStrmButler(_PluginBase):
                 if mon_path:
                     if not Path(args).exists():
                         logger.info(f"同步路径 {args} 不存在")
+                        self._run_command_paths(
+                            [],
+                            mon_path,
+                            event,
+                            f"{all_args}（失败）",
+                            initial_failures=[f"{args} 不存在"],
+                        )
                         return
                     # 处理单文件
                     if Path(args).is_file():
-                        self.__handle_file(event_path=str(args), mon_path=mon_path)
+                        self._run_command_paths([str(args)], mon_path, event, all_args)
                         return
                     else:
                         # 处理指定目录
                         logger.info(f"获取到 {args} 对应的监控目录 {mon_path}")
 
                         logger.info(f"开始定向处理文件夹 ...{args}")
-                        for sroot, sdirs, sfiles in os.walk(args):
-                            for file_name in sdirs + sfiles:
-                                src_file = os.path.join(sroot, file_name)
-                                if Path(str(src_file)).is_file():
-                                    self.__handle_file(event_path=str(src_file), mon_path=mon_path)
-                        if event.event_data.get("user"):
-                            self.post_message(channel=event.event_data.get("channel"),
-                                              title=f"{all_args} Strm生成完成！", userid=event.event_data.get("user"))
+                        self._run_command_paths([args], mon_path, event, all_args)
                         return
                 else:
                     for mon_path in self._category_conf.keys():
@@ -1010,15 +1148,7 @@ class CloudStrmButler(_PluginBase):
                         if mon_category and str(args) in mon_categories + [mon_category]:
                             parent_path = os.path.join(mon_path, args)
                             logger.info(f"获取到 {args} 对应的监控目录 {parent_path}")
-                            for sroot, sdirs, sfiles in os.walk(parent_path):
-                                for file_name in sdirs + sfiles:
-                                    src_file = os.path.join(sroot, file_name)
-                                    if Path(str(src_file)).is_file():
-                                        self.__handle_file(event_path=str(src_file), mon_path=mon_path)
-                            if event.event_data.get("user"):
-                                self.post_message(channel=event.event_data.get("channel"),
-                                                  title=f"{all_args} Strm生成完成！",
-                                                  userid=event.event_data.get("user"))
+                            self._run_command_paths([parent_path], mon_path, event, all_args)
                             return
             if event.event_data.get("user"):
                 self.post_message(channel=event.event_data.get("channel"),
@@ -1047,29 +1177,36 @@ class CloudStrmButler(_PluginBase):
         处理文件数量限制
         """
         sub_paths = []
-        for entry in os.listdir(path):
-            full_path = os.path.join(path, entry)
-            if os.path.isdir(full_path):
-                sub_paths.append(full_path)
+        try:
+            for entry in os.listdir(path):
+                full_path = os.path.join(path, entry)
+                if os.path.isdir(full_path):
+                    sub_paths.append(full_path)
+        except OSError as exc:
+            logger.error(f"读取 {path} 目录失败：{exc}")
+            self._run_command_paths(
+                [],
+                mon_path,
+                event,
+                f"{path}（读取失败）",
+                initial_failures=[f"{path}: {exc}"],
+            )
+            return
 
         if not sub_paths:
             logger.error(f"未找到 {path} 目录下的文件夹")
+            self._run_command_paths([], mon_path, event, f"{path}（最近 {limit} 个文件夹）")
             return
 
         # 按照修改时间倒序排列
         sub_paths.sort(key=lambda path: os.path.getmtime(path), reverse=True)
         logger.info(f"开始定向处理文件夹 ...{path}, 最新 {limit} 个文件夹")
-        for sub_path in sub_paths[:limit]:
-            logger.info(f"开始定向处理文件夹 ...{sub_path}")
-            for sroot, sdirs, sfiles in os.walk(sub_path):
-                for file_name in sdirs + sfiles:
-                    src_file = os.path.join(sroot, file_name)
-                    if Path(src_file).is_file():
-                        self.__handle_file(event_path=str(src_file), mon_path=mon_path)
-            if event.event_data.get("user"):
-                self.post_message(channel=event.event_data.get("channel"),
-                                  title=f"{sub_path} Strm生成完成！", userid=event.event_data.get("user"))
-            time.sleep(2)
+        self._run_command_paths(
+            sub_paths[:limit],
+            mon_path,
+            event,
+            f"{path}（最近 {limit} 个文件夹）",
+        )
 
     def send_msg(self):
         """Check queued media notifications and send stale entries."""
@@ -1176,7 +1313,57 @@ class CloudStrmButler(_PluginBase):
 
     def sync_status_api(self) -> Dict[str, Any]:
         status = self._task_store.status() if self._task_store else {"queued": 0, "running": [], "recent_runs": [], "cleanup_batches": []}
-        status.update({"enabled": self._enabled, "reliable_engine": self._reliable_engine, "scan_running": self._scan_running, "engine": self._sync_engine.snapshot() if self._sync_engine else {"memory_queued": 0, "inflight": 0, "scheduled": 0, "workers": 0}})
+        engine = self._sync_engine.snapshot() if self._sync_engine else {"memory_queued": 0, "inflight": 0, "scheduled": 0, "workers": 0}
+        pending_jobs = int(status.get("queued") or 0)
+        queue_active = bool(self._sync_engine and int(engine.get("workers") or 0) > 0)
+        monitor_active = bool(self._observer)
+        active_queued = pending_jobs if queue_active else 0
+        orphaned_queued = max(0, pending_jobs - active_queued)
+        service_running = bool(
+            self._command_running
+            or self._scan_running
+            or monitor_active
+            or queue_active
+        )
+        if self._command_running:
+            service_state = "command_running"
+        elif self._scan_running:
+            service_state = "scan_running"
+        elif orphaned_queued:
+            service_state = "pending_recovery"
+        elif queue_active and (int(engine.get("scheduled") or 0) or pending_jobs):
+            service_state = "queue_running"
+        elif monitor_active:
+            service_state = "monitoring_idle"
+        elif queue_active:
+            service_state = "engine_idle"
+        elif service_running:
+            service_state = "running"
+        elif self._enabled:
+            service_state = "enabled_idle"
+        else:
+            service_state = "disabled"
+        service_busy = bool(
+            self._command_running
+            or self._scan_running
+            or int(engine.get("inflight") or 0) > 0
+            or service_state == "queue_running"
+        )
+        status.update({
+            "enabled": self._enabled,
+            "reliable_engine": self._reliable_engine,
+            "scan_running": self._scan_running,
+            "command_running": self._command_running,
+            "monitor_active": monitor_active,
+            "queue_active": queue_active,
+            "service_running": service_running,
+            "service_busy": service_busy,
+            "service_state": service_state,
+            "pending_jobs": pending_jobs,
+            "orphaned_queued": orphaned_queued,
+            "active_queued": active_queued,
+            "engine": engine,
+        })
         return {"code": 0, "data": status}
 
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:

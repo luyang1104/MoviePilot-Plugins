@@ -27,7 +27,7 @@ class PendingJob:
 class TaskStore:
     """SQLite store for resumable work. Successful file state stays in SyncStateStore."""
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -103,6 +103,12 @@ class TaskStore:
                 self._conn.execute("UPDATE schema_version SET version = 1")
             else:
                 self._conn.execute("INSERT INTO schema_version(version) VALUES (1)")
+            current = 1
+        if current < 2:
+            columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(task_runs)").fetchall()}
+            if "skipped" not in columns:
+                self._conn.execute("ALTER TABLE task_runs ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0")
+            self._conn.execute("UPDATE schema_version SET version = 2")
         self._conn.commit()
 
     def enqueue(self, monitor_root: str, path: str, action: str, old_path: str = "", payload: Optional[dict] = None, delay: float = 0) -> bool:
@@ -195,7 +201,7 @@ class TaskStore:
         return run_id
 
     def update_run(self, run_id: str, **counts: int) -> None:
-        allowed = {key: int(value) for key, value in counts.items() if key in {"queued", "processed", "unchanged", "failed", "deleted"}}
+        allowed = {key: int(value) for key, value in counts.items() if key in {"queued", "processed", "unchanged", "failed", "deleted", "skipped"}}
         if not allowed:
             return
         columns = ", ".join(f"{key} = {key} + ?" for key in allowed)
@@ -215,12 +221,18 @@ class TaskStore:
         """Finish a queued run only after every accepted job reached a terminal result."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT queued, processed, unchanged, failed, status FROM task_runs WHERE run_id = ?",
+                "SELECT queued, processed, unchanged, failed, deleted, skipped, status FROM task_runs WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
             if not row or row["status"] != "running":
                 return False
-            completed = int(row["processed"]) + int(row["unchanged"]) + int(row["failed"])
+            completed = (
+                int(row["processed"])
+                + int(row["unchanged"])
+                + int(row["failed"])
+                + int(row["deleted"])
+                + int(row["skipped"])
+            )
             if completed < int(row["queued"]):
                 return False
             self._conn.execute(

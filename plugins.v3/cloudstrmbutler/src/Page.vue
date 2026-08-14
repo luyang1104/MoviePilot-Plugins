@@ -85,18 +85,18 @@
             <span>{{ runtimeDescription }}</span>
           </div>
           <v-chip size="small" :color="runtimeActive ? 'success' : 'secondary'" variant="tonal">
-            {{ runtimeActive ? '运行中' : '待机' }}
+            {{ runtimeActive ? '处理中' : (status.service_state === 'pending_recovery' ? '待恢复' : '待机') }}
           </v-chip>
         </section>
 
         <div class="metric-grid" aria-label="同步指标">
           <article class="metric-tile">
             <div class="metric-heading">
-              <span>持久化队列</span>
+              <span>{{ status.queue_active ? '活动持久化队列' : (status.pending_jobs ? '待恢复队列' : '持久化队列') }}</span>
               <v-icon size="18">mdi-database-outline</v-icon>
             </div>
             <strong>{{ status.queued }}</strong>
-            <span class="metric-caption">等待进入同步流程</span>
+            <span class="metric-caption">{{ status.queue_active ? '等待进入同步流程' : (status.pending_jobs ? '可靠同步引擎未启动' : '当前没有持久化任务') }}</span>
           </article>
           <article class="metric-tile">
             <div class="metric-heading">
@@ -150,6 +150,7 @@
                   <th>排队</th>
                   <th>已处理</th>
                   <th>未变化</th>
+                  <th>跳过</th>
                   <th>失败</th>
                 </tr>
               </thead>
@@ -160,10 +161,11 @@
                   <td>{{ run.queued ?? 0 }}</td>
                   <td>{{ run.processed ?? 0 }}</td>
                   <td>{{ run.unchanged ?? 0 }}</td>
+                  <td>{{ run.skipped ?? 0 }}</td>
                   <td :class="{ 'danger-number': Number(run.failed) > 0 }">{{ run.failed ?? 0 }}</td>
                 </tr>
                 <tr v-if="!status.recent_runs.length">
-                  <td colspan="6" class="empty-row">暂无任务记录</td>
+                  <td colspan="7" class="empty-row">暂无任务记录</td>
                 </tr>
               </tbody>
             </v-table>
@@ -271,7 +273,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import Config from './Config.vue'
 import { unwrapApiResponse } from './api_response.js'
 import { readPluginConfig } from './config_persistence.js'
@@ -280,7 +282,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.7' },
+  version: { type: String, default: '2.1.8' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -297,28 +299,55 @@ const status = reactive({
   enabled: false,
   reliable_engine: false,
   scan_running: false,
+  command_running: false,
+  monitor_active: false,
+  queue_active: false,
+  service_running: false,
+  service_busy: false,
+  service_state: 'disabled',
   queued: 0,
+  active_queued: 0,
+  pending_jobs: 0,
+  orphaned_queued: 0,
   engine: { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0 },
   recent_runs: [],
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.7')
+const version = computed(() => props.version || '2.1.8')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
   return props.config || {}
 })
-const runtimeActive = computed(() => Boolean(status.enabled || status.scan_running || status.engine.inflight > 0))
-const runtimeLabel = computed(() => runtimeActive.value ? '同步服务运行中' : '同步服务待机')
+const runtimeActive = computed(() => Boolean(status.service_busy))
+const runtimeLabel = computed(() => {
+  if (status.service_state === 'pending_recovery') return '有待恢复任务'
+  if (runtimeActive.value) return '同步任务处理中'
+  return status.service_running ? '同步服务待机' : (status.enabled ? '同步服务未运行' : '同步服务已停用')
+})
 const runtimeTitle = computed(() => {
+  if (status.command_running) return '手动 /strm 正在执行'
   if (status.scan_running) return '全量扫描正在进行'
   if (status.engine.inflight > 0) return '同步引擎正在处理任务'
+  if (status.service_state === 'pending_recovery') return '发现待恢复的持久化任务'
+  if (status.service_state === 'monitoring_idle') return '目录监控已启用，当前空闲'
+  if (status.service_state === 'engine_idle') return '可靠同步引擎已启用，当前空闲'
+  if (status.service_state === 'queue_running') return '可靠同步引擎正在处理队列'
+  if (status.service_state === 'enabled_idle') return '同步服务已启用，当前空闲'
+  if (!status.enabled) return '同步服务未启用'
   return status.reliable_engine ? '可靠同步引擎已就绪' : '基础同步逻辑已就绪'
 })
 const runtimeDescription = computed(() => {
+  if (status.command_running) return '手动命令完成后会显示成功、未变化、跳过和失败数量。'
   if (status.scan_running) return '新发现的媒体文件会按目录规则生成 STRM。'
   if (status.engine.inflight > 0) return '队列中的任务正在按工作线程逐项处理。'
+  if (status.service_state === 'pending_recovery') return `持久化队列中有 ${status.orphaned_queued} 个任务等待可靠同步引擎恢复。`
+  if (status.service_state === 'monitoring_idle') return '目录变化会按配置规则触发 STRM 生成。'
+  if (status.service_state === 'engine_idle') return '任务队列当前没有正在处理的文件。'
+  if (status.service_state === 'queue_running') return '队列中的任务正在等待或按工作线程处理。'
+  if (status.service_state === 'enabled_idle') return '监控与任务队列当前没有正在处理的文件。'
+  if (!status.enabled) return '启用插件后才会启动监控、扫描或可靠同步服务。'
   return status.reliable_engine ? '队列、失败记录与清理确认均已纳入状态追踪。' : '开启可靠同步后可获得完整的任务追踪能力。'
 })
 const lastUpdatedLabel = computed(() => lastUpdated.value ? formatTime(lastUpdated.value) : '尚未刷新')
@@ -338,14 +367,15 @@ function formatTime(value) {
 
 function statusTone(value) {
   const normalized = String(value || '').toLowerCase()
-  if (['done', 'success', 'completed', '完成', '成功'].includes(normalized)) return 'status-chip--success'
+  if (['done', 'success', 'completed', 'completed_empty', '完成', '成功'].includes(normalized)) return 'status-chip--success'
+  if (['completed_with_errors', 'partial', '部分完成'].includes(normalized)) return 'status-chip--danger'
   if (['failed', 'error', '失败'].includes(normalized)) return 'status-chip--danger'
   if (['pending', 'queued', '排队'].includes(normalized)) return 'status-chip--muted'
   return 'status-chip--active'
 }
 
 function displayStatus(value) {
-  const labels = { running: '处理中', processing: '处理中', pending: '排队中', queued: '排队中', success: '已完成', completed: '已完成', done: '已完成', failed: '失败', error: '失败' }
+  const labels = { running: '处理中', processing: '处理中', pending: '排队中', queued: '排队中', success: '已完成', completed: '已完成', completed_empty: '无文件', completed_with_errors: '部分完成', done: '已完成', failed: '失败', error: '失败' }
   return labels[String(value || '').toLowerCase()] || value || '未知'
 }
 
@@ -357,7 +387,7 @@ function applyStatus(data = {}) {
 }
 
 async function load() {
-  if (!props.api?.get) return
+  if (!props.api?.get || loading.value) return
   loading.value = true
   error.value = ''
   try {
@@ -425,9 +455,22 @@ async function handleConfigSave(payload) {
   await load()
 }
 
+let refreshTimer = null
+let pageDisposed = false
+
 onMounted(async () => {
+  pageDisposed = false
   await loadConfig()
   await load()
+  if (!pageDisposed) refreshTimer = window.setInterval(load, 5000)
+})
+
+onUnmounted(() => {
+  pageDisposed = true
+  if (refreshTimer !== null) {
+    window.clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 })
 </script>
 

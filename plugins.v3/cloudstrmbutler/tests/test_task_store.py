@@ -46,6 +46,13 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(run["queued"], 2)
         self.assertEqual(run["processed"], 1)
 
+    def test_settled_run_counts_skipped_and_deleted_results(self):
+        run_id = self.store.start_run("command")
+        self.store.update_run(run_id, queued=2, skipped=1, deleted=1)
+
+        self.assertTrue(self.store.finish_run_if_settled(run_id))
+        self.assertEqual(self.store.status()["recent_runs"][0]["status"], "completed")
+
 
 if __name__ == "__main__":
     unittest.main()

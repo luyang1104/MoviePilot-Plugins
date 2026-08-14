@@ -16,3 +16,14 @@ test('embedded Page config reloads the canonical MoviePilot config', async () =>
   assert.match(source, /readPluginConfig\(props\.api\)/)
   assert.match(source, /plugin\/CloudStrmButler/)
 })
+
+test('embedded Page polls live status and cleans the timer on unmount', async () => {
+  const source = await readFile(new URL('../src/Page.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /onUnmounted/)
+  assert.match(source, /setInterval/)
+  assert.match(source, /clearInterval/)
+  assert.match(source, /service_running/)
+  assert.match(source, /run\.skipped/)
+  assert.doesNotMatch(source, /status\.enabled \|\| status\.scan_running/)
+})

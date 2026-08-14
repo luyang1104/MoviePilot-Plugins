@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.stubs import load_plugin_module
+from tests.stubs import FakeEvent, load_plugin_module
 
 plugin_module = load_plugin_module()
 CloudStrmButler = plugin_module.CloudStrmButler
@@ -319,6 +319,155 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertTrue(result["retryable"])
         self.assertIn("Connection timed out", result["reason"])
+
+    def test_remote_command_posts_one_aggregated_result_and_records_run(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        success_file = source / "success.mkv"
+        failed_file = source / "failed.mkv"
+        success_file.write_bytes(b"success")
+        failed_file.write_bytes(b"failed")
+
+        def handle_file(event_path, mon_path):
+            if Path(event_path).name == "failed.mkv":
+                return {"status": "failed", "reason": "template invalid"}
+            return {"status": "processed"}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            plugin.remote_sync_one(
+                FakeEvent(
+                    {
+                        "action": "strm_one",
+                        "arg_str": str(source),
+                        "user": "user-1",
+                        "channel": "channel-1",
+                    }
+                )
+            )
+
+        self.assertEqual(len(plugin.messages), 1)
+        message = plugin.messages[0]
+        self.assertEqual(message["userid"], "user-1")
+        self.assertIn("总数 2", message["title"])
+        self.assertIn("成功 1", message["title"])
+        self.assertIn("失败 1", message["title"])
+        self.assertIn("template invalid", message["title"])
+
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["kind"], "command")
+        self.assertEqual(run["queued"], 2)
+        self.assertEqual(run["processed"], 1)
+        self.assertEqual(run["failed"], 1)
+        self.assertEqual(run["status"], "completed_with_errors")
+
+    def test_status_distinguishes_enabled_idle_plugin_from_orphaned_queue(self):
+        base = self.new_temp()
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin({"enabled": True, "monitor": False})
+        plugin._task_store.enqueue("/media", "/media/old.mkv", "sync")
+
+        status = plugin.sync_status_api()["data"]
+
+        self.assertTrue(status["enabled"])
+        self.assertFalse(status["service_running"])
+        self.assertFalse(status["queue_active"])
+        self.assertEqual(status["queued"], 1)
+        self.assertEqual(status["active_queued"], 0)
+        self.assertEqual(status["pending_jobs"], 1)
+        self.assertEqual(status["orphaned_queued"], 1)
+
+    def test_status_names_active_monitor_as_idle_monitoring(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "monitor": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+
+        status = plugin.sync_status_api()["data"]
+
+        self.assertTrue(status["service_running"])
+        self.assertTrue(status["monitor_active"])
+        self.assertEqual(status["service_state"], "monitoring_idle")
+
+    def test_orphaned_queue_is_visible_even_when_monitor_is_active(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "monitor": True,
+                "reliable_engine": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        plugin._task_store.enqueue("/media", "/media/old.mkv", "sync")
+
+        status = plugin.sync_status_api()["data"]
+
+        self.assertTrue(status["monitor_active"])
+        self.assertEqual(status["service_state"], "pending_recovery")
+        self.assertEqual(status["orphaned_queued"], 1)
+
+    def test_full_scan_is_recorded_without_reliable_engine(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "reliable_engine": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+
+        plugin.scan()
+
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["kind"], "scan")
+        self.assertEqual(run["queued"], 1)
+        self.assertEqual(run["processed"], 1)
+        self.assertEqual(run["status"], "completed")
+
+    def test_remote_command_reports_missing_path_as_failure(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        missing = source / "missing-folder"
+
+        plugin.remote_sync_one(
+            FakeEvent(
+                {
+                    "action": "strm_one",
+                    "arg_str": str(missing),
+                    "user": "user-1",
+                    "channel": "channel-1",
+                }
+            )
+        )
+
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertIn("失败", plugin.messages[0]["title"])
+        self.assertIn("不存在", plugin.messages[0]["title"])
 
 
 if __name__ == "__main__":
