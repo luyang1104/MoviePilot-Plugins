@@ -1,0 +1,172 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 Strm 小管家同步工作台设计方向</title>
+  <desc id="desc">一张用于展示同步健康状态、待处理事项、最近运行和规则状态的中文运维工作台界面图。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="22" flood-color="#182640" flood-opacity="0.10"/>
+    </filter>
+    <filter id="soft-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#172038" flood-opacity="0.07"/>
+    </filter>
+    <style>
+      .ui { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+      .muted { fill: #66758c; }
+      .faint { fill: #8d99aa; }
+      .label { font-size: 13px; font-weight: 700; letter-spacing: 0; }
+      .body { font-size: 14px; font-weight: 400; letter-spacing: 0; }
+      .small { font-size: 12px; font-weight: 400; letter-spacing: 0; }
+      .title { font-size: 24px; font-weight: 700; letter-spacing: 0; }
+      .section { font-size: 17px; font-weight: 700; letter-spacing: 0; }
+      .metric { font-size: 29px; font-weight: 700; letter-spacing: 0; }
+      .number { font-size: 22px; font-weight: 700; letter-spacing: 0; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#e7edf3"/>
+  <rect x="52" y="42" width="1496" height="916" rx="14" fill="#fbfcfe" filter="url(#shadow)"/>
+
+  <!-- Shell -->
+  <rect x="52" y="42" width="248" height="916" rx="14" fill="#15243a"/>
+  <rect x="286" y="42" width="14" height="916" fill="#15243a"/>
+  <rect x="78" y="76" width="34" height="34" rx="8" fill="#d87348"/>
+  <path d="M88 94h14M95 87v14" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+  <text class="ui" x="125" y="91" fill="#ffffff" font-size="16" font-weight="700">云盘 Strm</text>
+  <text class="ui" x="125" y="109" fill="#aebbd0" font-size="12">小管家</text>
+
+  <text class="ui small" x="78" y="164" fill="#8d9bb3" font-weight="700">同步管理</text>
+  <rect x="68" y="178" width="216" height="44" rx="7" fill="#27435b"/>
+  <rect x="68" y="178" width="4" height="44" rx="2" fill="#e79851"/>
+  <path d="M91 197h14M98 190v14" stroke="#f9fbff" stroke-width="1.8" stroke-linecap="round"/>
+  <text class="ui body" x="122" y="205" fill="#ffffff" font-weight="700">同步工作台</text>
+
+  <path d="M91 247h14v12H91zM94 244h8" fill="none" stroke="#b9c6d7" stroke-width="1.7" stroke-linejoin="round"/>
+  <text class="ui body" x="122" y="257" fill="#c9d3e1">路径规则</text>
+  <path d="M98 291a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0-5v4m0 16v4m-12-12h4m16 0h4m-16-8 2.6 2.6m8.8 8.8 2.6 2.6m0-14-2.6 2.6m-8.8 8.8-2.6 2.6" fill="none" stroke="#b9c6d7" stroke-width="1.5" stroke-linecap="round"/>
+  <text class="ui body" x="122" y="309" fill="#c9d3e1">运行设置</text>
+
+  <line x1="78" y1="356" x2="274" y2="356" stroke="#32435a"/>
+  <text class="ui small" x="78" y="391" fill="#8d9bb3" font-weight="700">运行状态</text>
+  <circle cx="90" cy="421" r="5" fill="#65bd93"/>
+  <text class="ui body" x="105" y="426" fill="#d6dfeb">插件已启用</text>
+  <text class="ui small" x="105" y="447" fill="#8d9bb3">可靠同步引擎运行中</text>
+
+  <rect x="78" y="860" width="196" height="70" rx="8" fill="#1d314a"/>
+  <circle cx="99" cy="884" r="8" fill="#417a66"/>
+  <path d="M95 884l3 3 5-6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui small" x="116" y="887" fill="#e7edf6" font-weight="700">本次运行健康</text>
+  <text class="ui small" x="99" y="913" fill="#9db0c7">上次刷新 14:32:18</text>
+
+  <!-- Main header -->
+  <text class="ui title" x="348" y="96">同步工作台</text>
+  <text class="ui body muted" x="348" y="124">查看同步健康度，并优先处理需要你确认的事项。</text>
+  <rect x="1354" y="70" width="142" height="42" rx="7" fill="#ffffff" stroke="#ccd6e2"/>
+  <path d="M1381 85a10 10 0 1 0 7 17" fill="none" stroke="#41546d" stroke-width="1.7" stroke-linecap="round"/>
+  <path d="M1388 85v7h-7" fill="none" stroke="#41546d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui label" x="1405" y="96">刷新状态</text>
+  <line x1="348" y1="150" x2="1496" y2="150" stroke="#e0e6ed"/>
+
+  <!-- Health summary -->
+  <rect x="348" y="178" width="708" height="184" rx="8" fill="#ffffff" stroke="#dbe3eb" filter="url(#soft-shadow)"/>
+  <rect x="348" y="178" width="8" height="184" rx="4" fill="#4ea47b"/>
+  <circle cx="405" cy="237" r="28" fill="#e6f5ed"/>
+  <path d="M392 238l9 9 18-21" fill="none" stroke="#34825e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui section" x="453" y="224">同步运行正常</text>
+  <text class="ui body muted" x="453" y="250">可靠同步引擎正在处理目录变更，没有任务积压。</text>
+  <rect x="453" y="273" width="89" height="28" rx="14" fill="#e7f5ec"/>
+  <circle cx="469" cy="287" r="4" fill="#48a476"/>
+  <text class="ui small" x="480" y="291" fill="#2d7052" font-weight="700">监控中</text>
+  <line x1="388" y1="326" x2="1018" y2="326" stroke="#e8edf2"/>
+  <text class="ui small muted" x="388" y="346">最近完成</text>
+  <text class="ui small" x="458" y="346" font-weight="700">今天 14:30</text>
+  <text class="ui small muted" x="635" y="346">本次处理</text>
+  <text class="ui small" x="707" y="346" font-weight="700">48 个文件</text>
+  <text class="ui small muted" x="857" y="346">运行耗时</text>
+  <text class="ui small" x="926" y="346" font-weight="700">01:42</text>
+
+  <!-- Action queue -->
+  <rect x="1074" y="178" width="422" height="184" rx="8" fill="#ffffff" stroke="#dbe3eb" filter="url(#soft-shadow)"/>
+  <text class="ui section" x="1100" y="215">需要处理</text>
+  <rect x="1424" y="195" width="46" height="24" rx="12" fill="#fff0e5"/>
+  <text class="ui small" x="1438" y="212" fill="#bc6239" font-weight="700">3 项</text>
+  <line x1="1100" y1="232" x2="1470" y2="232" stroke="#e9edf2"/>
+  <circle cx="1113" cy="259" r="5" fill="#d87348"/>
+  <text class="ui body" x="1130" y="264" font-weight="700">2 个同步失败</text>
+  <text class="ui small muted" x="1130" y="283">最近发生于 14:18，可查看原因后重试</text>
+  <path d="M1452 260h12m-5-5 5 5-5 5" fill="none" stroke="#496079" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="1113" cy="314" r="5" fill="#d79a3f"/>
+  <text class="ui body" x="1130" y="319" font-weight="700">1 个清理批次待确认</text>
+  <text class="ui small muted" x="1130" y="338">42 个生成文件将在 5 天后失效</text>
+  <path d="M1452 315h12m-5-5 5 5-5 5" fill="none" stroke="#496079" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Metrics -->
+  <text class="ui section" x="348" y="410">运行概览</text>
+  <text class="ui small muted" x="438" y="410">当前同步引擎的即时状态</text>
+  <rect x="348" y="432" width="266" height="110" rx="8" fill="#ffffff" stroke="#dbe3eb"/>
+  <text class="ui small muted" x="372" y="462">持久化队列</text>
+  <text class="ui metric" x="372" y="505">0</text>
+  <text class="ui small" x="407" y="503" fill="#478264">无待处理任务</text>
+  <rect x="632" y="432" width="266" height="110" rx="8" fill="#ffffff" stroke="#dbe3eb"/>
+  <text class="ui small muted" x="656" y="462">正在处理</text>
+  <text class="ui metric" x="656" y="505">1</text>
+  <text class="ui small muted" x="691" y="503">个文件</text>
+  <rect x="916" y="432" width="266" height="110" rx="8" fill="#ffffff" stroke="#dbe3eb"/>
+  <text class="ui small muted" x="940" y="462">工作线程</text>
+  <text class="ui metric" x="940" y="505">2</text>
+  <text class="ui small muted" x="975" y="503">个运行中</text>
+  <rect x="1200" y="432" width="296" height="110" rx="8" fill="#fff9f2" stroke="#f1d4b5"/>
+  <text class="ui small" x="1224" y="462" fill="#9c6339">未解决失败</text>
+  <text class="ui metric" x="1224" y="505" fill="#ae5935">2</text>
+  <text class="ui small" x="1259" y="503" fill="#ae5935">需要检查</text>
+
+  <!-- Recent runs -->
+  <rect x="348" y="570" width="742" height="336" rx="8" fill="#ffffff" stroke="#dbe3eb"/>
+  <text class="ui section" x="372" y="609">最近运行</text>
+  <text class="ui small muted" x="460" y="609">保留最近 20 次同步结果</text>
+  <text class="ui label" x="1001" y="609" fill="#2d6073">查看全部</text>
+  <line x1="372" y1="632" x2="1066" y2="632" stroke="#e2e8ef"/>
+  <text class="ui small faint" x="372" y="660" font-weight="700">开始时间</text>
+  <text class="ui small faint" x="554" y="660" font-weight="700">结果</text>
+  <text class="ui small faint" x="702" y="660" font-weight="700">已处理</text>
+  <text class="ui small faint" x="808" y="660" font-weight="700">未变化</text>
+  <text class="ui small faint" x="914" y="660" font-weight="700">失败</text>
+  <line x1="372" y1="678" x2="1066" y2="678" stroke="#eef2f6"/>
+  <text class="ui body" x="372" y="709">今天 14:30</text>
+  <rect x="554" y="689" width="58" height="25" rx="12" fill="#e6f5ed"/>
+  <text class="ui small" x="568" y="706" fill="#2d7052" font-weight="700">完成</text>
+  <text class="ui body" x="702" y="709">48</text>
+  <text class="ui body" x="808" y="709">13</text>
+  <text class="ui body" x="914" y="709">0</text>
+  <line x1="372" y1="731" x2="1066" y2="731" stroke="#eef2f6"/>
+  <text class="ui body" x="372" y="762">今天 14:18</text>
+  <rect x="554" y="742" width="58" height="25" rx="12" fill="#fff0e5"/>
+  <text class="ui small" x="569" y="759" fill="#ad5a36" font-weight="700">异常</text>
+  <text class="ui body" x="702" y="762">15</text>
+  <text class="ui body" x="808" y="762">6</text>
+  <text class="ui body" x="914" y="762" fill="#ae5935" font-weight="700">2</text>
+  <line x1="372" y1="784" x2="1066" y2="784" stroke="#eef2f6"/>
+  <text class="ui body" x="372" y="815">今天 11:04</text>
+  <rect x="554" y="795" width="58" height="25" rx="12" fill="#e6f5ed"/>
+  <text class="ui small" x="568" y="812" fill="#2d7052" font-weight="700">完成</text>
+  <text class="ui body" x="702" y="815">122</text>
+  <text class="ui body" x="808" y="815">34</text>
+  <text class="ui body" x="914" y="815">0</text>
+  <text class="ui small muted" x="372" y="869">运行历史可用于判断异常是否重复出现。</text>
+
+  <!-- Failure panel -->
+  <rect x="1108" y="570" width="388" height="336" rx="8" fill="#ffffff" stroke="#e8c6ae"/>
+  <rect x="1108" y="570" width="388" height="5" rx="2" fill="#d87348"/>
+  <text class="ui section" x="1132" y="609">同步失败</text>
+  <text class="ui small" x="1212" y="609" fill="#af5e38" font-weight="700">2 个待处理</text>
+  <line x1="1132" y1="632" x2="1472" y2="632" stroke="#f0e0d5"/>
+  <text class="ui small muted" x="1132" y="661">/CloudDrive/电影/黑金营救.mkv</text>
+  <text class="ui small" x="1132" y="683" fill="#ad5a36">目标目录不可写入</text>
+  <text class="ui small faint" x="1132" y="705">已尝试 3 次 · 14:18</text>
+  <rect x="1384" y="662" width="72" height="31" rx="6" fill="#fff" stroke="#d6a78c"/>
+  <text class="ui small" x="1402" y="683" fill="#9e5232" font-weight="700">查看</text>
+  <line x1="1132" y1="728" x2="1472" y2="728" stroke="#f2e8e2"/>
+  <text class="ui small muted" x="1132" y="757">/CloudDrive/剧集/第 04 集.mkv</text>
+  <text class="ui small" x="1132" y="779" fill="#ad5a36">云盘路径无法映射</text>
+  <text class="ui small faint" x="1132" y="801">已尝试 1 次 · 13:56</text>
+  <rect x="1132" y="836" width="324" height="40" rx="6" fill="#2d6073"/>
+  <text class="ui label" x="1243" y="861" fill="#ffffff">处理全部失败</text>
+</svg>

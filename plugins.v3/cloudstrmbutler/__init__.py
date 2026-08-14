@@ -49,6 +49,23 @@ from .monitoring import FileMonitorHandler, is_ignored_path, is_temporary_path, 
 from .state_store import SyncStateStore
 from .sync_engine import SyncEngine
 from .task_store import PendingJob, TaskStore
+
+
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    normalized = str(value).strip().lower()
+    if normalized in {"", "0", "false", "no", "off", "n"}:
+        return False
+    if normalized in {"1", "true", "yes", "on", "y"}:
+        return True
+    return bool(value)
+
+
 class CloudStrmButler(_PluginBase):
     # 插件名称
     plugin_name = "云盘Strm小管家"
@@ -58,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.2.2"
+    plugin_version = "2.1.3"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -125,6 +142,7 @@ class CloudStrmButler(_PluginBase):
         self._interval = 10
         self._scan_interval = 0
         self._url = ""
+        self._mediaservers = []
         self._monitor_confs = ""
         self._rmt_mediaext = self._default_rmt_mediaext
         self._other_mediaext = self._default_other_mediaext
@@ -172,18 +190,19 @@ class CloudStrmButler(_PluginBase):
         self.mediaserver_helper = MediaServerHelper()
 
         if config:
-            self._enabled = bool(config.get("enabled"))
-            self._onlyonce = bool(config.get("onlyonce"))
-            self._monitor = bool(config.get("monitor"))
-            self._cover = bool(config.get("cover"))
-            self._copy_files = bool(config.get("copy_files"))
-            self._copy_subtitles = bool(config.get("copy_subtitles"))
-            self._refresh_emby = bool(config.get("refresh_emby"))
-            self._notify = bool(config.get("notify"))
-            self._uriencode = bool(config.get("uriencode"))
+            self._enabled = _as_bool(config.get("enabled"))
+            self._onlyonce = _as_bool(config.get("onlyonce"))
+            self._monitor = _as_bool(config.get("monitor"))
+            self._cover = _as_bool(config.get("cover"))
+            self._copy_files = _as_bool(config.get("copy_files"))
+            self._copy_subtitles = _as_bool(config.get("copy_subtitles"))
+            self._refresh_emby = _as_bool(config.get("refresh_emby"))
+            self._notify = _as_bool(config.get("notify"))
+            self._uriencode = _as_bool(config.get("uriencode"))
             self._url = str(config.get("url") or "")
             self._monitor_confs = str(config.get("monitor_confs") or "")
-            self._mediaservers = config.get("mediaservers") or []
+            mediaservers = config.get("mediaservers") or []
+            self._mediaservers = list(mediaservers) if isinstance(mediaservers, (list, tuple)) else [mediaservers]
             self._other_mediaext = config.get("other_mediaext") or self._default_other_mediaext
             try:
                 self._interval = max(0, int(config.get("interval") or 10))
@@ -194,14 +213,14 @@ class CloudStrmButler(_PluginBase):
             except (TypeError, ValueError):
                 self._scan_interval = 0
             self._path_replacements = dict(parse_path_mappings(config.get("path_replacements")))
-            self._reliable_engine = bool(config.get("reliable_engine"))
+            self._reliable_engine = _as_bool(config.get("reliable_engine"))
             self._cleanup_mode = str(config.get("cleanup_mode") or "off").lower()
             self._cleanup_probe = str(config.get("cleanup_probe") or "").strip()
             self._rmt_mediaext = config.get("rmt_mediaext") or self._default_rmt_mediaext
             self._emby_paths = dict(parse_comma_path_mappings(config.get("emby_path")))
             # 结构化规则优先：从 rule_N_* 键生成 monitor_confs
             structured_rules = self._parse_structured_rules(config)
-            if structured_rules:
+            if self._has_structured_config(config):
                 self._monitor_confs = self._rules_to_monitor_confs(structured_rules)
                 # 清理旧的结构化槽位，写回规范化配置
                 normalized = dict(config)
@@ -215,6 +234,9 @@ class CloudStrmButler(_PluginBase):
                     normalized[f"rule_{i}_cloud"] = rule.get("cloud", "")
                     normalized[f"rule_{i}_format"] = rule.get("format", "")
                     normalized[f"rule_{i}_monitor"] = rule.get("monitor", True)
+                for key, value in config.items():
+                    if re.match(r"^rule_\d+_delete$", str(key)) and _as_bool(value):
+                        normalized[key] = True
                 normalized.pop("monitor_confs", None)
                 normalized["config_version"] = 2
                 if normalized != config:
@@ -1113,7 +1135,7 @@ class CloudStrmButler(_PluginBase):
             payload[f"rule_{i}_strm"] = rule.strm_dir
             payload[f"rule_{i}_cloud"] = rule.cloud_dir
             payload[f"rule_{i}_format"] = rule.format_str
-            payload[f"rule_{i}_monitor"] = rule.monitor_override != "nomonitor"
+            payload[f"rule_{i}_monitor"] = rule.should_monitor(True)
             payload[f"rule_{i}_delete"] = False
         self.update_config(payload)
 
@@ -1129,7 +1151,6 @@ class CloudStrmButler(_PluginBase):
         return [
             {"path": "/sync_status", "endpoint": self.sync_status_api, "methods": ["GET"], "auth": "bear", "summary": "同步状态"},
             {"path": "/sync_failures", "endpoint": self.sync_failures_api, "methods": ["GET"], "auth": "bear", "summary": "同步失败记录"},
-            {"path": "/sync_cleanup_preview", "endpoint": self.sync_cleanup_preview_api, "methods": ["GET"], "auth": "bear", "summary": "待确认清理预览"},
             {"path": "/sync_retry_failure", "endpoint": self.sync_retry_failure_api, "methods": ["POST"], "auth": "bear", "summary": "重试同步失败"},
             {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
         ]
@@ -1142,12 +1163,6 @@ class CloudStrmButler(_PluginBase):
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:
         failures = self._task_store.failures(limit=limit) if self._task_store else []
         return {"code": 0, "data": {"items": failures, "total": len(failures)}}
-
-    def sync_cleanup_preview_api(self, batch_id: str) -> Dict[str, Any]:
-        batch = self._task_store.cleanup_batch(str(batch_id or "")) if self._task_store else None
-        if not batch:
-            return {"code": 1, "msg": "未找到待确认清理批次"}
-        return {"code": 0, "data": batch}
 
     def sync_retry_failure_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         failure_id = int((payload or {}).get("failure_id") or 0)
@@ -1244,22 +1259,17 @@ class CloudStrmButler(_PluginBase):
         rules = []
         structured_slots = 0
         for key in (config or {}).keys():
-            if str(key).startswith("rule_") and (str(key).endswith("_local") or str(key).endswith("_strm")):
+            if re.match(r"^rule_(\d+)_", str(key)):
                 try:
                     idx = int(str(key).split("_")[1])
                     structured_slots = max(structured_slots, idx + 1)
                 except (ValueError, IndexError):
                     pass
 
-        has_structured = any(
-            str(config.get(f"rule_{i}_local") or "").strip() or str(config.get(f"rule_{i}_strm") or "").strip()
-            for i in range(structured_slots)
-        )
-
-        if has_structured:
+        if structured_slots > 0:
             for i in range(structured_slots):
                 delete_val = str(config.get(f"rule_{i}_delete") or "").strip().lower()
-                if delete_val in ("1", "true", "yes", "on"):
+                if _as_bool(delete_val):
                     continue
                 local = str(config.get(f"rule_{i}_local") or "").strip()
                 strm = str(config.get(f"rule_{i}_strm") or "").strip()
@@ -1271,7 +1281,7 @@ class CloudStrmButler(_PluginBase):
                     "strm": strm,
                     "cloud": str(config.get(f"rule_{i}_cloud") or "").strip(),
                     "format": str(config.get(f"rule_{i}_format") or "").strip(),
-                    "monitor": bool(config.get(f"rule_{i}_monitor", True)),
+                    "monitor": _as_bool(config.get(f"rule_{i}_monitor"), True),
                 })
             return rules
 
@@ -1302,6 +1312,10 @@ class CloudStrmButler(_PluginBase):
                 "monitor": monitor_flag not in ("0", "nomonitor", "false", "off"),
             })
         return rules
+
+    @staticmethod
+    def _has_structured_config(config: dict) -> bool:
+        return any(re.match(r"^rule_(\d+)_", str(key)) for key in (config or {}))
 
     @staticmethod
     def _rules_to_monitor_confs(rules: list) -> str:

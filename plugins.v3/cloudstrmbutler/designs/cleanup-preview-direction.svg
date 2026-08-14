@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 Strm 小管家清理预览方向</title>
+  <desc id="desc">一个叠加在同步工作台上的清理预览对话框，展示清理范围、路径清单和明确的确认操作。</desc>
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="18" stdDeviation="28" flood-color="#101d30" flood-opacity="0.24"/></filter>
+    <style>.ui { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; fill: #24314a; } .muted { fill:#66758c; } .faint { fill:#8d99aa; } .label {font-size:13px;font-weight:700;letter-spacing:0;} .body {font-size:14px;font-weight:400;letter-spacing:0;} .small {font-size:12px;font-weight:400;letter-spacing:0;} .title {font-size:24px;font-weight:700;letter-spacing:0;} .section {font-size:17px;font-weight:700;letter-spacing:0;}</style>
+  </defs>
+  <rect width="1600" height="1000" fill="#e8eef4"/>
+  <!-- Muted workbench context -->
+  <rect x="52" y="42" width="1496" height="916" rx="14" fill="#fbfcfe"/>
+  <rect x="52" y="42" width="248" height="916" rx="14" fill="#15243a"/><rect x="286" y="42" width="14" height="916" fill="#15243a"/>
+  <rect x="78" y="76" width="34" height="34" rx="8" fill="#d87348"/><text class="ui" x="125" y="95" fill="#fff" font-size="16" font-weight="700">云盘 Strm</text><text class="ui" x="125" y="112" fill="#aebbd0" font-size="12">小管家</text>
+  <rect x="68" y="178" width="216" height="44" rx="7" fill="#27435b"/><text class="ui body" x="122" y="205" fill="#fff" font-weight="700">同步工作台</text>
+  <text class="ui title" x="348" y="96">同步工作台</text><text class="ui body muted" x="348" y="124">查看同步健康度，并优先处理需要你确认的事项。</text>
+  <rect x="348" y="178" width="708" height="184" rx="8" fill="#fff" stroke="#dbe3eb"/><rect x="1074" y="178" width="422" height="184" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="ui section" x="1100" y="215">需要处理</text><text class="ui body" x="1130" y="319" font-weight="700">1 个清理批次待确认</text>
+  <rect x="348" y="400" width="1148" height="450" rx="8" fill="#fff" stroke="#dbe3eb"/>
+  <rect x="52" y="42" width="1496" height="916" rx="14" fill="#17253b" opacity="0.48"/>
+
+  <!-- Preview modal -->
+  <rect x="390" y="110" width="820" height="780" rx="10" fill="#fff" filter="url(#shadow)"/>
+  <text class="ui title" x="430" y="162">确认清理</text><text class="ui body muted" x="430" y="190">请先核对范围。确认后将删除以下已生成文件。</text>
+  <rect x="1144" y="135" width="34" height="34" rx="6" fill="#f3f6f8"/><path d="M1155 146l12 12m0-12-12 12" fill="none" stroke="#52657b" stroke-width="1.6" stroke-linecap="round"/>
+  <line x1="390" y1="215" x2="1210" y2="215" stroke="#e2e8ef"/>
+  <rect x="430" y="240" width="740" height="92" rx="7" fill="#fff7ed" stroke="#f0cfad"/>
+  <path d="M460 265l14 25h-28z" fill="#d87348"/><path d="M460 272v9m0 5v1" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+  <text class="ui body" x="491" y="271" fill="#874a32" font-weight="700">这项操作会删除 42 个 STRM 或旁车生成文件</text><text class="ui small" x="491" y="296" fill="#985b42">不会删除云盘来源文件，也不会修改来源目录。</text>
+  <text class="ui section" x="430" y="379">清理范围</text>
+  <rect x="430" y="398" width="356" height="87" rx="7" fill="#f4f8fb" stroke="#d8e2eb"/><text class="ui small muted" x="450" y="425">监控目录</text><text class="ui body" x="450" y="453" font-weight="700">/CloudNAS/CloudDrive/国产剧</text><text class="ui small faint" x="450" y="474">扫描发现来源文件已缺失</text>
+  <rect x="814" y="398" width="356" height="87" rx="7" fill="#f4f8fb" stroke="#d8e2eb"/><text class="ui small muted" x="834" y="425">批次状态</text><text class="ui body" x="834" y="453" font-weight="700">42 个文件 · 5 天后失效</text><text class="ui small faint" x="834" y="474">创建于 今天 14:12</text>
+  <text class="ui section" x="430" y="531">将要删除的文件</text><text class="ui small muted" x="578" y="531">显示前 5 项，可用路径筛选抽查</text>
+  <rect x="933" y="505" width="237" height="40" rx="6" fill="#fff" stroke="#bdc9d5"/><path d="M950 521a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm5 12 6 6" fill="none" stroke="#6f8092" stroke-width="1.4" stroke-linecap="round"/><text class="ui small faint" x="971" y="531">筛选路径</text>
+  <rect x="430" y="562" width="740" height="160" rx="7" fill="#fff" stroke="#dce4ec"/>
+  <text class="ui small faint" x="452" y="590" font-weight="700">输出文件路径</text><line x1="452" y1="605" x2="1148" y2="605" stroke="#e8edf2"/>
+  <text class="ui small" x="452" y="634">/CloudNAS/Strm/国产剧/问心/第 01 集.strm</text><line x1="452" y1="648" x2="1148" y2="648" stroke="#eef2f5"/><text class="ui small" x="452" y="677">/CloudNAS/Strm/国产剧/问心/第 02 集.strm</text><line x1="452" y1="691" x2="1148" y2="691" stroke="#eef2f5"/><text class="ui small muted" x="452" y="712">以及另外 40 个生成文件</text>
+  <line x1="390" y1="758" x2="1210" y2="758" stroke="#e2e8ef"/>
+  <text class="ui small muted" x="430" y="793">确认前请核对目录与路径；此批次确认后不可撤回。</text>
+  <rect x="949" y="782" width="92" height="42" rx="6" fill="#fff" stroke="#bdc9d5"/><text class="ui label" x="977" y="808" fill="#4c6076">取消</text><rect x="1052" y="782" width="118" height="42" rx="6" fill="#b9633e"/><text class="ui label" x="1073" y="808" fill="#fff">确认清理</text>
+</svg>

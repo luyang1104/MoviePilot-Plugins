@@ -256,21 +256,6 @@ class TaskStore:
             self._conn.commit()
         return list(json.loads(row["paths"]))
 
-    def cleanup_batch(self, batch_id: str) -> Optional[dict]:
-        """Return a pending cleanup batch without changing its confirmation state."""
-        with self._lock:
-            row = self._conn.execute(
-                "SELECT batch_id,monitor_root,paths,created_at,expires_at FROM cleanup_batches "
-                "WHERE batch_id = ? AND status = 'pending' AND (expires_at IS NULL OR expires_at > ?)",
-                (batch_id, time.time()),
-            ).fetchone()
-        if not row:
-            return None
-        batch = dict(row)
-        batch["paths"] = list(json.loads(batch["paths"]))
-        batch["path_count"] = len(batch["paths"])
-        return batch
-
     def status(self) -> dict:
         with self._lock:
             queued = self._conn.execute("SELECT COUNT(*) FROM pending_jobs").fetchone()[0]
@@ -281,16 +266,7 @@ class TaskStore:
             "queued": queued,
             "running": [dict(row) for row in running],
             "recent_runs": [dict(row) for row in latest],
-            "cleanup_batches": [
-                {
-                    "batch_id": row["batch_id"],
-                    "monitor_root": row["monitor_root"],
-                    "created_at": row["created_at"],
-                    "expires_at": row["expires_at"],
-                    "path_count": len(json.loads(row["paths"])),
-                }
-                for row in pending_cleanup
-            ],
+            "cleanup_batches": [{**dict(row), "path_count": len(json.loads(row["paths"]))} for row in pending_cleanup],
         }
 
     def failures(self, limit: int = 100, include_resolved: bool = False) -> List[dict]:

@@ -63,26 +63,14 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(plugin.get_service(), [])
         self.assertEqual(
             [item["path"] for item in plugin.get_api()],
-            ["/sync_status", "/sync_failures", "/sync_cleanup_preview", "/sync_retry_failure", "/sync_confirm_cleanup"],
+            ["/sync_status", "/sync_failures", "/sync_retry_failure", "/sync_confirm_cleanup"],
         )
-
-    def test_cleanup_preview_api_reads_pending_batch_without_claiming_it(self):
-        plugin = self.make_plugin(self.new_temp() / "data")
-        plugin.init_plugin({"enabled": False})
-        batch_id = plugin._task_store.create_cleanup_batch("/media", ["/out/a.strm"])
-
-        response = plugin.sync_cleanup_preview_api(batch_id)
-
-        self.assertEqual(response["code"], 0)
-        self.assertEqual(response["data"]["paths"], ["/out/a.strm"])
-        self.assertEqual(plugin._task_store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
 
     def test_status_api_paths_use_moviepilot_plugin_id_case(self):
         page_source = (Path(__file__).resolve().parent.parent / "src" / "Page.vue").read_text(encoding="utf-8")
 
         self.assertIn("plugin/CloudStrmButler/sync_status", page_source)
         self.assertIn("plugin/CloudStrmButler/sync_failures", page_source)
-        self.assertIn("plugin/CloudStrmButler/sync_cleanup_preview", page_source)
         self.assertNotIn("plugin/cloudstrmbutler/", page_source)
 
     def test_legacy_nomonitor_rule_stays_disabled_in_vue_model(self):
@@ -93,6 +81,97 @@ class PluginTests(unittest.TestCase):
 
         self.assertEqual(len(rules), 1)
         self.assertFalse(rules[0]["monitor"])
+
+    def test_structured_payload_round_trips_after_plugin_reload(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        payload = {
+            "enabled": "false",
+            "monitor": "false",
+            "reliable_engine": "false",
+            "interval": "15",
+            "scan_interval": "30",
+            "cleanup_mode": "confirm",
+            "rule_0_category": "movie,4K",
+            "rule_0_local": str(source),
+            "rule_0_strm": str(target),
+            "rule_0_cloud": str(cloud),
+            "rule_0_format": "http://host/{cloud_file}",
+            "rule_0_monitor": "false",
+            "rule_0_delete": False,
+            "rule_1_delete": True,
+        }
+
+        plugin.init_plugin(payload)
+        stored = dict(plugin.config)
+        reloaded = self.make_plugin(base / "data-reloaded")
+        reloaded.init_plugin(stored)
+
+        self.assertFalse(reloaded._enabled)
+        self.assertFalse(reloaded._monitor)
+        self.assertFalse(reloaded._reliable_engine)
+        self.assertEqual(reloaded._interval, 15)
+        self.assertEqual(reloaded._scan_interval, 30)
+        self.assertEqual(len(reloaded._monitor_rules), 1)
+        self.assertEqual(reloaded._monitor_rules[0].local_dir, str(source))
+        self.assertFalse(reloaded._monitor_rules[0].should_monitor(True))
+        self.assertTrue(stored["rule_1_delete"])
+
+    def test_deleted_structured_slots_do_not_fall_back_to_legacy_rules(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+                "rule_0_delete": True,
+            }
+        )
+
+        self.assertEqual(plugin._monitor_rules, [])
+
+    def test_empty_structured_slots_do_not_fall_back_to_legacy_rules(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+
+        rules = plugin._parse_structured_rules(
+            {
+                "config_version": 2,
+                "rule_0_delete": False,
+                "monitor_confs": r"C:\legacy#C:\out#D:\cloud#{cloud_file}",
+            }
+        )
+
+        self.assertEqual(rules, [])
+
+    def test_runtime_reset_does_not_reuse_previous_media_servers(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin._mediaservers = ["stale-server"]
+
+        plugin.init_plugin({"enabled": False})
+
+        self.assertEqual(plugin._mediaservers, [])
+
+    def test_one_time_scan_does_not_reenable_disabled_rule(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "onlyonce": True,
+                "rule_0_local": str(source),
+                "rule_0_strm": str(target),
+                "rule_0_cloud": str(cloud),
+                "rule_0_format": "http://host/{cloud_file}",
+                "rule_0_monitor": False,
+            }
+        )
+
+        self.assertFalse(plugin.config["rule_0_monitor"])
 
     def test_enabled_init_starts_scheduler_and_observer(self):
         base = self.new_temp()

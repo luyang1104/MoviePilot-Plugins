@@ -35,19 +35,8 @@ class TaskStoreTests(unittest.TestCase):
 
     def test_cleanup_batch_is_single_use(self):
         batch_id = self.store.create_cleanup_batch("/media", ["/out/a.strm", "/out/a.strm"])
-        preview = self.store.cleanup_batch(batch_id)
-        self.assertEqual(preview["monitor_root"], "/media")
-        self.assertEqual(preview["paths"], ["/out/a.strm"])
-        self.assertEqual(preview["path_count"], 1)
         self.assertEqual(self.store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
-        self.assertIsNone(self.store.cleanup_batch(batch_id))
         self.assertIsNone(self.store.claim_cleanup_batch(batch_id))
-
-    def test_status_does_not_include_cleanup_paths(self):
-        self.store.create_cleanup_batch("/media", ["/out/a.strm"])
-        batch = self.store.status()["cleanup_batches"][0]
-        self.assertEqual(batch["path_count"], 1)
-        self.assertNotIn("paths", batch)
 
     def test_run_summary_is_exposed(self):
         run_id = self.store.start_run("scan", "/media")
