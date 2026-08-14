@@ -183,7 +183,6 @@
 <script setup>
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { buildConfigPayload, normalizeBoolean, parseConfigRules, serializeConfig } from './config_payload.js'
-import { savePluginConfig } from './config_persistence.js'
 
 const props = defineProps({
   initialConfig: { type: Object, default: () => ({}) },
@@ -322,19 +321,18 @@ function resetForm() {
   error.value = null
 }
 
-async function saveConfig() {
+function saveConfig() {
   if (!isDirty.value || saving.value) return
   saving.value = true
   saved.value = false
   error.value = null
   try {
     const payload = buildConfigPayload(config, savedRuleSlotCount.value)
-    const persisted = await savePluginConfig(props.api, payload)
-    // Rehydrate from MoviePilot's canonical response so the next render cannot
-    // fall back to the pre-save prop snapshot or stale local rule slots.
-    hydrate(persisted)
+    // MoviePilot owns persistence for Vue plugin forms. Emitting the payload
+    // lets the host perform its standard PUT and plugin reinitialization.
+    emit('save', payload)
+    savedRuleSlotCount.value = Math.max(savedRuleSlotCount.value, config.rules.length)
     savedSnapshot.value = serializeConfig(config)
-    emit('save', persisted)
     saved.value = true
   } catch (err) {
     error.value = err.message || '保存失败'
