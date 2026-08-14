@@ -1,74 +1,103 @@
 <template>
-  <div class="cloudstrm-shell v-theme--dark" style="color-scheme: dark">
-    <header class="shell-header">
-      <div class="brand-lockup">
-        <div class="brand-mark" aria-hidden="true">
-          <v-icon size="21">mdi-cloud-sync-outline</v-icon>
-        </div>
-        <div class="brand-copy">
-          <div class="brand-title">
-            云盘 Strm 小管家
-            <span class="brand-version">v{{ version }}</span>
+  <div class="cloudstrm-shell v-theme--light" style="color-scheme: light">
+    <div class="shell-frame">
+      <aside class="shell-sidebar">
+          <div class="brand-lockup">
+            <div class="brand-mark" aria-hidden="true">
+              <v-icon size="21">mdi-cloud-sync-outline</v-icon>
+            </div>
+            <div class="brand-copy">
+              <div class="brand-title">
+                云盘 Strm 小管家
+                <span class="brand-version">v{{ version }}</span>
+              </div>
+              <div class="brand-subtitle">STRM 同步与目录管理</div>
+            </div>
           </div>
-          <div class="brand-subtitle">STRM 同步与目录管理</div>
+
+        <nav class="sidebar-nav" aria-label="插件视图">
+          <span class="sidebar-nav-label">同步管理</span>
+          <button
+            class="sidebar-nav-button"
+            :class="{ 'is-active': activeTab === 'dashboard' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'dashboard'"
+            @click="activeTab = 'dashboard'"
+          >
+            <v-icon size="18">mdi-chart-box-outline</v-icon>
+            <span>同步工作台</span>
+          </button>
+          <button
+            class="sidebar-nav-button"
+            :class="{ 'is-active': activeTab === 'config' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'config'"
+            @click="activeTab = 'config'"
+          >
+            <v-icon size="18">mdi-tune-variant</v-icon>
+            <span>运行设置</span>
+          </button>
+          <span class="sidebar-nav-label sidebar-nav-label--status">运行状态</span>
+          <div class="sidebar-runtime-state">
+            <span class="runtime-dot" :class="{ 'is-active': status.enabled }" aria-hidden="true"></span>
+            <div>
+              <strong>{{ status.enabled ? '插件已启用' : '插件未启用' }}</strong>
+              <span>{{ runtimeLabel }}</span>
+            </div>
+          </div>
+        </nav>
+
+        <div class="sidebar-health">
+          <div class="sidebar-health-heading">
+            <span class="sidebar-health-icon" aria-hidden="true"><v-icon size="16">mdi-check</v-icon></span>
+            <strong>{{ status.enabled ? '本次运行健康' : '等待启用插件' }}</strong>
+          </div>
+          <span>上次刷新 {{ lastUpdatedLabel }}</span>
         </div>
-      </div>
+      </aside>
 
-      <div class="header-actions">
-        <div class="runtime-indicator" :class="{ 'is-active': runtimeActive }">
-          <span class="runtime-dot" aria-hidden="true"></span>
-          <span>{{ runtimeLabel }}</span>
-        </div>
-        <v-btn
-          icon="mdi-refresh"
-          variant="text"
-          size="small"
-          :loading="loading"
-          title="刷新状态"
-          aria-label="刷新状态"
-          @click="load"
-        />
-      </div>
+      <div class="shell-main">
+        <header class="shell-header">
+          <div class="mobile-brand brand-lockup">
+            <div class="brand-mark" aria-hidden="true">
+              <v-icon size="19">mdi-cloud-sync-outline</v-icon>
+            </div>
+            <div class="brand-copy">
+              <div class="brand-title">云盘 Strm 小管家</div>
+            </div>
+          </div>
+          <div class="header-actions">
+            <div class="runtime-indicator" :class="{ 'is-active': runtimeActive }">
+              <span class="runtime-dot" aria-hidden="true"></span>
+              <span>{{ runtimeLabel }}</span>
+            </div>
+            <v-btn
+              icon="mdi-refresh"
+              variant="outlined"
+              size="small"
+              :loading="loading"
+              title="刷新状态"
+              aria-label="刷新状态"
+              @click="load"
+            />
+          </div>
+        </header>
 
-      <nav class="tab-bar" aria-label="插件视图">
-        <button
-          class="tab-button"
-          :class="{ 'is-active': activeTab === 'dashboard' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'dashboard'"
-          @click="activeTab = 'dashboard'"
-        >
-          <v-icon size="18">mdi-chart-box-outline</v-icon>
-          <span>运行状态</span>
-        </button>
-        <button
-          class="tab-button"
-          :class="{ 'is-active': activeTab === 'config' }"
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'config'"
-          @click="activeTab = 'config'"
-        >
-          <v-icon size="18">mdi-tune-variant</v-icon>
-          <span>插件配置</span>
-        </button>
-      </nav>
-    </header>
+        <div class="shell-divider" aria-hidden="true"></div>
 
-    <div class="shell-divider" aria-hidden="true"></div>
+        <main class="shell-content">
+        <v-alert v-if="error" type="error" variant="tonal" class="shell-alert" closable @click:close="error = ''">
+          {{ error }}
+        </v-alert>
 
-    <main class="shell-content">
-      <v-alert v-if="error" type="error" variant="tonal" class="shell-alert" closable @click:close="error = ''">
-        {{ error }}
-      </v-alert>
-
-      <section v-show="activeTab === 'dashboard'" class="dashboard-view" aria-labelledby="dashboard-title">
+        <section v-show="activeTab === 'dashboard'" class="dashboard-view" aria-labelledby="dashboard-title">
         <div class="page-intro">
           <div>
             <span class="eyebrow">OPERATIONS</span>
-            <h1 id="dashboard-title">运行状态</h1>
-            <p>查看同步队列、处理进度与需要人工确认的任务。</p>
+            <h1 id="dashboard-title">同步工作台</h1>
+            <p>查看同步健康度，并优先处理需要你确认的事项。</p>
           </div>
           <div class="intro-meta">
             <span class="meta-label">最后刷新</span>
@@ -106,9 +135,8 @@
           <div class="section-heading section-heading--compact">
             <div>
               <h2 id="engine-metrics-title">可靠同步引擎指标</h2>
-              <p>以下四项只统计可靠同步引擎；手动 /strm 扫描会在下方单独显示。</p>
+              <p>持久化队列、内存队列、处理中、工作线程作为现有引擎指标保留。</p>
             </div>
-            <span class="scope-note">手动 /strm：独立统计</span>
           </div>
 
           <div class="metric-grid" aria-label="可靠同步引擎指标">
@@ -130,7 +158,7 @@
           </article>
           <article class="metric-tile metric-tile--accent">
             <div class="metric-heading">
-              <span>处理中（可靠引擎）</span>
+              <span>处理中</span>
               <v-icon size="18">mdi-sync</v-icon>
             </div>
             <strong>{{ status.engine.inflight }}</strong>
@@ -138,7 +166,7 @@
           </article>
           <article class="metric-tile">
             <div class="metric-heading">
-              <span>工作线程（可靠引擎）</span>
+              <span>工作线程</span>
               <v-icon size="18">mdi-lan-connect</v-icon>
             </div>
             <strong>{{ status.engine.workers }}</strong>
@@ -178,60 +206,77 @@
               </span>
             </article>
 
-            <article class="processing-overview-card">
+            <article class="processing-overview-card processing-overview-card--side">
               <div class="overview-card-heading">
-                <span>非媒体文件</span>
-                <v-icon size="18">mdi-file-document-outline</v-icon>
+                <span>非媒体与字幕</span>
+                <span class="overview-side-caption">总数 / 已完成</span>
               </div>
-              <div class="overview-pair">
+              <div class="overview-stat-row">
+                <div class="overview-stat-label">
+                  <v-icon size="17">mdi-file-document-outline</v-icon>
+                  <span>非媒体文件</span>
+                </div>
                 <strong>{{ processingOverview.non_media_total }}</strong>
-                <span>总数</span>
-                <span class="overview-divider">/</span>
-                <strong>{{ processingOverview.non_media_completed }}</strong>
-                <span>已完成</span>
+                <strong class="overview-stat-completed">已完成 {{ processingOverview.non_media_completed }}</strong>
+                <v-progress-linear
+                  :model-value="completionPercent(processingOverview.non_media_total, processingOverview.non_media_completed)"
+                  color="success"
+                  bg-color="secondary"
+                  height="6"
+                  rounded
+                />
               </div>
-              <span class="overview-card-note">总数 / 已完成</span>
-            </article>
-
-            <article class="processing-overview-card">
-              <div class="overview-card-heading">
-                <span>字幕文件</span>
-                <v-icon size="18">mdi-subtitles-outline</v-icon>
-              </div>
-              <div class="overview-pair">
+              <div class="overview-stat-row overview-stat-row--subtitle">
+                <div class="overview-stat-label">
+                  <v-icon size="17">mdi-subtitles-outline</v-icon>
+                  <span>字幕文件</span>
+                </div>
                 <strong>{{ processingOverview.subtitle_total }}</strong>
-                <span>总数</span>
-                <span class="overview-divider">/</span>
-                <strong>{{ processingOverview.subtitle_completed }}</strong>
-                <span>已完成</span>
+                <strong class="overview-stat-completed overview-stat-completed--subtitle">已完成 {{ processingOverview.subtitle_completed }}</strong>
+                <v-progress-linear
+                  :model-value="completionPercent(processingOverview.subtitle_total, processingOverview.subtitle_completed)"
+                  color="warning"
+                  bg-color="secondary"
+                  height="6"
+                  rounded
+                />
               </div>
-              <span class="overview-card-note">总数 / 已完成</span>
             </article>
           </div>
         </section>
 
-        <section v-if="fullScanProgressHasData" class="content-section full-scan-section" aria-labelledby="full-scan-title">
+        <section class="content-section full-scan-section" aria-labelledby="full-scan-title">
           <div class="section-heading section-heading--compact">
             <div>
               <h2 id="full-scan-title">一次全量处理</h2>
               <p>扫描所有有效规则，已存在跳过，不存在才生成。</p>
             </div>
-            <span class="status-chip" :class="fullScanProgress.running ? 'status-chip--active' : fullScanProgress.failed ? 'status-chip--danger' : 'status-chip--success'">
+            <span class="status-chip" :class="fullScanProgress.running ? 'status-chip--active' : fullScanProgress.failed ? 'status-chip--danger' : fullScanProgress.run_id ? 'status-chip--success' : 'status-chip--muted'">
               {{ fullScanProgressPhaseLabel }}
             </span>
           </div>
 
           <div class="command-progress-frame full-scan-frame">
-            <div class="command-progress-top">
-              <div class="command-progress-copy">
-                <span class="metric-caption">手动全量处理</span>
-                <strong>{{ fullScanProgress.processed || 0 }} / {{ fullScanProgress.total || 0 }}</strong>
-                <span>{{ fullScanProgress.running ? '已处理文件 / 已发现文件' : '本次全量处理已完成' }}</span>
-              </div>
-              <v-icon size="25" :color="fullScanProgress.stalled ? 'warning' : fullScanProgress.running ? 'success' : fullScanProgress.failed ? 'error' : 'secondary'">
-                {{ fullScanProgress.stalled ? 'mdi-timer-alert-outline' : fullScanProgress.running ? 'mdi-progress-clock' : fullScanProgress.failed ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline' }}
-              </v-icon>
+            <div class="full-scan-toolbar">
+              <span class="scan-state" :class="fullScanProgress.running ? 'scan-state--running' : fullScanProgress.run_id ? 'scan-state--done' : 'scan-state--idle'">
+                <span class="scan-state-dot" aria-hidden="true"></span>
+                {{ fullScanProgress.running ? '扫描中' : fullScanProgress.run_id ? '已完成' : '尚未执行' }}
+              </span>
+              <span class="full-scan-label">手动全量处理 <span aria-hidden="true">|</span> 刷新状态</span>
+              <span class="full-scan-state">{{ fullScanProgressPhaseLabel }}</span>
             </div>
+
+            <div class="full-scan-details">
+              <div class="full-scan-detail">
+                <span>当前规则</span>
+                <strong>{{ fullScanProgress.current_rule || '暂无' }}</strong>
+              </div>
+              <div class="full-scan-detail full-scan-detail--path">
+                <span>当前文件</span>
+                <strong :title="fullScanProgress.current_path">{{ fullScanProgress.current_path || '暂无，点击上方按钮开始全量处理' }}</strong>
+              </div>
+            </div>
+
             <v-progress-linear
               :model-value="fullScanProgressPercent"
               :indeterminate="fullScanProgress.running && fullScanProgress.total === 0"
@@ -241,19 +286,10 @@
               rounded
             />
 
-            <div class="command-detail-grid">
-              <div class="command-detail">
-                <span>当前规则</span>
-                <strong>{{ fullScanProgress.current_rule || '暂无' }}</strong>
-              </div>
-              <div class="command-detail command-detail--path">
-                <span>当前文件</span>
-                <strong :title="fullScanProgress.current_path">{{ fullScanProgress.current_path || '暂无' }}</strong>
-              </div>
-              <div class="command-detail">
-                <span>最近进度</span>
-                <strong>{{ formatTime(fullScanProgress.last_progress_at) }}</strong>
-              </div>
+            <div class="full-scan-footer">
+              <span>已处理 {{ fullScanProgress.processed || 0 }} / {{ fullScanProgress.total || 0 }}</span>
+              <span>最近进度 {{ formatTime(fullScanProgress.last_progress_at) }}</span>
+              <span>{{ fullScanProgress.running ? '运行中自动禁用重复执行' : '已存在内容会自动跳过' }}</span>
             </div>
 
             <div v-if="fullScanProgress.stalled" class="stalled-warning">
@@ -472,16 +508,18 @@
         </div>
       </section>
 
-      <section v-show="activeTab === 'config'" class="config-view-host" aria-labelledby="config-title">
-        <Config
-          embedded
-          :initial-config="initialConfig"
-          :api="props.api"
-          @save="handleConfigSave"
-          @close="activeTab = 'dashboard'"
-        />
-      </section>
-    </main>
+          <section v-show="activeTab === 'config'" class="config-view-host" aria-labelledby="config-title">
+            <Config
+              embedded
+              :initial-config="initialConfig"
+              :api="props.api"
+              @save="handleConfigSave"
+              @close="activeTab = 'dashboard'"
+            />
+          </section>
+        </main>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -495,7 +533,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.10' },
+  version: { type: String, default: '2.1.11' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -576,7 +614,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.10')
+const version = computed(() => props.version || '2.1.11')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -684,6 +722,12 @@ function formatTime(value) {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
+}
+
+function completionPercent(total, completed) {
+  const denominator = Number(total || 0)
+  const numerator = Number(completed || 0)
+  return denominator > 0 ? Math.min(100, Math.max(0, (numerator / denominator) * 100)) : 0
 }
 
 function formatDuration(value) {
@@ -868,22 +912,37 @@ onUnmounted(() => {
   --cs-success: #59d39b;
   --cs-warning: #e7b764;
   --cs-danger: #ff7f92;
-  background: var(--cs-bg);
+  background: #0f1015;
   color: var(--cs-text);
-  min-height: 100%;
+  min-height: 100vh;
   font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
   letter-spacing: 0;
   line-height: 1.45;
 }
 
+.shell-frame {
+  background: var(--cs-bg);
+  border: 1px solid #252630;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .22);
+  margin: 24px auto;
+  max-width: 1400px;
+  min-height: calc(100vh - 48px);
+  overflow: hidden;
+}
+
 .shell-header {
-  align-items: center;
   background: var(--cs-surface);
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto auto;
-  min-height: 72px;
+  min-height: 126px;
   padding: 0 24px;
   position: relative;
+}
+
+.shell-header-top {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 72px;
 }
 
 .brand-lockup,
@@ -923,7 +982,7 @@ onUnmounted(() => {
 .runtime-indicator.is-active { color: var(--cs-success); }
 .runtime-indicator.is-active .runtime-dot { background: var(--cs-success); box-shadow: 0 0 0 4px rgba(89, 211, 155, .12); }
 
-.tab-bar { align-self: stretch; display: flex; gap: 3px; margin-left: 28px; }
+.tab-bar { align-self: stretch; display: flex; gap: 3px; margin-left: 0; }
 .tab-button {
   align-items: center;
   background: transparent;
@@ -936,7 +995,7 @@ onUnmounted(() => {
   font-size: 13px;
   font-weight: 600;
   gap: 8px;
-  min-height: 72px;
+  min-height: 54px;
   padding: 0 17px;
   transition: background-color .18s ease, border-color .18s ease, color .18s ease;
 }
@@ -945,17 +1004,17 @@ onUnmounted(() => {
 .tab-button.is-active { background: rgba(255, 255, 255, .025); border-bottom-color: var(--cs-primary); color: var(--cs-primary-soft); }
 
 .shell-divider { background: var(--cs-line); height: 1px; }
-.shell-content { margin: 0 auto; max-width: 1280px; padding: 30px 32px 48px; }
+.shell-content { margin: 0 auto; max-width: 1340px; padding: 34px 48px 52px; }
 .shell-alert { margin-bottom: 22px; }
 
-.page-intro { align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
+.page-intro { align-items: flex-end; display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr) auto auto; justify-content: space-between; margin-bottom: 24px; }
 .intro-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 7px; margin-left: 24px; }
 .intro-actions > span { color: var(--cs-dim); font-size: 11px; text-align: right; }
 .eyebrow { color: var(--cs-primary-soft); display: block; font-size: 10px; font-weight: 800; letter-spacing: 1.1px; margin-bottom: 8px; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .page-intro p { color: var(--cs-muted); font-size: 13px; margin-top: 8px; }
-.intro-meta { border-left: 1px solid var(--cs-line); padding-left: 16px; }
+.intro-meta { border-left: 1px solid var(--cs-line); min-width: 126px; padding-left: 16px; }
 .meta-label { color: var(--cs-dim); display: block; font-size: 11px; margin-bottom: 4px; }
 .intro-meta strong { color: var(--cs-muted); font-size: 12px; font-weight: 500; }
 
@@ -985,34 +1044,34 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .banner-copy strong { font-size: 13px; font-weight: 650; }
 .banner-copy span { color: var(--cs-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.metric-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 34px; }
-.engine-metrics-section { margin-bottom: 24px; }
+.metric-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 30px; }
+.engine-metrics-section { border-top: 1px solid var(--cs-line); padding-top: 24px; }
 .scope-note { color: var(--cs-dim); font-size: 11px; white-space: nowrap; }
 .metric-tile {
   background: var(--cs-surface);
   border: 1px solid var(--cs-line);
   border-radius: 8px;
-  min-height: 126px;
+  min-height: 116px;
   padding: 15px 16px 13px;
 }
 .metric-tile--accent { border-color: rgba(124, 77, 255, .48); }
 .metric-heading { color: var(--cs-muted); font-size: 12px; justify-content: space-between; }
 .metric-heading .v-icon { color: var(--cs-dim); }
 .metric-tile--accent .metric-heading .v-icon { color: var(--cs-primary-soft); }
-.metric-tile strong { display: block; font-size: 28px; font-weight: 700; line-height: 1; margin-top: 22px; }
+.metric-tile strong { display: block; font-size: 28px; font-weight: 700; line-height: 1; margin-top: 20px; }
 .metric-tile--accent strong { color: var(--cs-primary-soft); }
 .metric-caption { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 8px; }
 
-.processing-overview-section { margin-bottom: 24px; }
+.processing-overview-section { border-top: 1px solid var(--cs-line); margin-bottom: 24px; padding-top: 24px; }
 .overview-refresh-state { color: var(--cs-dim); font-size: 11px; white-space: nowrap; }
 .overview-refresh-state.is-ready { color: var(--cs-success); }
-.processing-overview-grid { display: grid; gap: 12px; grid-template-columns: minmax(1.25fr, 1.3fr) repeat(2, minmax(0, 1fr)); }
+.processing-overview-grid { display: grid; gap: 12px; grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr); }
 .processing-overview-card {
   background: var(--cs-surface);
   border: 1px solid var(--cs-line);
   border-radius: 8px;
-  min-height: 142px;
-  padding: 15px 16px 13px;
+  min-height: 154px;
+  padding: 16px 18px 15px;
 }
 .processing-overview-card--strm { border-color: rgba(124, 77, 255, .42); }
 .overview-card-heading { align-items: center; color: var(--cs-muted); display: flex; font-size: 12px; justify-content: space-between; }
@@ -1028,6 +1087,16 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .overview-card-status.is-consistent { color: var(--cs-success); }
 .overview-card-status.is-inconsistent { color: var(--cs-danger); }
 .overview-card-status.is-pending { color: var(--cs-warning); }
+.processing-overview-card--side { display: flex; flex-direction: column; gap: 12px; }
+.overview-side-caption { color: var(--cs-dim); font-size: 11px; }
+.overview-stat-row { display: grid; gap: 8px 12px; grid-template-columns: minmax(105px, 1fr) auto auto; min-width: 0; }
+.overview-stat-row .v-progress-linear { grid-column: 1 / -1; }
+.overview-stat-label { align-items: center; color: var(--cs-muted); display: flex; font-size: 12px; gap: 7px; min-width: 0; }
+.overview-stat-label .v-icon { color: var(--cs-dim); }
+.overview-stat-row strong { color: var(--cs-text); font-size: 14px; font-weight: 650; white-space: nowrap; }
+.overview-stat-completed { color: var(--cs-success) !important; font-size: 12px !important; font-weight: 500 !important; }
+.overview-stat-completed--subtitle { color: var(--cs-warning) !important; }
+.overview-stat-row--subtitle { margin-top: 2px; }
 
 .command-progress-frame {
   background: var(--cs-surface);
@@ -1035,6 +1104,22 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
   border-radius: 8px;
   padding: 18px;
 }
+.full-scan-frame { padding: 17px 22px 19px; }
+.full-scan-toolbar { align-items: center; display: flex; gap: 14px; min-height: 30px; }
+.scan-state { align-items: center; border: 1px solid var(--cs-line); border-radius: 5px; display: inline-flex; font-size: 11px; gap: 6px; padding: 5px 8px; white-space: nowrap; }
+.scan-state--running { background: rgba(89, 211, 155, .12); border-color: rgba(89, 211, 155, .25); color: var(--cs-success); }
+.scan-state--done { background: rgba(89, 211, 155, .1); border-color: rgba(89, 211, 155, .2); color: var(--cs-success); }
+.scan-state--idle { background: rgba(165, 162, 177, .08); color: var(--cs-muted); }
+.scan-state-dot { background: currentColor; border-radius: 50%; height: 6px; width: 6px; }
+.full-scan-label { color: var(--cs-muted); font-size: 12px; }
+.full-scan-label span { color: var(--cs-dim); margin: 0 5px; }
+.full-scan-state { color: var(--cs-dim); font-size: 11px; margin-left: auto; }
+.full-scan-details { display: grid; gap: 12px; grid-template-columns: minmax(180px, .7fr) minmax(0, 1.7fr); margin: 15px 0 13px; }
+.full-scan-detail { min-width: 0; }
+.full-scan-detail span { color: var(--cs-dim); display: block; font-size: 11px; }
+.full-scan-detail strong { color: var(--cs-muted); display: block; font-size: 12px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.full-scan-detail--path strong { color: var(--cs-text); }
+.full-scan-footer { color: var(--cs-dim); display: flex; font-size: 11px; justify-content: space-between; margin-top: 10px; }
 .command-progress-top { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 13px; }
 .command-progress-copy strong { display: block; font-size: 24px; line-height: 1.1; margin-top: 3px; }
 .command-progress-copy > span:last-child { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 6px; }
@@ -1156,26 +1241,27 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .config-view-host { min-width: 0; }
 
 @media (max-width: 900px) {
-  .shell-header { grid-template-columns: 1fr auto; padding: 0 18px; }
-  .tab-bar { grid-column: 1 / -1; grid-row: 2; margin-left: 0; min-height: 50px; }
+  .shell-frame { border-radius: 0; margin: 0; max-width: none; min-height: 100vh; }
+  .shell-header { padding: 0 18px; }
   .tab-button { min-height: 50px; padding: 0 14px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .processing-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .processing-overview-card--strm { grid-column: 1 / -1; }
+  .processing-overview-grid { grid-template-columns: 1fr; }
+  .processing-overview-card--side { min-height: 150px; }
   .result-category-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .command-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-detail--path { grid-column: 1 / -1; }
   .dashboard-columns { grid-template-columns: 1fr; }
-  .shell-content { padding: 26px 22px 40px; }
+  .shell-content { padding: 26px 28px 40px; }
 }
 
 @media (max-width: 560px) {
-  .shell-header { min-height: 66px; }
+  .shell-header { min-height: 116px; }
+  .shell-header-top { min-height: 66px; }
   .brand-subtitle, .runtime-indicator { display: none; }
   .brand-title { font-size: 14px; }
   .brand-mark { flex-basis: 34px; height: 34px; width: 34px; }
   .shell-content { padding: 22px 14px 32px; }
-  .page-intro { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .page-intro { align-items: flex-start; display: flex; flex-direction: column; gap: 16px; }
   .intro-actions { align-items: flex-start; margin-left: 0; width: 100%; }
   .intro-actions > span { text-align: left; }
   .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
@@ -1183,11 +1269,292 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .banner-copy span { white-space: normal; }
   .scope-note { text-align: right; white-space: normal; }
   .metric-grid { gap: 9px; }
-  .result-category-grid, .command-detail-grid, .processing-overview-grid { grid-template-columns: 1fr 1fr; }
-  .processing-overview-card--strm { grid-column: 1 / -1; }
+  .result-category-grid, .command-detail-grid { grid-template-columns: 1fr 1fr; }
   .result-category:last-child { grid-column: 1 / -1; }
+  .overview-stat-row { grid-template-columns: minmax(100px, 1fr) auto; }
+  .overview-stat-completed { grid-column: 2; grid-row: 1; }
+  .full-scan-toolbar { align-items: flex-start; flex-wrap: wrap; }
+  .full-scan-state { margin-left: 0; width: 100%; }
+  .full-scan-details { grid-template-columns: 1fr; }
+  .full-scan-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .metric-tile { min-height: 116px; padding: 13px; }
   .metric-tile strong { font-size: 25px; margin-top: 18px; }
   .dashboard-columns { gap: 24px; }
+}
+
+/* Reference workbench treatment: a quiet light canvas with a fixed navigation rail. */
+.cloudstrm-shell {
+  --cs-bg: #fbfcfe;
+  --cs-surface: #ffffff;
+  --cs-surface-raised: #f4f8fb;
+  --cs-surface-inset: #f7f9fb;
+  --cs-line: #dbe3eb;
+  --cs-line-strong: #bdc9d5;
+  --cs-text: #24314a;
+  --cs-muted: #66758c;
+  --cs-dim: #8d99aa;
+  --cs-primary: #2d6073;
+  --cs-primary-soft: #4c8390;
+  --cs-success: #48a476;
+  --cs-warning: #d79a3f;
+  --cs-danger: #b9633e;
+  background: #e7edf3;
+  color: var(--cs-text);
+}
+
+.shell-frame {
+  background: var(--cs-bg);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 12px 34px rgba(24, 38, 64, .1);
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  margin: 28px auto;
+  max-width: 1496px;
+  min-height: calc(100vh - 56px);
+  overflow: hidden;
+  width: calc(100% - 56px);
+}
+
+.shell-sidebar {
+  background: #15243a;
+  color: #d6dfeb;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 34px 26px 28px;
+}
+
+.shell-sidebar .brand-lockup { align-items: flex-start; gap: 13px; }
+.shell-sidebar .brand-mark {
+  background: #d87348;
+  border: 0;
+  border-radius: 8px;
+  color: #ffffff;
+  flex-basis: 34px;
+  height: 34px;
+  width: 34px;
+}
+.shell-sidebar .brand-title { color: #ffffff; font-size: 16px; }
+.shell-sidebar .brand-version { color: #9db0c7; }
+.shell-sidebar .brand-subtitle { color: #aebbd0; margin-top: 4px; }
+
+.sidebar-nav { display: flex; flex-direction: column; gap: 4px; margin-top: 43px; }
+.sidebar-nav-label {
+  color: #8d9bb3;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.sidebar-nav-label--status { margin-bottom: 12px; margin-top: 42px; }
+.sidebar-nav-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: #c9d3e1;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  gap: 14px;
+  min-height: 44px;
+  padding: 0 18px;
+  position: relative;
+  text-align: left;
+  transition: background-color .18s ease, color .18s ease;
+}
+.sidebar-nav-button:hover { background: rgba(255, 255, 255, .06); color: #ffffff; }
+.sidebar-nav-button:focus-visible { outline: 2px solid #e79851; outline-offset: -2px; }
+.sidebar-nav-button.is-active { background: #27435b; color: #ffffff; font-weight: 700; }
+.sidebar-nav-button.is-active::before {
+  background: #e79851;
+  border-radius: 0 2px 2px 0;
+  content: '';
+  height: 44px;
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: 4px;
+}
+.sidebar-nav-button .v-icon { color: #b9c6d7; }
+.sidebar-nav-button.is-active .v-icon { color: #ffffff; }
+
+.sidebar-runtime-state { align-items: flex-start; display: flex; gap: 10px; }
+.sidebar-runtime-state .runtime-dot { background: #65bd93; flex: 0 0 10px; height: 10px; margin-top: 4px; width: 10px; }
+.sidebar-runtime-state .runtime-dot:not(.is-active) { background: #7f8da1; }
+.sidebar-runtime-state strong, .sidebar-runtime-state span { display: block; }
+.sidebar-runtime-state strong { color: #d6dfeb; font-size: 13px; font-weight: 700; }
+.sidebar-runtime-state span { color: #8d9bb3; font-size: 11px; margin-top: 5px; }
+
+.sidebar-health { background: #1d314a; border-radius: 8px; margin-top: auto; padding: 14px 16px; }
+.sidebar-health-heading { align-items: center; display: flex; gap: 9px; }
+.sidebar-health-icon { align-items: center; background: #417a66; border-radius: 50%; color: #ffffff; display: flex; height: 18px; justify-content: center; width: 18px; }
+.sidebar-health strong { color: #e7edf6; font-size: 12px; font-weight: 700; }
+.sidebar-health > span { color: #9db0c7; display: block; font-size: 11px; margin-top: 10px; }
+
+.shell-main { background: var(--cs-bg); min-width: 0; }
+.shell-header { align-items: center; background: var(--cs-bg); display: flex; justify-content: flex-end; min-height: 76px; padding: 0 48px; }
+.mobile-brand { display: none; }
+.header-actions { gap: 15px; }
+.runtime-indicator { color: var(--cs-muted); font-size: 12px; gap: 7px; }
+.runtime-dot { background: var(--cs-dim); border-radius: 50%; height: 7px; width: 7px; }
+.runtime-indicator.is-active { color: var(--cs-success); }
+.runtime-indicator.is-active .runtime-dot { background: var(--cs-success); box-shadow: 0 0 0 4px rgba(72, 164, 118, .14); }
+.shell-divider { background: #e2e8ef; height: 1px; }
+.shell-content { max-width: none; padding: 36px 48px 58px; }
+
+.page-intro { gap: 26px; margin-bottom: 28px; }
+.eyebrow { color: var(--cs-primary); }
+h1 { color: var(--cs-text); font-size: 24px; }
+.page-intro p { color: var(--cs-muted); font-size: 14px; }
+.intro-meta { border-left-color: var(--cs-line); }
+.meta-label, .intro-meta strong { color: var(--cs-muted); }
+.intro-actions > span { color: var(--cs-dim); }
+.cloudstrm-shell :deep(.v-btn) { border-radius: 6px; letter-spacing: 0; text-transform: none; }
+.cloudstrm-shell :deep(.v-btn--variant-flat) { background: var(--cs-primary); color: #ffffff; }
+.cloudstrm-shell :deep(.v-btn--variant-outlined) { border-color: var(--cs-line-strong); color: var(--cs-text); }
+.cloudstrm-shell :deep(.v-btn--variant-tonal) { background: #e6f0f3; color: var(--cs-primary); }
+
+.runtime-banner {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-line);
+  border-left: 8px solid var(--cs-success);
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(23, 32, 56, .07);
+  gap: 16px;
+  margin-bottom: 30px;
+  min-height: 108px;
+  padding: 22px 24px;
+}
+.runtime-banner:not(.is-active) { border-left-color: var(--cs-dim); }
+.banner-icon { background: #e6f5ed; border-radius: 50%; color: #34825e; flex-basis: 50px; height: 50px; width: 50px; }
+.runtime-banner:not(.is-active) .banner-icon { background: #f0f3f6; color: var(--cs-muted); }
+.banner-copy strong { color: var(--cs-text); font-size: 16px; }
+.banner-copy span { color: var(--cs-muted); font-size: 13px; }
+.runtime-banner :deep(.v-chip) { background: #e7f5ec !important; color: #2d7052 !important; }
+.runtime-banner:not(.is-active) :deep(.v-chip) { background: #eff3f6 !important; color: var(--cs-muted) !important; }
+
+.engine-metrics-section, .processing-overview-section { border-top: 0; padding-top: 0; }
+.content-section { margin-bottom: 30px; }
+.section-heading { margin-bottom: 14px; }
+h2 { color: var(--cs-text); font-size: 17px; }
+.section-heading p { color: var(--cs-muted); font-size: 12px; }
+.overview-refresh-state { color: var(--cs-muted); }
+.overview-refresh-state.is-ready { color: var(--cs-success); }
+.metric-grid { gap: 16px; margin-bottom: 0; }
+.metric-tile, .processing-overview-card, .command-progress-frame, .table-frame, .empty-state {
+  background: var(--cs-surface);
+  border-color: var(--cs-line);
+  border-radius: 8px;
+  box-shadow: none;
+}
+.metric-tile { min-height: 110px; padding: 18px 20px 16px; }
+.metric-tile--accent { border-color: rgba(72, 164, 118, .45); }
+.metric-heading { color: var(--cs-muted); }
+.metric-heading .v-icon { color: var(--cs-dim); }
+.metric-tile--accent .metric-heading .v-icon { color: var(--cs-success); }
+.metric-tile strong { color: var(--cs-text); font-size: 29px; margin-top: 16px; }
+.metric-tile--accent strong { color: var(--cs-success); }
+.metric-caption { color: var(--cs-dim); }
+
+.processing-overview-section { margin-bottom: 30px; }
+.processing-overview-grid { gap: 16px; grid-template-columns: minmax(0, 1.2fr) minmax(340px, .8fr); }
+.processing-overview-card { min-height: 154px; padding: 18px 20px 16px; }
+.processing-overview-card--strm { border-color: rgba(45, 96, 115, .3); }
+.overview-card-heading { color: var(--cs-muted); }
+.overview-card-heading .v-icon { color: var(--cs-primary); }
+.overview-pair strong { color: var(--cs-text); }
+.processing-overview-card--strm .overview-pair strong:last-of-type { color: var(--cs-primary); }
+.overview-pair span, .overview-card-note, .overview-side-caption { color: var(--cs-muted); }
+.overview-card-status.is-consistent { color: var(--cs-success); }
+.overview-card-status.is-inconsistent { color: var(--cs-danger); }
+.overview-card-status.is-pending { color: var(--cs-warning); }
+.overview-stat-label { color: var(--cs-muted); }
+.overview-stat-label .v-icon { color: var(--cs-dim); }
+.overview-stat-row strong { color: var(--cs-text); }
+.overview-stat-completed { color: var(--cs-success) !important; }
+.overview-stat-completed--subtitle { color: var(--cs-warning) !important; }
+.cloudstrm-shell :deep(.v-progress-linear) { --v-theme-primary: 45, 96, 115; --v-theme-success: 72, 164, 118; --v-theme-warning: 215, 154, 63; }
+
+.command-progress-frame { padding: 20px; }
+.full-scan-frame { padding: 18px 22px 20px; }
+.scan-state, .status-chip { border-radius: 999px; }
+.scan-state { border-color: var(--cs-line); color: var(--cs-muted); }
+.scan-state--running, .scan-state--done { background: #e7f5ec; border-color: #c6e6d2; color: #2d7052; }
+.scan-state--idle { background: #eff3f6; color: var(--cs-muted); }
+.full-scan-label, .full-scan-detail span, .full-scan-footer, .command-detail span { color: var(--cs-muted); }
+.full-scan-detail strong, .command-detail strong { color: var(--cs-text); }
+.command-detail { background: var(--cs-surface-raised); border-color: var(--cs-line); }
+.result-summary-heading strong { color: var(--cs-text); }
+.result-category { background: var(--cs-surface-raised); border-color: var(--cs-line); }
+.result-category span { color: var(--cs-muted); }
+.result-category--muted strong { color: var(--cs-muted); }
+.result-category--neutral strong { color: var(--cs-text); }
+.result-category--info strong { color: var(--cs-primary); }
+.result-category--success strong { color: var(--cs-success); }
+.result-category--danger strong, .danger-number { color: var(--cs-danger) !important; }
+.stalled-warning { background: #fff7ed; border-color: #f0d2b3; color: #935237; }
+
+.table-frame { overflow-x: auto; }
+.status-table { color: var(--cs-text); }
+.status-table :deep(th) { background: #f7f9fb; border-bottom-color: var(--cs-line) !important; color: var(--cs-dim) !important; }
+.status-table :deep(td) { border-bottom-color: #e8edf2 !important; color: var(--cs-muted); }
+.status-table :deep(tbody tr:hover) { background: #f7f9fb; }
+.status-chip--active { background: #e6f0f3; border-color: #c9dce2; color: var(--cs-primary); }
+.status-chip--success { background: #e7f5ec; border-color: #c6e6d2; color: #2d7052; }
+.status-chip--danger { background: #fff0e5; border-color: #f0cfad; color: var(--cs-danger); }
+.status-chip--muted { background: #eff3f6; border-color: var(--cs-line); color: var(--cs-muted); }
+.section-count { background: var(--cs-surface); border-color: var(--cs-line); color: var(--cs-muted); }
+.section-count.has-items { border-color: #f0cfad; color: var(--cs-danger); }
+.empty-icon { background: #eff3f6; border-color: var(--cs-line); color: var(--cs-muted); }
+.empty-icon--success { background: #e6f5ed; border-color: #c6e6d2; color: var(--cs-success); }
+.empty-state strong { color: var(--cs-text); }
+.empty-state span { color: var(--cs-muted); }
+
+@media (max-width: 900px) {
+  .shell-frame { grid-template-columns: 212px minmax(0, 1fr); margin: 18px; min-height: calc(100vh - 36px); width: calc(100% - 36px); }
+  .shell-sidebar { padding: 26px 18px 22px; }
+  .shell-header { padding: 0 28px; }
+  .shell-content { padding: 28px; }
+  .processing-overview-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 700px) {
+  .cloudstrm-shell { background: var(--cs-bg); }
+  .shell-frame { border-radius: 0; display: block; margin: 0; min-height: 100vh; width: 100%; }
+  .shell-sidebar { padding: 18px 16px 16px; }
+  .shell-sidebar .brand-subtitle, .shell-sidebar .brand-version { display: none; }
+  .sidebar-nav { display: grid; gap: 4px; grid-template-columns: 1fr 1fr; margin-top: 20px; }
+  .sidebar-nav-label { grid-column: 1 / -1; margin-bottom: 4px; }
+  .sidebar-nav-label--status, .sidebar-runtime-state { display: none; }
+  .sidebar-health { margin-top: 14px; }
+  .shell-header { min-height: 62px; padding: 0 16px; }
+  .mobile-brand { align-items: center; display: flex; margin-right: auto; }
+  .mobile-brand .brand-mark { background: #d87348; border: 0; color: #ffffff; flex-basis: 32px; height: 32px; width: 32px; }
+  .mobile-brand .brand-title { color: var(--cs-text); font-size: 14px; }
+  .runtime-indicator { display: none; }
+  .shell-content { padding: 24px 16px 36px; }
+  .page-intro { align-items: flex-start; display: flex; flex-direction: column; gap: 16px; }
+  .intro-actions { align-items: flex-start; margin-left: 0; width: 100%; }
+  .intro-actions > span { text-align: left; }
+  .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
+  .runtime-banner { align-items: flex-start; margin-bottom: 24px; padding: 18px; }
+  .banner-copy span { white-space: normal; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .processing-overview-grid { grid-template-columns: 1fr; }
+  .full-scan-toolbar { align-items: flex-start; flex-wrap: wrap; }
+  .full-scan-state { margin-left: 0; width: 100%; }
+  .full-scan-details { grid-template-columns: 1fr; }
+  .full-scan-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
+
+@media (max-width: 420px) {
+  .metric-grid { gap: 9px; }
+  .metric-tile { padding: 14px; }
+  .metric-tile strong { font-size: 25px; }
+  .result-category-grid, .command-detail-grid { grid-template-columns: 1fr 1fr; }
+  .result-category:last-child { grid-column: 1 / -1; }
 }
 </style>
