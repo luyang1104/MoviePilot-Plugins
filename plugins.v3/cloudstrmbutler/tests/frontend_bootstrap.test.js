@@ -20,3 +20,25 @@ test('dashboard exposes manual command progress and result categories', async ()
   assert.equal(source.includes('复制字幕'), true)
   assert.equal(source.includes('已有内容跳过'), true)
 })
+
+test('dashboard exposes the additive overview and one-shot full scan action', async () => {
+  const source = await readFile(new URL('../src/Page.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('processing_overview'), true)
+  assert.equal(source.includes('sync_full_scan'), true)
+  assert.equal(source.includes('full-scan'), true)
+  assert.equal(source.includes('media_total'), true)
+  assert.equal(source.includes('non_media_completed'), true)
+  assert.equal(source.includes('subtitle_completed'), true)
+  assert.equal(source.includes('recent-task-table'), true)
+})
+
+test('recent task table has only the four requested columns', async () => {
+  const source = await readFile(new URL('../src/Page.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('recent-task-table'), true)
+  assert.equal(source.includes('task-started-at'), false)
+  assert.equal(source.includes('task-unchanged'), false)
+  assert.equal(source.includes('task-skipped'), false)
+  assert.equal(source.includes('task-failed'), false)
+})

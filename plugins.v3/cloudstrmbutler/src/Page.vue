@@ -74,6 +74,19 @@
             <span class="meta-label">最后刷新</span>
             <strong>{{ lastUpdatedLabel }}</strong>
           </div>
+          <div class="intro-actions">
+            <v-btn
+              color="primary"
+              variant="flat"
+              prepend-icon="mdi-play-circle-outline"
+              :loading="fullScanPending"
+              :disabled="fullScanPending || status.scan_running || status.command_running || status.scan_progress.running"
+              @click="startFullScan"
+            >
+              执行一次全量处理
+            </v-btn>
+            <span>有效规则全部扫描 · 已存在跳过 · 缺失才生成</span>
+          </div>
         </div>
 
         <section class="runtime-banner" :class="{ 'is-active': runtimeActive }" aria-label="同步引擎状态">
@@ -131,6 +144,133 @@
             <strong>{{ status.engine.workers }}</strong>
             <span class="metric-caption">可靠引擎已启动的并发线程</span>
           </article>
+          </div>
+        </section>
+
+        <section class="content-section processing-overview-section" aria-labelledby="processing-overview-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <h2 id="processing-overview-title">处理概览</h2>
+              <p>按源目录核对媒体、非媒体文件和字幕的处理结果。</p>
+            </div>
+            <span class="overview-refresh-state" :class="{ 'is-ready': processingOverview.ready }">
+              {{ processingOverview.ready ? `已核对 ${formatTime(processingOverview.last_checked_at)}` : '正在核对源目录' }}
+            </span>
+          </div>
+
+          <div class="processing-overview-grid">
+            <article class="processing-overview-card processing-overview-card--strm">
+              <div class="overview-card-heading">
+                <span>STRM 生成记录</span>
+                <v-icon size="18">mdi-file-link-outline</v-icon>
+              </div>
+              <div class="overview-pair">
+                <strong>{{ processingOverview.media_total }}</strong>
+                <span>媒体</span>
+                <span class="overview-divider">/</span>
+                <strong>{{ processingOverview.strm_total }}</strong>
+                <span>STRM</span>
+              </div>
+              <span class="overview-card-note">媒体总数 / 已生成 STRM</span>
+              <span class="overview-card-status" :class="overviewConsistencyTone">
+                <v-icon size="15">{{ processingOverview.media_strm_consistent ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}</v-icon>
+                {{ overviewConsistencyLabel }}
+              </span>
+            </article>
+
+            <article class="processing-overview-card">
+              <div class="overview-card-heading">
+                <span>非媒体文件</span>
+                <v-icon size="18">mdi-file-document-outline</v-icon>
+              </div>
+              <div class="overview-pair">
+                <strong>{{ processingOverview.non_media_total }}</strong>
+                <span>总数</span>
+                <span class="overview-divider">/</span>
+                <strong>{{ processingOverview.non_media_completed }}</strong>
+                <span>已完成</span>
+              </div>
+              <span class="overview-card-note">总数 / 已完成</span>
+            </article>
+
+            <article class="processing-overview-card">
+              <div class="overview-card-heading">
+                <span>字幕文件</span>
+                <v-icon size="18">mdi-subtitles-outline</v-icon>
+              </div>
+              <div class="overview-pair">
+                <strong>{{ processingOverview.subtitle_total }}</strong>
+                <span>总数</span>
+                <span class="overview-divider">/</span>
+                <strong>{{ processingOverview.subtitle_completed }}</strong>
+                <span>已完成</span>
+              </div>
+              <span class="overview-card-note">总数 / 已完成</span>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="fullScanProgressHasData" class="content-section full-scan-section" aria-labelledby="full-scan-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <h2 id="full-scan-title">一次全量处理</h2>
+              <p>扫描所有有效规则，已存在跳过，不存在才生成。</p>
+            </div>
+            <span class="status-chip" :class="fullScanProgress.running ? 'status-chip--active' : fullScanProgress.failed ? 'status-chip--danger' : 'status-chip--success'">
+              {{ fullScanProgressPhaseLabel }}
+            </span>
+          </div>
+
+          <div class="command-progress-frame full-scan-frame">
+            <div class="command-progress-top">
+              <div class="command-progress-copy">
+                <span class="metric-caption">手动全量处理</span>
+                <strong>{{ fullScanProgress.processed || 0 }} / {{ fullScanProgress.total || 0 }}</strong>
+                <span>{{ fullScanProgress.running ? '已处理文件 / 已发现文件' : '本次全量处理已完成' }}</span>
+              </div>
+              <v-icon size="25" :color="fullScanProgress.stalled ? 'warning' : fullScanProgress.running ? 'success' : fullScanProgress.failed ? 'error' : 'secondary'">
+                {{ fullScanProgress.stalled ? 'mdi-timer-alert-outline' : fullScanProgress.running ? 'mdi-progress-clock' : fullScanProgress.failed ? 'mdi-alert-circle-outline' : 'mdi-check-circle-outline' }}
+              </v-icon>
+            </div>
+            <v-progress-linear
+              :model-value="fullScanProgressPercent"
+              :indeterminate="fullScanProgress.running && fullScanProgress.total === 0"
+              color="primary"
+              bg-color="secondary"
+              height="7"
+              rounded
+            />
+
+            <div class="command-detail-grid">
+              <div class="command-detail">
+                <span>当前规则</span>
+                <strong>{{ fullScanProgress.current_rule || '暂无' }}</strong>
+              </div>
+              <div class="command-detail command-detail--path">
+                <span>当前文件</span>
+                <strong :title="fullScanProgress.current_path">{{ fullScanProgress.current_path || '暂无' }}</strong>
+              </div>
+              <div class="command-detail">
+                <span>最近进度</span>
+                <strong>{{ formatTime(fullScanProgress.last_progress_at) }}</strong>
+              </div>
+            </div>
+
+            <div v-if="fullScanProgress.stalled" class="stalled-warning">
+              <v-icon size="18">mdi-alert-outline</v-icon>
+              <span>超过 {{ formatDuration(fullScanProgress.stalled_seconds) }} 没有新的完成记录，可能正在等待 NAS 文件 I/O。</span>
+            </div>
+
+            <div class="result-summary-heading">
+              <strong>处理结果</strong>
+              <span v-if="fullScanProgress.failed" class="danger-number">失败 {{ fullScanProgress.failed }} 个</span>
+            </div>
+            <div class="result-category-grid">
+              <article v-for="category in resultCategories" :key="category.key" class="result-category" :class="'result-category--' + category.tone">
+                <span>{{ category.label }}</span>
+                <strong>{{ fullScanProgress.result_counts?.[category.key] || 0 }}</strong>
+              </article>
+            </div>
           </div>
         </section>
 
@@ -215,29 +355,21 @@
             />
           </div>
 
-          <div class="table-frame">
+          <div class="table-frame recent-task-table">
             <v-table density="comfortable" class="status-table">
               <thead>
                 <tr>
-                  <th>开始时间</th>
                   <th>状态</th>
                   <th>排队</th>
                   <th>已处理</th>
-                  <th>未变化</th>
-                  <th>跳过</th>
-                  <th>失败</th>
                   <th>处理结果</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="run in status.recent_runs" :key="run.run_id">
-                  <td class="time-cell">{{ formatTime(run.started_at) }}</td>
                   <td><span class="status-chip" :class="statusTone(run.status)">{{ displayStatus(run.status) }}</span></td>
                   <td>{{ run.queued ?? 0 }}</td>
                   <td>{{ run.processed ?? 0 }}</td>
-                  <td>{{ run.unchanged ?? 0 }}</td>
-                  <td>{{ run.skipped ?? 0 }}</td>
-                  <td :class="{ 'danger-number': Number(run.failed) > 0 }">{{ run.failed ?? 0 }}</td>
                   <td class="result-cell">
                     <template v-if="resultItems(run).length">
                       <span v-for="item in resultItems(run)" :key="item.key" class="result-inline" :class="`result-inline--${item.tone}`">{{ item.label }} {{ item.count }}</span>
@@ -246,7 +378,7 @@
                   </td>
                 </tr>
                 <tr v-if="!status.recent_runs.length">
-                  <td colspan="8" class="empty-row">暂无任务记录</td>
+                  <td colspan="4" class="empty-row">暂无任务记录</td>
                 </tr>
               </tbody>
             </v-table>
@@ -363,7 +495,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.9' },
+  version: { type: String, default: '2.1.10' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -391,6 +523,34 @@ const status = reactive({
   pending_jobs: 0,
   orphaned_queued: 0,
   engine: { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0 },
+  scan_progress: {
+    running: false,
+    run_id: '',
+    kind: '',
+    phase: 'idle',
+    current_rule: '',
+    current_path: '',
+    total: 0,
+    processed: 0,
+    failed: 0,
+    result_counts: { existing_skipped: 0, copied_non_media: 0, copied_subtitle: 0, generated_strm: 0, failed: 0 },
+    started_at: null,
+    last_progress_at: null,
+    finished_at: null,
+    stalled: false,
+    stalled_seconds: 0,
+  },
+  processing_overview: {
+    media_total: 0,
+    strm_total: 0,
+    media_strm_consistent: true,
+    non_media_total: 0,
+    non_media_completed: 0,
+    subtitle_total: 0,
+    subtitle_completed: 0,
+    ready: false,
+    last_checked_at: null,
+  },
   command_progress: {
     running: false,
     run_id: '',
@@ -415,7 +575,8 @@ const status = reactive({
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.9')
+const fullScanPending = ref(false)
+const version = computed(() => props.version || '2.1.10')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -452,6 +613,35 @@ const runtimeDescription = computed(() => {
   return status.reliable_engine ? '队列、失败记录与清理确认均已纳入状态追踪。' : '开启可靠同步后可获得完整的任务追踪能力。'
 })
 const lastUpdatedLabel = computed(() => lastUpdated.value ? formatTime(lastUpdated.value) : '尚未刷新')
+const scanProgress = computed(() => status.scan_progress)
+const fullScanProgress = computed(() => scanProgress.value)
+const processingOverview = computed(() => status.processing_overview)
+const fullScanProgressPercent = computed(() => {
+  const total = Number(fullScanProgress.value.total || 0)
+  const processed = Number(fullScanProgress.value.processed || 0)
+  return total > 0 ? Math.min(100, (processed / total) * 100) : 0
+})
+const fullScanProgressHasData = computed(() => Boolean(
+  fullScanProgress.value.running
+  || fullScanProgress.value.run_id
+  || fullScanProgress.value.started_at
+  || fullScanProgress.value.finished_at
+))
+const fullScanProgressPhaseLabel = computed(() => ({
+  idle: '未开始',
+  scanning: '扫描处理中',
+  completed: '已完成',
+  completed_with_errors: '部分完成',
+  failed: '失败',
+}[fullScanProgress.value.phase] || fullScanProgress.value.phase || '未知'))
+const overviewConsistencyLabel = computed(() => {
+  if (!processingOverview.value.ready) return '等待核对'
+  return processingOverview.value.media_strm_consistent ? '数量一致' : '数量不一致'
+})
+const overviewConsistencyTone = computed(() => {
+  if (!processingOverview.value.ready) return 'is-pending'
+  return processingOverview.value.media_strm_consistent ? 'is-consistent' : 'is-inconsistent'
+})
 const commandProgress = computed(() => status.command_progress)
 const commandProgressCompleted = computed(() => (
   Number(commandProgress.value.processed || 0)
@@ -519,7 +709,12 @@ function displayStatus(value) {
 }
 
 function resultItems(run = {}) {
-  const counts = run.result_counts || {}
+  const rawCounts = run.result_counts || {}
+  const counts = {
+    ...rawCounts,
+    // Keep older task rows readable after the table was reduced to four columns.
+    existing_skipped: Number(rawCounts.existing_skipped || 0) || Number(run.skipped || 0),
+  }
   return resultCategories
     .map(category => ({ ...category, count: Number(counts[category.key] || 0) }))
     .filter(item => item.count > 0)
@@ -528,6 +723,18 @@ function resultItems(run = {}) {
 function applyStatus(data = {}) {
   Object.assign(status, data)
   status.engine = { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0, ...(data.engine || {}) }
+  status.scan_progress = {
+    ...status.scan_progress,
+    ...(data.scan_progress || {}),
+    result_counts: {
+      ...status.scan_progress.result_counts,
+      ...(data.scan_progress?.result_counts || {}),
+    },
+  }
+  status.processing_overview = {
+    ...status.processing_overview,
+    ...(data.processing_overview || {}),
+  }
   status.command_progress = {
     ...status.command_progress,
     ...(data.command_progress || {}),
@@ -539,6 +746,22 @@ function applyStatus(data = {}) {
   }
   status.recent_runs = Array.isArray(data.recent_runs) ? data.recent_runs : []
   status.cleanup_batches = Array.isArray(data.cleanup_batches) ? data.cleanup_batches : []
+}
+
+async function startFullScan() {
+  if (!props.api?.post || fullScanPending.value || status.scan_running || status.command_running) return
+  fullScanPending.value = true
+  error.value = ''
+  try {
+    const response = await props.api.post('plugin/CloudStrmButler/sync_full_scan', {})
+    const result = unwrapApiResponse(response)
+    if (result?.code !== 0) throw new Error(result?.msg || '全量处理启动失败')
+    await load()
+  } catch (err) {
+    error.value = err.message || '全量处理启动失败'
+  } finally {
+    fullScanPending.value = false
+  }
 }
 
 async function load() {
@@ -726,6 +949,8 @@ onUnmounted(() => {
 .shell-alert { margin-bottom: 22px; }
 
 .page-intro { align-items: flex-end; justify-content: space-between; margin-bottom: 24px; }
+.intro-actions { align-items: flex-end; display: flex; flex-direction: column; gap: 7px; margin-left: 24px; }
+.intro-actions > span { color: var(--cs-dim); font-size: 11px; text-align: right; }
 .eyebrow { color: var(--cs-primary-soft); display: block; font-size: 10px; font-weight: 800; letter-spacing: 1.1px; margin-bottom: 8px; }
 h1, h2, p { margin: 0; }
 h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
@@ -777,6 +1002,32 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .metric-tile strong { display: block; font-size: 28px; font-weight: 700; line-height: 1; margin-top: 22px; }
 .metric-tile--accent strong { color: var(--cs-primary-soft); }
 .metric-caption { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 8px; }
+
+.processing-overview-section { margin-bottom: 24px; }
+.overview-refresh-state { color: var(--cs-dim); font-size: 11px; white-space: nowrap; }
+.overview-refresh-state.is-ready { color: var(--cs-success); }
+.processing-overview-grid { display: grid; gap: 12px; grid-template-columns: minmax(1.25fr, 1.3fr) repeat(2, minmax(0, 1fr)); }
+.processing-overview-card {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-line);
+  border-radius: 8px;
+  min-height: 142px;
+  padding: 15px 16px 13px;
+}
+.processing-overview-card--strm { border-color: rgba(124, 77, 255, .42); }
+.overview-card-heading { align-items: center; color: var(--cs-muted); display: flex; font-size: 12px; justify-content: space-between; }
+.overview-card-heading .v-icon { color: var(--cs-dim); }
+.processing-overview-card--strm .overview-card-heading .v-icon { color: var(--cs-primary-soft); }
+.overview-pair { align-items: baseline; display: flex; gap: 6px; margin-top: 22px; min-width: 0; }
+.overview-pair strong { color: var(--cs-text); font-size: 26px; font-weight: 700; line-height: 1; }
+.processing-overview-card--strm .overview-pair strong:last-of-type { color: var(--cs-primary-soft); }
+.overview-pair span { color: var(--cs-muted); font-size: 11px; white-space: nowrap; }
+.overview-pair .overview-divider { color: var(--cs-dim); font-size: 17px; margin: 0 2px; }
+.overview-card-note { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 9px; }
+.overview-card-status { align-items: center; display: inline-flex; font-size: 11px; gap: 4px; margin-top: 10px; }
+.overview-card-status.is-consistent { color: var(--cs-success); }
+.overview-card-status.is-inconsistent { color: var(--cs-danger); }
+.overview-card-status.is-pending { color: var(--cs-warning); }
 
 .command-progress-frame {
   background: var(--cs-surface);
@@ -909,6 +1160,8 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .tab-bar { grid-column: 1 / -1; grid-row: 2; margin-left: 0; min-height: 50px; }
   .tab-button { min-height: 50px; padding: 0 14px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .processing-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .processing-overview-card--strm { grid-column: 1 / -1; }
   .result-category-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .command-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-detail--path { grid-column: 1 / -1; }
@@ -923,12 +1176,15 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .brand-mark { flex-basis: 34px; height: 34px; width: 34px; }
   .shell-content { padding: 22px 14px 32px; }
   .page-intro { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .intro-actions { align-items: flex-start; margin-left: 0; width: 100%; }
+  .intro-actions > span { text-align: left; }
   .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
   .runtime-banner { align-items: flex-start; }
   .banner-copy span { white-space: normal; }
   .scope-note { text-align: right; white-space: normal; }
   .metric-grid { gap: 9px; }
-  .result-category-grid, .command-detail-grid { grid-template-columns: 1fr 1fr; }
+  .result-category-grid, .command-detail-grid, .processing-overview-grid { grid-template-columns: 1fr 1fr; }
+  .processing-overview-card--strm { grid-column: 1 / -1; }
   .result-category:last-child { grid-column: 1 / -1; }
   .metric-tile { min-height: 116px; padding: 13px; }
   .metric-tile strong { font-size: 25px; margin-top: 18px; }

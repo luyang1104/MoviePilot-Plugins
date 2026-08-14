@@ -270,9 +270,10 @@ class TaskStore:
             )
             if completed < int(row["queued"]):
                 return False
+            final_status = "completed_with_errors" if int(row["failed"]) else "completed"
             self._conn.execute(
-                "UPDATE task_runs SET status = 'completed', finished_at = ? WHERE run_id = ?",
-                (time.time(), run_id),
+                "UPDATE task_runs SET status = ?, finished_at = ? WHERE run_id = ?",
+                (final_status, time.time(), run_id),
             )
             self._conn.commit()
             return True

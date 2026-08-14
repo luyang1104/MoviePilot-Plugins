@@ -74,7 +74,13 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(plugin.get_service(), [])
         self.assertEqual(
             [item["path"] for item in plugin.get_api()],
-            ["/sync_status", "/sync_failures", "/sync_retry_failure", "/sync_confirm_cleanup"],
+            [
+                "/sync_status",
+                "/sync_failures",
+                "/sync_retry_failure",
+                "/sync_confirm_cleanup",
+                "/sync_full_scan",
+            ],
         )
 
     def test_status_api_paths_use_moviepilot_plugin_id_case(self):
@@ -501,6 +507,116 @@ class PluginTests(unittest.TestCase):
         self.assertIsNone(plugin._task_store)
         self.assertIsNone(plugin._state_store)
 
+    def test_stop_service_does_not_close_stores_while_full_scan_is_running(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin._command_shutdown_timeout = 0.05
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            self.assertEqual(plugin.sync_full_scan_api({})["code"], 0)
+            self.assertTrue(started.wait(1))
+            self.assertFalse(plugin.stop_service())
+            self.assertIsNotNone(plugin._task_store)
+            self.assertIsNotNone(plugin._state_store)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["scan_running"]))
+        self.assertTrue(plugin.stop_service())
+        self.assertIsNone(plugin._task_store)
+        self.assertIsNone(plugin._state_store)
+
+    def test_reliable_full_scan_keeps_state_open_until_queue_job_finishes(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin._command_shutdown_timeout = 0.05
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "monitor": False,
+                "reliable_engine": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path, wait_stable=False):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            self.assertEqual(plugin.sync_full_scan_api({})["code"], 0)
+            self.assertTrue(started.wait(1))
+            self.assertTrue(plugin.sync_status_api()["data"]["scan_running"])
+            self.assertFalse(plugin.stop_service())
+            self.assertIsNotNone(plugin._task_store)
+            self.assertIsNotNone(plugin._state_store)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["scan_running"]))
+        self.assertTrue(plugin.stop_service())
+        self.assertIsNone(plugin._task_store)
+        self.assertIsNone(plugin._state_store)
+
+    def test_reliable_scan_counts_job_before_immediate_engine_completion(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+
+        class ImmediateEngine:
+            def __init__(self, owner):
+                self.owner = owner
+
+            def enqueue(self, monitor_root, path, action, payload=None):
+                job = type("Job", (), {"payload": payload or {}})()
+                self.owner._complete_reliable_job(
+                    job,
+                    {"status": "processed", "result_statuses": ["generated_strm"]},
+                )
+                return True
+
+            def snapshot(self):
+                return {"memory_queued": 0, "inflight": 0, "scheduled": 0, "workers": 0}
+
+            def stop(self):
+                pass
+
+        plugin._reliable_engine = True
+        plugin._sync_engine = ImmediateEngine(plugin)
+
+        self.assertTrue(plugin.scan("manual_full"))
+        status = plugin.sync_status_api()["data"]
+        self.assertFalse(status["scan_running"])
+        self.assertEqual(status["recent_runs"][0]["queued"], 1)
+        self.assertEqual(status["recent_runs"][0]["processed"], 1)
+
     def test_subtitle_formats_are_loaded_and_returned_by_form(self):
         plugin = self.make_plugin(self.new_temp() / "data")
         plugin.init_plugin(
@@ -594,6 +710,243 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(run["queued"], 1)
         self.assertEqual(run["processed"], 1)
         self.assertEqual(run["status"], "completed")
+
+    def test_status_exposes_processing_overview_counts(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+
+        result = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        self.assertEqual(result["status"], "processed")
+
+        overview = plugin.sync_status_api()["data"]["processing_overview"]
+
+        self.assertEqual(overview["media_total"], 1)
+        self.assertEqual(overview["strm_total"], 1)
+        self.assertTrue(overview["media_strm_consistent"])
+        self.assertEqual(overview["non_media_total"], 1)
+        self.assertEqual(overview["non_media_completed"], 1)
+        self.assertEqual(overview["subtitle_total"], 1)
+        self.assertEqual(overview["subtitle_completed"], 1)
+
+    def test_processing_overview_refresh_counts_media_sidecars_and_invalidates_after_processing(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+
+        first = plugin.sync_status_api()["data"]["processing_overview"]
+        self.assertFalse(first["ready"])
+        self.assertTrue(self.wait_until(lambda: plugin.sync_status_api()["data"]["processing_overview"]["ready"]))
+        self.assertEqual(plugin.sync_status_api()["data"]["processing_overview"]["media_total"], 0)
+
+        media_file = source / "movie.mkv"
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+        media_file.write_bytes(b"movie")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        def refreshed():
+            overview = plugin.sync_status_api()["data"]["processing_overview"]
+            return overview["ready"] and overview["media_total"] == 1 and overview["strm_total"] == 1
+
+        self.assertTrue(self.wait_until(refreshed))
+        overview = plugin.sync_status_api()["data"]["processing_overview"]
+        self.assertEqual(overview["non_media_total"], 1)
+        self.assertEqual(overview["non_media_completed"], 1)
+        self.assertEqual(overview["subtitle_total"], 1)
+        self.assertEqual(overview["subtitle_completed"], 1)
+
+    def test_processing_overview_does_not_double_count_sidecars_after_full_scan(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+
+        plugin.scan("manual_full")
+        overview = plugin.sync_status_api()["data"]["processing_overview"]
+
+        self.assertEqual(overview["media_total"], 1)
+        self.assertEqual(overview["strm_total"], 1)
+        self.assertEqual(overview["non_media_total"], 1)
+        self.assertEqual(overview["non_media_completed"], 1)
+        self.assertEqual(overview["subtitle_total"], 1)
+        self.assertEqual(overview["subtitle_completed"], 1)
+
+    def test_full_scan_counts_media_sidecars_once(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+
+        plugin.scan("manual_full")
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+
+        self.assertEqual(run["result_counts"]["generated_strm"], 1)
+        self.assertEqual(run["result_counts"]["copied_non_media"], 1)
+        self.assertEqual(run["result_counts"]["copied_subtitle"], 1)
+        self.assertEqual(run["result_counts"]["existing_skipped"], 0)
+
+    def test_full_scan_sidecar_result_is_stable_when_directory_lists_sidecar_first(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+
+        walked = [(str(source), [], ["movie.nfo", "movie.srt", "movie.mkv"])]
+        with patch("os.walk", return_value=walked):
+            plugin.scan("manual_full")
+
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["result_counts"]["generated_strm"], 1)
+        self.assertEqual(run["result_counts"]["copied_non_media"], 1)
+        self.assertEqual(run["result_counts"]["copied_subtitle"], 1)
+
+    def test_full_scan_api_runs_in_background_and_skips_existing_outputs(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        first = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        self.assertEqual(first["status"], "processed")
+
+        response = plugin.sync_full_scan_api({})
+
+        self.assertEqual(response["code"], 0)
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["scan_running"]))
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["kind"], "manual_full")
+        self.assertGreaterEqual(run["result_counts"]["existing_skipped"], 1)
+        self.assertEqual(run["result_counts"]["generated_strm"], 0)
+
+    def test_full_scan_skips_existing_strm_and_generates_missing_strm(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        existing_file = source / "existing.mkv"
+        missing_file = source / "missing.mkv"
+        existing_file.write_bytes(b"existing")
+        missing_file.write_bytes(b"missing")
+        first = plugin._CloudStrmButler__handle_file(str(existing_file), str(source))
+        self.assertEqual(first["status"], "processed")
+
+        response = plugin.sync_full_scan_api({})
+
+        self.assertEqual(response["code"], 0)
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["scan_running"]))
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertGreaterEqual(run["result_counts"]["existing_skipped"], 1)
+        self.assertGreaterEqual(run["result_counts"]["generated_strm"], 1)
+        self.assertTrue((target / "existing.strm").is_file())
+        self.assertTrue((target / "missing.strm").is_file())
+
+    def test_full_scan_api_rejects_manual_command_overlap(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin({"enabled": False})
+        plugin._command_running = True
+
+        response = plugin.sync_full_scan_api({})
+
+        self.assertNotEqual(response["code"], 0)
+        self.assertIn("执行", response["msg"])
+
+    def test_manual_command_rejects_full_scan_overlap(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        (source / "movie.mkv").write_bytes(b"movie")
+        plugin._scan_running = True
+
+        plugin.remote_sync_one(
+            FakeEvent(
+                {
+                    "action": "strm_one",
+                    "arg_str": str(source),
+                    "user": "user-1",
+                    "channel": "channel-1",
+                }
+            )
+        )
+
+        self.assertTrue(self.wait_until(lambda: len(plugin.messages) == 1))
+        self.assertIn("无法执行", plugin.messages[0]["title"])
+        plugin._scan_running = False
+
+    def test_scan_without_task_store_finishes_progress(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin({"enabled": False})
+        plugin._task_store = None
+
+        self.assertTrue(plugin.scan("manual_full"))
+        self.assertFalse(plugin.sync_status_api()["data"]["scan_progress"]["running"])
 
     def test_remote_command_reports_missing_path_as_failure(self):
         base = self.new_temp()

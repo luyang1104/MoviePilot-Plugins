@@ -65,6 +65,13 @@ class TaskStoreTests(unittest.TestCase):
         self.assertTrue(self.store.finish_run_if_settled(run_id))
         self.assertEqual(self.store.status()["recent_runs"][0]["status"], "completed")
 
+    def test_settled_run_with_failures_is_marked_completed_with_errors(self):
+        run_id = self.store.start_run("scan")
+        self.store.update_run(run_id, queued=2, processed=1, failed=1)
+
+        self.assertTrue(self.store.finish_run_if_settled(run_id))
+        self.assertEqual(self.store.status()["recent_runs"][0]["status"], "completed_with_errors")
+
 
 if __name__ == "__main__":
     unittest.main()

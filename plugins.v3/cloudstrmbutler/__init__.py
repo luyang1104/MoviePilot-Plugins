@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.9"
+    plugin_version = "2.1.10"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -184,7 +184,11 @@ class CloudStrmButler(_PluginBase):
         self._active_lock = threading.Lock()
         self._active_paths = set()
         self._scan_guard = threading.Lock()
+        self._scan_launch_lock = threading.Lock()
         self._scan_running = False
+        self._scan_thread = None
+        self._scan_progress_lock = threading.RLock()
+        self._scan_progress = self._new_scan_progress()
         self._command_running = False
         self._command_thread = None
         self._command_progress_lock = threading.RLock()
@@ -193,6 +197,9 @@ class CloudStrmButler(_PluginBase):
         self._task_store = None
         self._sync_engine = None
         self._config_fingerprint = ""
+        self._processing_overview_lock = threading.RLock()
+        self._processing_overview_cache = None
+        self._processing_overview_refreshing = False
 
     def init_plugin(self, config: dict = None):
         if not self.stop_service():
@@ -386,33 +393,134 @@ class CloudStrmButler(_PluginBase):
                 logger.error(f"{rule.local_dir} 启动实时监控失败：{message}")
             self.systemmessage.put(f"{rule.local_dir} 启动实时监控失败：{message}")
 
-    def scan(self):
+    @staticmethod
+    def _new_scan_progress() -> Dict[str, Any]:
+        return {
+            "running": False,
+            "run_id": "",
+            "kind": "",
+            "phase": "idle",
+            "current_rule": "",
+            "current_path": "",
+            "total": 0,
+            "processed": 0,
+            "failed": 0,
+            "result_counts": {
+                "existing_skipped": 0,
+                "copied_non_media": 0,
+                "copied_subtitle": 0,
+                "generated_strm": 0,
+                "failed": 0,
+            },
+            "started_at": None,
+            "last_progress_at": None,
+            "finished_at": None,
+        }
+
+    def _update_scan_progress(self, **updates) -> None:
+        with self._scan_progress_lock:
+            self._scan_progress.update(updates)
+
+    def _scan_progress_snapshot(self) -> Dict[str, Any]:
+        with self._scan_progress_lock:
+            snapshot = dict(self._scan_progress)
+            snapshot["result_counts"] = dict(self._scan_progress.get("result_counts") or {})
+        last_progress_at = snapshot.get("last_progress_at")
+        stalled_seconds = max(0, int(time.time() - float(last_progress_at))) if snapshot.get("running") and last_progress_at else 0
+        snapshot["stalled_seconds"] = stalled_seconds
+        snapshot["stalled"] = bool(snapshot.get("running") and stalled_seconds >= self._command_stall_seconds)
+        return snapshot
+
+    def _record_scan_discovered(self, rule: MonitorRule, path: str) -> None:
+        with self._scan_progress_lock:
+            self._scan_progress["total"] = int(self._scan_progress.get("total") or 0) + 1
+            self._scan_progress["current_rule"] = rule.local_dir
+            self._scan_progress["current_path"] = path
+            self._scan_progress["last_progress_at"] = time.time()
+
+    def _record_scan_result(self, run_id: Optional[str], result: Optional[dict]) -> None:
+        result = result or {}
+        with self._scan_progress_lock:
+            if run_id and self._scan_progress.get("run_id") != run_id:
+                return
+            if not run_id and not self._scan_progress.get("running"):
+                return
+            self._scan_progress["processed"] = int(self._scan_progress.get("processed") or 0) + 1
+            status = str(result.get("status") or "skipped").lower()
+            if status in {"failed", "unstable", "invalid_target", "invalid_cloud", "invalid_content"}:
+                self._scan_progress["failed"] = int(self._scan_progress.get("failed") or 0) + 1
+            if not result.get("count_only"):
+                default_status = {"processed": "generated_strm", "unchanged": "existing_skipped", "failed": "failed"}.get(status, "existing_skipped")
+                self._merge_result_counts(self._scan_progress["result_counts"], self._normalise_result_statuses(result.get("result_statuses"), default_status))
+            self._scan_progress["last_progress_at"] = time.time()
+
+    def _finish_scan_progress(self, run_id: Optional[str], phase: str = "completed") -> None:
+        with self._scan_progress_lock:
+            if run_id and self._scan_progress.get("run_id") != run_id:
+                return
+            if not run_id and not self._scan_progress.get("running"):
+                return
+            finished_at = time.time()
+            self._scan_progress.update(running=False, phase=phase, current_path="", finished_at=finished_at, last_progress_at=finished_at)
+
+    def _scan_is_active(self) -> bool:
+        thread = self._scan_thread
+        other_thread_running = bool(thread and thread.is_alive() and thread is not threading.current_thread())
+        return bool(self._scan_running or self._scan_progress_snapshot().get("running") or other_thread_running)
+
+    def scan(self, kind: str = "scan"):
         """Run an idempotent full directory reconciliation."""
+        if self._command_running or self._scan_is_active():
+            logger.warning("已有手动扫描正在执行，跳过本次全量扫描请求")
+            return False
         if not self._scan_guard.acquire(blocking=False):
             logger.warning("已有增量扫描正在执行，跳过本次请求")
-            return
+            return False
         self._scan_running = True
         started = time.monotonic()
-        run_id = self._task_store.start_run("scan") if self._task_store else None
+        run_id = self._task_store.start_run(kind) if self._task_store else None
+        now = time.time()
+        self._update_scan_progress(
+            **{
+                **self._new_scan_progress(),
+                "running": True,
+                "run_id": run_id or "",
+                "kind": kind,
+                "phase": "scanning",
+                "started_at": now,
+                "last_progress_at": now,
+            }
+        )
         try:
             logger.info("开始增量执行")
             for rule in self._monitor_rules:
+                self._update_scan_progress(current_rule=rule.local_dir, current_path=rule.local_dir)
                 self._scan_rule(rule, run_id=run_id)
             logger.info("增量执行完成，耗时 %.1f 秒", time.monotonic() - started)
             if run_id and self._task_store:
                 if self._reliable_engine:
-                    self._task_store.finish_run_if_settled(run_id)
+                    settled = self._task_store.finish_run_if_settled(run_id)
+                    if settled:
+                        self._finish_scan_progress(run_id)
                 elif self._scan_run_failed(run_id):
                     self._task_store.finish_run(run_id, status="completed_with_errors")
+                    self._finish_scan_progress(run_id, phase="completed_with_errors")
                 else:
                     self._task_store.finish_run(run_id, status="completed")
+                    self._finish_scan_progress(run_id)
+            else:
+                self._finish_scan_progress(run_id)
         except Exception as exc:
             if run_id and self._task_store:
                 self._task_store.finish_run(run_id, status="failed", message=str(exc))
+            self._finish_scan_progress(run_id, phase="failed")
             raise
         finally:
             self._scan_running = False
             self._scan_guard.release()
+            if self._scan_thread is threading.current_thread():
+                self._scan_thread = None
+        return True
 
     def _scan_run_failed(self, run_id: str) -> bool:
         if not self._task_store:
@@ -423,35 +531,173 @@ class CloudStrmButler(_PluginBase):
             if run.get("run_id") == run_id
         )
 
+    def _invalidate_processing_overview(self) -> None:
+        with self._processing_overview_lock:
+            self._processing_overview_cache = None
+
+    def _index_processing_overview(self) -> Dict[str, Any]:
+        counts = {
+            "media_total": 0,
+            "strm_total": 0,
+            "non_media_total": 0,
+            "non_media_completed": 0,
+            "subtitle_total": 0,
+            "subtitle_completed": 0,
+        }
+        if not self._state_store:
+            return {**counts, "media_strm_consistent": True, "ready": False, "last_checked_at": None}
+        records = [
+            record
+            for rule in self._monitor_rules
+            for record in self._state_store.records_for_root(rule.local_dir)
+        ]
+        output_owners = {}
+        for record in records:
+            for output in record.outputs:
+                output_owners.setdefault(path_key(output), set()).add(record.source_rel)
+        for record in records:
+            suffix = Path(record.source_rel).suffix.lower()
+            output_suffixes = {Path(output).suffix.lower() for output in record.outputs}
+            if suffix in self._media_extensions:
+                counts["media_total"] += 1
+                if ".strm" in output_suffixes:
+                    counts["strm_total"] += 1
+                for output in record.outputs:
+                    output_key = path_key(output)
+                    output_suffix = Path(output).suffix.lower()
+                    # A sidecar can be persisted both with its media record and
+                    # as its own record when a directory scan sees both files.
+                    if len(output_owners.get(output_key, set())) > 1:
+                        continue
+                    if output_suffix in self._other_extensions and self._copy_files:
+                        counts["non_media_total"] += 1
+                        if Path(output).is_file():
+                            counts["non_media_completed"] += 1
+                    if output_suffix in self._subtitle_extensions and self._copy_subtitles:
+                        counts["subtitle_total"] += 1
+                        if Path(output).is_file():
+                            counts["subtitle_completed"] += 1
+            elif suffix in self._other_extensions and self._copy_files:
+                counts["non_media_total"] += 1
+                if all(Path(output).is_file() for output in record.outputs):
+                    counts["non_media_completed"] += 1
+            elif suffix in self._subtitle_extensions and self._copy_subtitles:
+                counts["subtitle_total"] += 1
+                if all(Path(output).is_file() for output in record.outputs):
+                    counts["subtitle_completed"] += 1
+        return {
+            **counts,
+            "media_strm_consistent": counts["media_total"] == counts["strm_total"],
+            "ready": False,
+            "last_checked_at": None,
+        }
+
+    def _refresh_processing_overview(self) -> None:
+        try:
+            counts = {
+                "media_total": 0,
+                "strm_total": 0,
+                "non_media_total": 0,
+                "non_media_completed": 0,
+                "subtitle_total": 0,
+                "subtitle_completed": 0,
+            }
+            for rule in self._monitor_rules:
+                if not Path(rule.local_dir).is_dir():
+                    continue
+                for root, _dirs, files in os.walk(rule.local_dir):
+                    for file_name in files:
+                        source_file = Path(root) / file_name
+                        suffix = source_file.suffix.lower()
+                        target_file = self.__remap_path(str(source_file), rule.local_dir, rule.strm_dir)
+                        if suffix in self._media_extensions:
+                            counts["media_total"] += 1
+                            strm_path = Path(target_file).with_suffix(".strm") if target_file else None
+                            if strm_path and strm_path.is_file():
+                                counts["strm_total"] += 1
+                        elif suffix in self._other_extensions and self._copy_files:
+                            counts["non_media_total"] += 1
+                            if target_file and Path(target_file).is_file():
+                                counts["non_media_completed"] += 1
+                        elif suffix in self._subtitle_extensions and self._copy_subtitles:
+                            counts["subtitle_total"] += 1
+                            if target_file and Path(target_file).is_file():
+                                counts["subtitle_completed"] += 1
+            with self._processing_overview_lock:
+                self._processing_overview_cache = {
+                    **counts,
+                    "media_strm_consistent": counts["media_total"] == counts["strm_total"],
+                    "ready": True,
+                    "last_checked_at": time.time(),
+                }
+        except Exception as exc:
+            logger.warning("刷新处理概览失败：%s", exc)
+        finally:
+            with self._processing_overview_lock:
+                self._processing_overview_refreshing = False
+
+    def _processing_overview(self) -> Dict[str, Any]:
+        with self._processing_overview_lock:
+            cached = dict(self._processing_overview_cache or {})
+            refreshing = self._processing_overview_refreshing
+        if not cached:
+            cached = self._index_processing_overview()
+            with self._processing_overview_lock:
+                self._processing_overview_cache = dict(cached)
+        if not refreshing:
+            with self._processing_overview_lock:
+                self._processing_overview_refreshing = True
+            threading.Thread(target=self._refresh_processing_overview, name="cloudstrmbutler-overview", daemon=True).start()
+        return cached
+
     def _scan_rule(self, rule: MonitorRule, run_id: Optional[str] = None):
         """Walk one monitor root and reconcile it with the persisted index."""
         if not Path(rule.local_dir).is_dir():
             logger.error(f"监控目录不可用：{rule.local_dir}")
             return
         seen = set()
+        covered_sidecars = set()
         completed = True
         try:
             for root, _dirs, files in os.walk(rule.local_dir):
+                # Mark media sidecars before processing this directory so the
+                # result counts do not depend on filesystem listing order.
+                for file_name in files:
+                    media_path = Path(root) / file_name
+                    if media_path.suffix.lower() in self._media_extensions:
+                        covered_sidecars.update(
+                            path_key(sidecar)
+                            for sidecar in self._iter_sidecars(media_path)
+                            if self._should_copy_sidecar(str(sidecar))
+                        )
                 for file_name in files:
                     source_file = os.path.join(root, file_name)
                     relative = relative_path(source_file, rule.local_dir)
                     if relative is None:
                         continue
                     seen.add(str(relative).replace("\\", "/"))
+                    self._record_scan_discovered(rule, source_file)
+                    source_path_key = path_key(source_file)
+                    if source_path_key in covered_sidecars:
+                        self._record_scan_result(run_id, {"status": "covered", "count_only": True})
+                        continue
                     if is_ignored_path(source_file) or is_temporary_path(source_file):
                         if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1, skipped=1)
                             self._task_store.update_run_result_counts(run_id, {"existing_skipped": 1})
+                        self._record_scan_result(run_id, {"status": "skipped", "result_statuses": ["existing_skipped"]})
                         continue
                     if self._reliable_engine and self._sync_engine:
                         payload = {"run_id": run_id} if run_id else None
-                        if self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload) and run_id and self._task_store:
+                        if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
+                        self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload)
                     else:
                         if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
                         result = self.__handle_file(event_path=source_file, mon_path=rule.local_dir)
                         self._record_run_result(run_id, result)
+                        self._record_scan_result(run_id, result)
         except OSError as exc:
             completed = False
             logger.error(f"遍历监控目录失败：{rule.local_dir} - {exc}")
@@ -545,8 +791,10 @@ class CloudStrmButler(_PluginBase):
     def _complete_reliable_job(self, job: PendingJob, result: dict):
         run_id = job.payload.get("run_id")
         self._record_run_result(run_id, result)
+        self._record_scan_result(run_id, result)
         if run_id and self._task_store:
-            self._task_store.finish_run_if_settled(run_id)
+            if self._task_store.finish_run_if_settled(run_id):
+                self._finish_scan_progress(run_id)
 
     @eventmanager.register(EventType.PluginAction)
     def strm_one(self, event: Event = None):
@@ -721,6 +969,7 @@ class CloudStrmButler(_PluginBase):
                     outputs=outputs,
                     config_fingerprint=self._config_fingerprint,
                 )
+            self._invalidate_processing_overview()
             return {
                 "status": "processed",
                 "outputs": outputs,
@@ -1253,6 +1502,13 @@ class CloudStrmButler(_PluginBase):
         initial_failures: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         summary = self._new_command_summary()
+        if self._scan_is_active():
+            summary["total"] = 1
+            summary["failed"] = 1
+            summary["result_counts"]["failed"] = 1
+            summary["errors"].append("全量处理正在执行，当前手动命令无法执行")
+            self._post_command_summary(event, label + "（无法执行）", summary)
+            return summary
         if not self._command_guard.acquire(blocking=False):
             summary["total"] = 1
             summary["failed"] = 1
@@ -1544,6 +1800,7 @@ class CloudStrmButler(_PluginBase):
             {"path": "/sync_failures", "endpoint": self.sync_failures_api, "methods": ["GET"], "auth": "bear", "summary": "同步失败记录"},
             {"path": "/sync_retry_failure", "endpoint": self.sync_retry_failure_api, "methods": ["POST"], "auth": "bear", "summary": "重试同步失败"},
             {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
+            {"path": "/sync_full_scan", "endpoint": self.sync_full_scan_api, "methods": ["POST"], "auth": "bear", "summary": "执行一次全量处理"},
         ]
 
     def sync_status_api(self) -> Dict[str, Any]:
@@ -1554,15 +1811,17 @@ class CloudStrmButler(_PluginBase):
         monitor_active = bool(self._observer)
         active_queued = pending_jobs if queue_active else 0
         orphaned_queued = max(0, pending_jobs - active_queued)
+        scan_progress = self._scan_progress_snapshot()
+        scan_running = bool(self._scan_running or scan_progress.get("running"))
         service_running = bool(
             self._command_running
-            or self._scan_running
+            or scan_running
             or monitor_active
             or queue_active
         )
         if self._command_running:
             service_state = "command_running"
-        elif self._scan_running:
+        elif scan_running:
             service_state = "scan_running"
         elif orphaned_queued:
             service_state = "pending_recovery"
@@ -1580,14 +1839,14 @@ class CloudStrmButler(_PluginBase):
             service_state = "disabled"
         service_busy = bool(
             self._command_running
-            or self._scan_running
+            or scan_running
             or int(engine.get("inflight") or 0) > 0
             or service_state == "queue_running"
         )
         status.update({
             "enabled": self._enabled,
             "reliable_engine": self._reliable_engine,
-            "scan_running": self._scan_running,
+            "scan_running": scan_running,
             "command_running": self._command_running,
             "monitor_active": monitor_active,
             "queue_active": queue_active,
@@ -1599,8 +1858,25 @@ class CloudStrmButler(_PluginBase):
             "active_queued": active_queued,
             "engine": engine,
             "command_progress": self._command_progress_snapshot(),
+            "scan_progress": scan_progress,
+            "processing_overview": self._processing_overview(),
         })
         return {"code": 0, "data": status}
+
+    def sync_full_scan_api(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Start one idempotent full scan without blocking the API request."""
+        with self._scan_launch_lock:
+            if self._command_running or self._scan_is_active():
+                return {"code": 1, "msg": "已有扫描正在执行，请等待当前任务完成"}
+            worker = threading.Thread(
+                target=self.scan,
+                args=("manual_full",),
+                name="cloudstrmbutler-full-scan",
+                daemon=True,
+            )
+            self._scan_thread = worker
+            worker.start()
+        return {"code": 0, "data": {"kind": "manual_full", "status": "started"}, "msg": "全量处理已开始"}
 
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:
         failures = self._task_store.failures(limit=limit) if self._task_store else []
@@ -1829,6 +2105,23 @@ class CloudStrmButler(_PluginBase):
                 self._scheduler.shutdown()
                 self._event.clear()
             self._scheduler = None
+        scan_thread = self._scan_thread
+        if scan_thread and scan_thread.is_alive():
+            scan_thread.join(timeout=max(0, float(self._command_shutdown_timeout)))
+        if scan_thread and scan_thread.is_alive():
+            logger.warning(
+                "全量处理仍在运行，保留状态数据库等待任务完成：%s",
+                self._scan_progress_snapshot().get("current_path") or "未知文件",
+            )
+            return False
+        scan_progress = self._scan_progress_snapshot()
+        if scan_progress.get("running"):
+            logger.warning(
+                "全量处理仍有可靠队列任务未结算，保留状态数据库等待任务完成：%s",
+                scan_progress.get("current_path") or "未知文件",
+            )
+            return False
+        self._scan_thread = None
         if self._sync_engine:
             self._sync_engine.stop()
             self._sync_engine = None
