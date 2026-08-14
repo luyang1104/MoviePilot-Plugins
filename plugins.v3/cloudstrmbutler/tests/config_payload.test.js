@@ -33,6 +33,7 @@ test('buildConfigPayload preserves settings and marks removed rule slots', () =>
     reliable_engine: false,
     cleanup_mode: 'confirm',
     cleanup_probe: '.probe',
+    subtitle_formats: '.srt, .vtt',
     rules: [{
       category: ['movie', '4K'],
       local: '/source',
@@ -54,6 +55,7 @@ test('buildConfigPayload preserves settings and marks removed rule slots', () =>
   assert.equal(payload.rule_1_delete, true)
   assert.equal(payload.rule_0_local, '/source')
   assert.equal(payload.rule_0_format, 'http://host/{cloud_file}')
+  assert.equal(payload.subtitle_formats, '.srt, .vtt')
 })
 
 test('buildConfigPayload preserves Chinese paths, categories, and cloud template tokens', () => {

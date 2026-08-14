@@ -89,14 +89,23 @@
           </v-chip>
         </section>
 
-        <div class="metric-grid" aria-label="同步指标">
+        <section class="content-section engine-metrics-section" aria-labelledby="engine-metrics-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <h2 id="engine-metrics-title">可靠同步引擎指标</h2>
+              <p>以下四项只统计可靠同步引擎；手动 /strm 扫描会在下方单独显示。</p>
+            </div>
+            <span class="scope-note">手动 /strm：独立统计</span>
+          </div>
+
+          <div class="metric-grid" aria-label="可靠同步引擎指标">
           <article class="metric-tile">
             <div class="metric-heading">
-              <span>{{ status.queue_active ? '活动持久化队列' : (status.pending_jobs ? '待恢复队列' : '持久化队列') }}</span>
+              <span>持久化队列</span>
               <v-icon size="18">mdi-database-outline</v-icon>
             </div>
             <strong>{{ status.queued }}</strong>
-            <span class="metric-caption">{{ status.queue_active ? '等待进入同步流程' : (status.pending_jobs ? '可靠同步引擎未启动' : '当前没有持久化任务') }}</span>
+            <span class="metric-caption">{{ status.queue_active ? '等待可靠引擎处理的任务' : (status.pending_jobs ? '引擎未运行，任务会保留待恢复' : '可靠任务队列当前为空') }}</span>
           </article>
           <article class="metric-tile">
             <div class="metric-heading">
@@ -104,25 +113,90 @@
               <v-icon size="18">mdi-memory</v-icon>
             </div>
             <strong>{{ status.engine.memory_queued }}</strong>
-            <span class="metric-caption">已载入引擎的任务</span>
+            <span class="metric-caption">已载入可靠引擎、等待执行的内容</span>
           </article>
           <article class="metric-tile metric-tile--accent">
             <div class="metric-heading">
-              <span>处理中</span>
+              <span>处理中（可靠引擎）</span>
               <v-icon size="18">mdi-sync</v-icon>
             </div>
             <strong>{{ status.engine.inflight }}</strong>
-            <span class="metric-caption">当前正在处理</span>
+            <span class="metric-caption">可靠引擎当前正在处理的内容</span>
           </article>
           <article class="metric-tile">
             <div class="metric-heading">
-              <span>工作线程</span>
+              <span>工作线程（可靠引擎）</span>
               <v-icon size="18">mdi-lan-connect</v-icon>
             </div>
             <strong>{{ status.engine.workers }}</strong>
-            <span class="metric-caption">同步引擎并发数</span>
+            <span class="metric-caption">可靠引擎已启动的并发线程</span>
           </article>
-        </div>
+          </div>
+        </section>
+
+        <section v-if="commandProgressHasData" class="content-section command-progress-section" aria-labelledby="command-progress-title">
+          <div class="section-heading section-heading--compact">
+            <div>
+              <h2 id="command-progress-title">手动 /strm 扫描</h2>
+              <p>{{ commandProgress.running ? '手动扫描正在独立执行，进度不会计入可靠同步引擎的四项指标。' : '最近一次手动扫描的处理结果。' }}</p>
+            </div>
+            <span class="status-chip" :class="commandProgress.running ? 'status-chip--active' : 'status-chip--success'">{{ commandProgressPhaseLabel }}</span>
+          </div>
+
+          <div class="command-progress-frame">
+            <div class="command-progress-top">
+              <div class="command-progress-copy">
+                <span class="metric-caption">{{ commandProgress.label || '手动 /strm' }}</span>
+                <strong>{{ commandProgressCompleted }} / {{ commandProgress.total }}</strong>
+                <span>{{ commandProgress.running ? '已完成文件 / 已发现文件' : '本次扫描已处理文件 / 总文件数' }}</span>
+              </div>
+              <v-icon size="25" :color="commandProgress.stalled ? 'warning' : commandProgress.running ? 'success' : 'secondary'">{{ commandProgress.stalled ? 'mdi-timer-alert-outline' : commandProgress.running ? 'mdi-progress-clock' : 'mdi-check-circle-outline' }}</v-icon>
+            </div>
+            <v-progress-linear
+              :model-value="commandProgressPercent"
+              :indeterminate="commandProgress.running && commandProgress.total === 0"
+              color="primary"
+              bg-color="secondary"
+              height="7"
+              rounded
+            />
+
+            <div class="command-detail-grid">
+              <div class="command-detail">
+                <span>阶段</span>
+                <strong>{{ commandProgressPhaseLabel }}</strong>
+              </div>
+              <div class="command-detail command-detail--path">
+                <span>当前文件</span>
+                <strong :title="commandProgress.current_path">{{ commandProgress.current_path || '暂无' }}</strong>
+              </div>
+              <div class="command-detail">
+                <span>最后进度</span>
+                <strong>{{ formatTime(commandProgress.last_progress_at) }}</strong>
+              </div>
+            </div>
+
+            <div v-if="commandProgress.stalled" class="stalled-warning">
+              <v-icon size="18">mdi-alert-outline</v-icon>
+              <span>超过 {{ formatDuration(commandProgress.stalled_seconds) }} 没有新的完成记录，可能正在等待 NAS 文件 I/O；当前文件仍是上面显示的路径。</span>
+            </div>
+
+            <div class="result-summary-heading">
+              <strong>处理结果</strong>
+              <span v-if="commandProgress.errors.length" class="danger-number">失败示例 {{ commandProgress.errors.length }} 条</span>
+            </div>
+            <div class="result-category-grid">
+              <article v-for="category in resultCategories" :key="category.key" class="result-category" :class="`result-category--${category.tone}`">
+                <span>{{ category.label }}</span>
+                <strong>{{ commandProgress.result_counts[category.key] || 0 }}</strong>
+              </article>
+            </div>
+
+            <ul v-if="commandProgress.errors.length" class="command-errors">
+              <li v-for="item in commandProgress.errors" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+        </section>
 
         <section class="content-section" aria-labelledby="recent-runs-title">
           <div class="section-heading">
@@ -152,6 +226,7 @@
                   <th>未变化</th>
                   <th>跳过</th>
                   <th>失败</th>
+                  <th>处理结果</th>
                 </tr>
               </thead>
               <tbody>
@@ -163,9 +238,15 @@
                   <td>{{ run.unchanged ?? 0 }}</td>
                   <td>{{ run.skipped ?? 0 }}</td>
                   <td :class="{ 'danger-number': Number(run.failed) > 0 }">{{ run.failed ?? 0 }}</td>
+                  <td class="result-cell">
+                    <template v-if="resultItems(run).length">
+                      <span v-for="item in resultItems(run)" :key="item.key" class="result-inline" :class="`result-inline--${item.tone}`">{{ item.label }} {{ item.count }}</span>
+                    </template>
+                    <span v-else class="muted-value">-</span>
+                  </td>
                 </tr>
                 <tr v-if="!status.recent_runs.length">
-                  <td colspan="7" class="empty-row">暂无任务记录</td>
+                  <td colspan="8" class="empty-row">暂无任务记录</td>
                 </tr>
               </tbody>
             </v-table>
@@ -282,7 +363,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.8' },
+  version: { type: String, default: '2.1.9' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -310,11 +391,31 @@ const status = reactive({
   pending_jobs: 0,
   orphaned_queued: 0,
   engine: { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0 },
+  command_progress: {
+    running: false,
+    run_id: '',
+    label: '',
+    monitor_root: '',
+    phase: 'idle',
+    total: 0,
+    processed: 0,
+    unchanged: 0,
+    skipped: 0,
+    failed: 0,
+    current_path: '',
+    last_progress_at: null,
+    started_at: null,
+    finished_at: null,
+    stalled: false,
+    stalled_seconds: 0,
+    result_counts: { existing_skipped: 0, copied_non_media: 0, copied_subtitle: 0, generated_strm: 0, failed: 0 },
+    errors: [],
+  },
   recent_runs: [],
   cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.8')
+const version = computed(() => props.version || '2.1.9')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -351,6 +452,36 @@ const runtimeDescription = computed(() => {
   return status.reliable_engine ? '队列、失败记录与清理确认均已纳入状态追踪。' : '开启可靠同步后可获得完整的任务追踪能力。'
 })
 const lastUpdatedLabel = computed(() => lastUpdated.value ? formatTime(lastUpdated.value) : '尚未刷新')
+const commandProgress = computed(() => status.command_progress)
+const commandProgressCompleted = computed(() => (
+  Number(commandProgress.value.processed || 0)
+  + Number(commandProgress.value.unchanged || 0)
+  + Number(commandProgress.value.skipped || 0)
+  + Number(commandProgress.value.failed || 0)
+))
+const commandProgressPercent = computed(() => {
+  const total = Number(commandProgress.value.total || 0)
+  return total > 0 ? Math.min(100, (commandProgressCompleted.value / total) * 100) : 0
+})
+const commandProgressHasData = computed(() => Boolean(
+  commandProgress.value.running
+  || commandProgress.value.run_id
+  || commandProgress.value.total
+  || commandProgress.value.current_path
+))
+const commandProgressPhaseLabel = computed(() => ({
+  idle: '未开始',
+  discovering: '发现文件',
+  processing: '处理中',
+  completed: '已完成',
+}[commandProgress.value.phase] || commandProgress.value.phase || '未知'))
+const resultCategories = [
+  { key: 'existing_skipped', label: '已有内容跳过', tone: 'muted' },
+  { key: 'copied_non_media', label: '复制非媒体', tone: 'neutral' },
+  { key: 'copied_subtitle', label: '复制字幕', tone: 'info' },
+  { key: 'generated_strm', label: '生成 STRM', tone: 'success' },
+  { key: 'failed', label: '失败', tone: 'danger' },
+]
 
 function formatTime(value) {
   if (value === null || value === undefined || value === '') return '-'
@@ -363,6 +494,14 @@ function formatTime(value) {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
+}
+
+function formatDuration(value) {
+  const seconds = Math.max(0, Number(value) || 0)
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return remainder ? `${minutes} 分 ${remainder} 秒` : `${minutes} 分钟`
 }
 
 function statusTone(value) {
@@ -379,9 +518,25 @@ function displayStatus(value) {
   return labels[String(value || '').toLowerCase()] || value || '未知'
 }
 
+function resultItems(run = {}) {
+  const counts = run.result_counts || {}
+  return resultCategories
+    .map(category => ({ ...category, count: Number(counts[category.key] || 0) }))
+    .filter(item => item.count > 0)
+}
+
 function applyStatus(data = {}) {
   Object.assign(status, data)
   status.engine = { memory_queued: 0, inflight: 0, scheduled: 0, workers: 0, ...(data.engine || {}) }
+  status.command_progress = {
+    ...status.command_progress,
+    ...(data.command_progress || {}),
+    result_counts: {
+      ...status.command_progress.result_counts,
+      ...(data.command_progress?.result_counts || {}),
+    },
+    errors: Array.isArray(data.command_progress?.errors) ? data.command_progress.errors : [],
+  }
   status.recent_runs = Array.isArray(data.recent_runs) ? data.recent_runs : []
   status.cleanup_batches = Array.isArray(data.cleanup_batches) ? data.cleanup_batches : []
 }
@@ -606,6 +761,8 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .banner-copy span { color: var(--cs-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .metric-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 34px; }
+.engine-metrics-section { margin-bottom: 24px; }
+.scope-note { color: var(--cs-dim); font-size: 11px; white-space: nowrap; }
 .metric-tile {
   background: var(--cs-surface);
   border: 1px solid var(--cs-line);
@@ -620,6 +777,35 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .metric-tile strong { display: block; font-size: 28px; font-weight: 700; line-height: 1; margin-top: 22px; }
 .metric-tile--accent strong { color: var(--cs-primary-soft); }
 .metric-caption { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 8px; }
+
+.command-progress-frame {
+  background: var(--cs-surface);
+  border: 1px solid var(--cs-line);
+  border-radius: 8px;
+  padding: 18px;
+}
+.command-progress-top { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 13px; }
+.command-progress-copy strong { display: block; font-size: 24px; line-height: 1.1; margin-top: 3px; }
+.command-progress-copy > span:last-child { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 6px; }
+.command-detail-grid { display: grid; gap: 12px; grid-template-columns: minmax(130px, .65fr) minmax(0, 2fr) minmax(150px, .8fr); margin-top: 18px; }
+.command-detail { background: var(--cs-surface-inset); border: 1px solid var(--cs-line); border-radius: 6px; min-width: 0; padding: 10px 11px; }
+.command-detail span { color: var(--cs-dim); display: block; font-size: 11px; }
+.command-detail strong { color: var(--cs-muted); display: block; font-size: 12px; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-detail--path strong { color: var(--cs-text); }
+.stalled-warning { align-items: flex-start; background: rgba(231, 183, 100, .1); border: 1px solid rgba(231, 183, 100, .28); border-radius: 6px; color: var(--cs-warning); display: flex; font-size: 12px; gap: 8px; line-height: 1.45; margin-top: 14px; padding: 10px 11px; }
+.result-summary-heading { align-items: center; display: flex; justify-content: space-between; margin-top: 20px; }
+.result-summary-heading strong { font-size: 13px; }
+.result-summary-heading span { font-size: 11px; }
+.result-category-grid { display: grid; gap: 9px; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 10px; }
+.result-category { background: var(--cs-surface-inset); border: 1px solid var(--cs-line); border-radius: 6px; min-width: 0; padding: 10px 11px; }
+.result-category span { color: var(--cs-muted); display: block; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-category strong { display: block; font-size: 20px; line-height: 1; margin-top: 8px; }
+.result-category--muted strong { color: var(--cs-muted); }
+.result-category--neutral strong { color: var(--cs-text); }
+.result-category--info strong { color: #79c8ff; }
+.result-category--success strong { color: var(--cs-success); }
+.result-category--danger strong { color: var(--cs-danger); }
+.command-errors { color: var(--cs-danger); font-size: 11px; line-height: 1.5; margin: 13px 0 0; padding-left: 19px; }
 
 .content-section { margin-bottom: 32px; min-width: 0; }
 .section-heading { align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
@@ -663,6 +849,14 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .status-table :deep(tbody tr:hover) { background: rgba(255, 255, 255, .025); }
 .time-cell { color: var(--cs-muted) !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .path-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-cell { max-width: 360px; min-width: 230px; }
+.result-inline { border-radius: 3px; display: inline-block; font-size: 10px; line-height: 1.2; margin: 2px 5px 2px 0; padding: 4px 5px; white-space: nowrap; }
+.result-inline--muted { background: rgba(165, 162, 177, .1); color: var(--cs-muted); }
+.result-inline--neutral { background: rgba(245, 243, 251, .08); color: var(--cs-text); }
+.result-inline--info { background: rgba(121, 200, 255, .1); color: #79c8ff; }
+.result-inline--success { background: rgba(89, 211, 155, .12); color: var(--cs-success); }
+.result-inline--danger { background: rgba(255, 127, 146, .12); color: var(--cs-danger); }
+.muted-value { color: var(--cs-dim); }
 .action-cell { text-align: right; width: 54px; }
 .danger-number { color: var(--cs-danger) !important; }
 .empty-row { color: var(--cs-dim) !important; height: 90px !important; text-align: center; }
@@ -715,6 +909,9 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .tab-bar { grid-column: 1 / -1; grid-row: 2; margin-left: 0; min-height: 50px; }
   .tab-button { min-height: 50px; padding: 0 14px; }
   .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-category-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .command-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .command-detail--path { grid-column: 1 / -1; }
   .dashboard-columns { grid-template-columns: 1fr; }
   .shell-content { padding: 26px 22px 40px; }
 }
@@ -729,7 +926,10 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
   .runtime-banner { align-items: flex-start; }
   .banner-copy span { white-space: normal; }
+  .scope-note { text-align: right; white-space: normal; }
   .metric-grid { gap: 9px; }
+  .result-category-grid, .command-detail-grid { grid-template-columns: 1fr 1fr; }
+  .result-category:last-child { grid-column: 1 / -1; }
   .metric-tile { min-height: 116px; padding: 13px; }
   .metric-tile strong { font-size: 25px; margin-top: 18px; }
   .dashboard-columns { gap: 24px; }

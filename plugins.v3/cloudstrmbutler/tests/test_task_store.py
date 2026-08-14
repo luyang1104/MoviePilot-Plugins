@@ -46,6 +46,18 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(run["queued"], 2)
         self.assertEqual(run["processed"], 1)
 
+    def test_run_result_categories_are_exposed(self):
+        run_id = self.store.start_run("command", "/media")
+        self.store.update_run_result_counts(run_id, ["generated_strm", "copied_subtitle", "existing_skipped"])
+        self.store.finish_run(run_id)
+
+        counts = self.store.status()["recent_runs"][0]["result_counts"]
+
+        self.assertEqual(counts["generated_strm"], 1)
+        self.assertEqual(counts["copied_subtitle"], 1)
+        self.assertEqual(counts["existing_skipped"], 1)
+        self.assertEqual(counts["failed"], 0)
+
     def test_settled_run_counts_skipped_and_deleted_results(self):
         run_id = self.store.start_run("command")
         self.store.update_run(run_id, queued=2, skipped=1, deleted=1)

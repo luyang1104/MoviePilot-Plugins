@@ -154,6 +154,10 @@
             <span class="field-hint">会随媒体文件一起处理的附属文件。</span>
           </div>
           <div class="field-block">
+            <v-textarea v-model="config.subtitle_formats" label="字幕文字格式" rows="3" variant="outlined" density="compact" hide-details placeholder=".srt, .ass, .ssa, .sub, .vtt" />
+            <span class="field-hint">开启复制字幕后，按这里填写的扩展名识别字幕。</span>
+          </div>
+          <div class="field-block">
             <v-textarea v-model="config.emby_path" label="媒体库路径映射" rows="3" variant="outlined" density="compact" hide-details placeholder="本地路径=>Emby路径，多组用英文逗号分隔" />
             <span class="field-hint">将生成文件路径转换为媒体服务器可见路径。</span>
           </div>
@@ -216,6 +220,7 @@ const defaultConfig = {
   url: '',
   rmt_mediaext: '.mp4, .mkv, .ts, .iso, .rmvb, .avi, .mov, .mpeg, .mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm, .tp, .f4v',
   other_mediaext: '.nfo, .jpg, .png, .json',
+  subtitle_formats: '.srt, .ass, .ssa, .sub, .vtt',
   emby_path: '',
   path_replacements: '',
   mediaservers: [],
@@ -265,6 +270,7 @@ function hydrate(source) {
   config.url = String(ic.url || '')
   config.rmt_mediaext = String(ic.rmt_mediaext || defaultConfig.rmt_mediaext)
   config.other_mediaext = String(ic.other_mediaext || defaultConfig.other_mediaext)
+  config.subtitle_formats = String(ic.subtitle_formats || defaultConfig.subtitle_formats)
   config.emby_path = String(ic.emby_path || '')
   config.path_replacements = String(ic.path_replacements || '')
   config.mediaservers = Array.isArray(ic.mediaservers) ? [...ic.mediaservers] : []

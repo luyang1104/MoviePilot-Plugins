@@ -133,6 +133,7 @@ export function buildConfigPayload(config = {}, savedRuleSlotCount = 0) {
     url: String(config.url || ''),
     rmt_mediaext: String(config.rmt_mediaext || ''),
     other_mediaext: String(config.other_mediaext || ''),
+    subtitle_formats: String(config.subtitle_formats || ''),
     emby_path: String(config.emby_path || ''),
     path_replacements: String(config.path_replacements || ''),
     mediaservers: Array.isArray(config.mediaservers) ? [...config.mediaservers] : [],

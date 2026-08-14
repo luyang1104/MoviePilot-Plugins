@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.8"
+    plugin_version = "2.1.9"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -124,6 +124,18 @@ class CloudStrmButler(_PluginBase):
 
     _default_rmt_mediaext = ".mp4, .mkv, .ts, .iso,.rmvb, .avi, .mov, .mpeg,.mpg, .wmv, .3gp, .asf, .m4v, .flv, .m2ts, .strm,.tp, .f4v"
     _default_other_mediaext = ".nfo, .jpg, .png, .json"
+    _default_subtitle_formats = ".srt, .ass, .ssa, .sub, .vtt"
+    _command_stall_seconds = 60
+    _command_shutdown_timeout = 20
+    _result_status_aliases = {
+        "existing_skipped": "existing_skipped",
+        "skipped": "existing_skipped",
+        "unchanged": "existing_skipped",
+        "copied_non_media": "copied_non_media",
+        "copied_subtitle": "copied_subtitle",
+        "generated_strm": "generated_strm",
+        "failed": "failed",
+    }
 
     def __init__(self):
         super().__init__()
@@ -147,8 +159,10 @@ class CloudStrmButler(_PluginBase):
         self._monitor_confs = ""
         self._rmt_mediaext = self._default_rmt_mediaext
         self._other_mediaext = self._default_other_mediaext
+        self._subtitle_formats = self._default_subtitle_formats
         self._media_extensions = set()
         self._other_extensions = set()
+        self._subtitle_extensions = set()
         self._strm_dir_conf = {}
         self._cloud_dir_conf = {}
         self._category_conf = {}
@@ -172,13 +186,18 @@ class CloudStrmButler(_PluginBase):
         self._scan_guard = threading.Lock()
         self._scan_running = False
         self._command_running = False
+        self._command_thread = None
+        self._command_progress_lock = threading.RLock()
+        self._command_progress = self._new_command_progress()
         self._state_store = None
         self._task_store = None
         self._sync_engine = None
         self._config_fingerprint = ""
 
     def init_plugin(self, config: dict = None):
-        self.stop_service()
+        if not self.stop_service():
+            logger.warning("手动 /strm 扫描仍在运行，本次插件重载已延后")
+            return
         self._reset_runtime_state()
 
         migrated = False
@@ -206,6 +225,7 @@ class CloudStrmButler(_PluginBase):
             mediaservers = config.get("mediaservers") or []
             self._mediaservers = list(mediaservers) if isinstance(mediaservers, (list, tuple)) else [mediaservers]
             self._other_mediaext = config.get("other_mediaext") or self._default_other_mediaext
+            self._subtitle_formats = str(config.get("subtitle_formats") or self._default_subtitle_formats)
             try:
                 self._interval = max(0, int(config.get("interval") or 10))
             except (TypeError, ValueError):
@@ -252,6 +272,7 @@ class CloudStrmButler(_PluginBase):
 
         self._media_extensions = normalise_extensions(self._rmt_mediaext)
         self._other_extensions = normalise_extensions(self._other_mediaext)
+        self._subtitle_extensions = normalise_extensions(self._subtitle_formats, self._default_subtitle_formats)
         self._monitor_rules, self._config_errors = parse_monitor_confs(self._monitor_confs)
         for rule in self._monitor_rules:
             self._strm_dir_conf[rule.local_dir] = rule.strm_dir
@@ -268,6 +289,7 @@ class CloudStrmButler(_PluginBase):
             self._copy_files,
             self._copy_subtitles,
             self._uriencode,
+            self._subtitle_extensions,
         )
         self._state_store = SyncStateStore(self.get_data_path() / "sync_state.sqlite3")
         self._task_store = TaskStore(self.get_data_path() / "task_state.sqlite3")
@@ -419,6 +441,7 @@ class CloudStrmButler(_PluginBase):
                     if is_ignored_path(source_file) or is_temporary_path(source_file):
                         if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1, skipped=1)
+                            self._task_store.update_run_result_counts(run_id, {"existing_skipped": 1})
                         continue
                     if self._reliable_engine and self._sync_engine:
                         payload = {"run_id": run_id} if run_id else None
@@ -461,7 +484,8 @@ class CloudStrmButler(_PluginBase):
     def _record_run_result(self, run_id: Optional[str], result: Optional[dict]) -> None:
         if not run_id or not self._task_store:
             return
-        status = (result or {}).get("status")
+        result = result or {}
+        status = result.get("status")
         if status == "processed":
             self._task_store.update_run(run_id, processed=1)
         elif status == "unchanged":
@@ -472,6 +496,34 @@ class CloudStrmButler(_PluginBase):
             self._task_store.update_run(run_id, deleted=1)
         else:
             self._task_store.update_run(run_id, skipped=1)
+
+        default_status = {
+            "processed": "generated_strm",
+            "unchanged": "existing_skipped",
+            "failed": "failed",
+            "unstable": "failed",
+            "invalid_target": "failed",
+            "invalid_cloud": "failed",
+            "invalid_content": "failed",
+        }.get(status, "existing_skipped")
+        statuses = self._normalise_result_statuses(result.get("result_statuses"), default_status)
+        self._task_store.update_run_result_counts(run_id, statuses)
+
+    @classmethod
+    def _normalise_result_statuses(cls, statuses, default: str = "existing_skipped") -> Dict[str, int]:
+        """Keep all task result counts within the five user-facing categories."""
+        raw_items = statuses.items() if isinstance(statuses, dict) else ((value, 1) for value in (statuses or [default]))
+        normalized: Dict[str, int] = {}
+        for key, value in raw_items:
+            try:
+                amount = int(value)
+            except (TypeError, ValueError):
+                continue
+            if amount <= 0:
+                continue
+            result_key = cls._result_status_aliases.get(str(key), default)
+            normalized[result_key] = normalized.get(result_key, 0) + amount
+        return normalized or {default: 1}
 
     def _pump_reliable_queue(self):
         if self._sync_engine:
@@ -567,21 +619,21 @@ class CloudStrmButler(_PluginBase):
         """Synchronize one source file and persist its state signature."""
         source = Path(event_path)
         if not source.exists() or not source.is_file():
-            return {"status": "missing"}
+            return {"status": "missing", "result_statuses": ["failed"]}
         if is_ignored_path(event_path) or is_temporary_path(event_path):
-            return {"status": "ignored"}
+            return {"status": "ignored", "result_statuses": ["skipped"]}
         if wait_stable and not self.__wait_stable_file(event_path):
-            return {"status": "unstable"}
+            return {"status": "unstable", "result_statuses": ["failed"]}
 
         source_rel = relative_path(event_path, mon_path)
         if source_rel is None:
             logger.error(f"文件 {event_path} 不在监控目录 {mon_path} 下")
-            return {"status": "outside_root"}
+            return {"status": "outside_root", "result_statuses": ["failed"]}
 
         active_key = path_key(event_path)
         with self._active_lock:
             if active_key in self._active_paths:
-                return {"status": "duplicate"}
+                return {"status": "duplicate", "result_statuses": ["skipped"]}
             self._active_paths.add(active_key)
 
         outputs: List[str] = []
@@ -596,10 +648,10 @@ class CloudStrmButler(_PluginBase):
             cloud_file = self.__remap_path(event_path, mon_path, cloud_dir)
             if not target_file:
                 logger.error(f"无法计算文件 {event_path} 的目标路径")
-                return {"status": "invalid_target"}
+                return {"status": "invalid_target", "result_statuses": ["failed"]}
             if not cloud_file and "{cloud_file}" in (format_str or ""):
                 logger.error(f"无法计算文件 {event_path} 的云盘路径")
-                return {"status": "invalid_cloud"}
+                return {"status": "invalid_cloud", "result_statuses": ["failed"]}
 
             suffix = source.suffix.lower()
             content_hash = ""
@@ -612,11 +664,12 @@ class CloudStrmButler(_PluginBase):
                 )
                 if not strm_content:
                     logger.error(f"文件 {event_path} 的 STRM 模板无效")
-                    return {"status": "invalid_content"}
+                    return {"status": "invalid_content", "result_statuses": ["failed"]}
                 strm_content = self._apply_path_replacements(strm_content)
                 content_hash = hashlib.sha256(strm_content.encode("utf-8")).hexdigest()
                 sidecar_paths = list(self._iter_sidecars(source))
                 strm_target = str(Path(target_file).with_suffix(".strm"))
+                strm_existed = Path(strm_target).is_file()
                 expected_outputs = [strm_target]
                 expected_outputs.extend(
                     sidecar_target
@@ -627,28 +680,36 @@ class CloudStrmButler(_PluginBase):
                 if not self._cover and self._record_is_current(
                     source_rel, mtime_ns, size, content_hash, mon_path, expected_outputs
                 ):
-                    return {"status": "unchanged"}
+                    return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
                 strm_output = self.__create_strm_file(strm_file=target_file, strm_content=strm_content, source_file=event_path)
                 if strm_output:
                     outputs.append(strm_output)
+                result_statuses = [
+                    "existing_skipped" if strm_existed and not self._cover else "generated_strm"
+                ]
                 for sidecar_path in sidecar_paths:
                     sidecar_target = self.__remap_path(str(sidecar_path), mon_path, strm_dir)
                     if sidecar_target:
-                        outputs.extend(
-                            self.__handle_other_files(str(sidecar_path), sidecar_target)
-                        )
+                        sidecar_outputs = self.__handle_other_files(str(sidecar_path), sidecar_target)
+                        outputs.extend(sidecar_outputs)
+                        if sidecar_outputs:
+                            result_statuses.extend(self._sidecar_result_statuses(str(sidecar_path)))
             else:
                 sidecar_expected = [
                     target_file
                 ] if (
                     (self._copy_files and suffix in self._other_extensions)
-                    or (self._copy_subtitles and suffix in {".srt", ".ass", ".ssa", ".sub"})
+                    or (self._copy_subtitles and suffix in self._subtitle_extensions)
                 ) else []
                 if not self._cover and self._record_is_current(
                     source_rel, mtime_ns, size, content_hash, mon_path, sidecar_expected
                 ):
-                    return {"status": "unchanged"}
+                    return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
                 outputs.extend(self.__handle_other_files(event_path, target_file))
+                result_statuses = self._sidecar_result_statuses(event_path) if outputs else ["skipped"]
+
+            if not outputs:
+                return {"status": "skipped", "result_statuses": ["skipped"]}
 
             if self._state_store is not None:
                 self._state_store.upsert(
@@ -660,13 +721,18 @@ class CloudStrmButler(_PluginBase):
                     outputs=outputs,
                     config_fingerprint=self._config_fingerprint,
                 )
-            return {"status": "processed", "outputs": outputs}
+            return {
+                "status": "processed",
+                "outputs": outputs,
+                "result_statuses": result_statuses,
+            }
         except Exception as exc:
             logger.error("目录监控发生错误：%s - %s", str(exc), traceback.format_exc())
             return {
                 "status": "failed",
                 "reason": str(exc),
                 "retryable": self._is_retryable_io_error(exc),
+                "result_statuses": ["failed"],
             }
         finally:
             with self._active_lock:
@@ -676,8 +742,17 @@ class CloudStrmButler(_PluginBase):
         suffix = Path(event_path).suffix.lower()
         return (
             (self._copy_files and suffix in self._other_extensions)
-            or (self._copy_subtitles and suffix in {".srt", ".ass", ".ssa", ".sub"})
+            or (self._copy_subtitles and suffix in self._subtitle_extensions)
         )
+
+    def _sidecar_result_statuses(self, event_path: str) -> List[str]:
+        suffix = Path(event_path).suffix.lower()
+        statuses = []
+        if self._copy_files and suffix in self._other_extensions:
+            statuses.append("copied_non_media")
+        if self._copy_subtitles and suffix in self._subtitle_extensions:
+            statuses.append("copied_subtitle")
+        return statuses or ["skipped"]
 
     def __handle_other_files(self, event_path: str, target_file: str):
         """Copy a sidecar when configured and return its target path."""
@@ -689,7 +764,7 @@ class CloudStrmButler(_PluginBase):
             output = self.__copy_sidecar_file(event_path, target_file, "非媒体文件")
             if output:
                 outputs.append(output)
-        if self._copy_subtitles and suffix in {".srt", ".ass", ".ssa", ".sub"}:
+        if self._copy_subtitles and suffix in self._subtitle_extensions:
             output = self.__copy_sidecar_file(event_path, target_file, "字幕文件")
             if output:
                 outputs.append(output)
@@ -930,33 +1005,215 @@ class CloudStrmButler(_PluginBase):
             "skipped": 0,
             "failed": 0,
             "errors": [],
+            "result_counts": {
+                "existing_skipped": 0,
+                "copied_non_media": 0,
+                "copied_subtitle": 0,
+                "generated_strm": 0,
+                "failed": 0,
+            },
         }
+
+    @staticmethod
+    def _new_command_progress() -> Dict[str, Any]:
+        return {
+            "running": False,
+            "run_id": "",
+            "label": "",
+            "monitor_root": "",
+            "phase": "idle",
+            "total": 0,
+            "processed": 0,
+            "unchanged": 0,
+            "skipped": 0,
+            "failed": 0,
+            "current_path": "",
+            "last_progress_at": None,
+            "started_at": None,
+            "finished_at": None,
+            "stalled": False,
+            "stalled_seconds": 0,
+            "result_counts": {
+                "existing_skipped": 0,
+                "copied_non_media": 0,
+                "copied_subtitle": 0,
+                "generated_strm": 0,
+                "failed": 0,
+            },
+            "errors": [],
+        }
+
+    def _update_command_progress(self, **updates) -> None:
+        with self._command_progress_lock:
+            self._command_progress.update(updates)
+
+    def _touch_command_progress(self, current_path: Optional[str] = None, phase: Optional[str] = None) -> None:
+        updates = {"last_progress_at": time.time()}
+        if current_path is not None:
+            updates["current_path"] = str(current_path)
+        if phase is not None:
+            updates["phase"] = phase
+        self._update_command_progress(**updates)
+
+    def _merge_result_counts(self, target: Dict[str, int], statuses) -> None:
+        values = statuses.keys() if isinstance(statuses, dict) else statuses or []
+        increments = statuses.items() if isinstance(statuses, dict) else ((key, 1) for key in values)
+        for key, value in increments:
+            key = str(key)
+            if key:
+                target[key] = int(target.get(key) or 0) + int(value)
+
+    def _command_progress_snapshot(self) -> Dict[str, Any]:
+        with self._command_progress_lock:
+            snapshot = dict(self._command_progress)
+            snapshot["result_counts"] = dict(self._command_progress.get("result_counts") or {})
+            snapshot["errors"] = list(self._command_progress.get("errors") or [])
+        last_progress_at = snapshot.get("last_progress_at")
+        elapsed = max(0, int(time.time() - float(last_progress_at))) if last_progress_at else 0
+        snapshot["stalled_seconds"] = elapsed if snapshot.get("running") else 0
+        snapshot["stalled"] = bool(snapshot.get("running") and elapsed >= self._command_stall_seconds)
+        return snapshot
 
     def _record_command_file(self, summary: Dict[str, Any], run_id: Optional[str], event_path: str, mon_path: str) -> None:
         summary["total"] += 1
+        self._touch_command_progress(current_path=event_path, phase="processing")
         if run_id and self._task_store:
             self._task_store.update_run(run_id, queued=1)
         try:
             result = self.__handle_file(event_path=event_path, mon_path=mon_path) or {}
         except Exception as exc:
-            result = {"status": "failed", "reason": str(exc)}
+            result = {"status": "failed", "reason": str(exc), "result_statuses": ["failed"]}
             logger.exception("手动 /strm 处理文件失败：%s", event_path)
 
         status = str(result.get("status") or "skipped").lower()
         if status == "processed":
             summary["processed"] += 1
+            progress_key = "processed"
         elif status == "unchanged":
             summary["unchanged"] += 1
+            progress_key = "unchanged"
         elif status in {"failed", "unstable", "invalid_target", "invalid_cloud", "invalid_content"}:
             summary["failed"] += 1
+            progress_key = "failed"
             reason = str(result.get("reason") or status).replace("\n", " ").strip()
             detail = f"{event_path}: {reason}"
             if detail not in summary["errors"] and len(summary["errors"]) < 3:
                 summary["errors"].append(detail[:200])
         else:
             summary["skipped"] += 1
+            progress_key = "skipped"
 
+        default_status = {
+            "processed": "generated_strm",
+            "unchanged": "existing_skipped",
+            "failed": "failed",
+        }.get(status, "existing_skipped")
+        statuses = self._normalise_result_statuses(result.get("result_statuses"), default_status)
+        self._merge_result_counts(summary["result_counts"], statuses)
+        with self._command_progress_lock:
+            self._command_progress[progress_key] = int(self._command_progress.get(progress_key) or 0) + 1
+            self._merge_result_counts(self._command_progress["result_counts"], statuses)
+            self._command_progress["last_progress_at"] = time.time()
         self._record_run_result(run_id, result)
+
+    def _record_command_failure(self, summary: Dict[str, Any], run_id: Optional[str], reason: str) -> None:
+        summary["total"] += 1
+        summary["failed"] += 1
+        detail = str(reason).replace("\n", " ").strip()[:200]
+        if detail and detail not in summary["errors"] and len(summary["errors"]) < 3:
+            summary["errors"].append(detail)
+        summary["result_counts"]["failed"] = int(summary["result_counts"].get("failed") or 0) + 1
+        if run_id and self._task_store:
+            self._task_store.update_run(run_id, queued=1)
+        result = {"status": "failed", "reason": reason, "result_statuses": ["failed"]}
+        self._record_run_result(run_id, result)
+        with self._command_progress_lock:
+            self._command_progress["failed"] = int(self._command_progress.get("failed") or 0) + 1
+            self._merge_result_counts(self._command_progress["result_counts"], ["failed"])
+            self._command_progress["last_progress_at"] = time.time()
+
+    def _collect_command_files(self, paths) -> List[str]:
+        """Collect files before processing so the command can show a real total."""
+        files: List[str] = []
+        for candidate in paths or []:
+            candidate_path = Path(candidate)
+            self._touch_command_progress(current_path=str(candidate_path), phase="discovering")
+            if candidate_path.is_file():
+                files.append(str(candidate_path))
+                continue
+            if not candidate_path.is_dir():
+                continue
+            for root, _dirs, names in os.walk(str(candidate_path)):
+                self._touch_command_progress(current_path=root, phase="discovering")
+                for file_name in names:
+                    src_file = os.path.join(root, file_name)
+                    if Path(src_file).is_file():
+                        files.append(src_file)
+        covered_sidecars = {
+            path_key(str(sidecar))
+            for media_path in files
+            if Path(media_path).suffix.lower() in self._media_extensions
+            for sidecar in self._iter_sidecars(Path(media_path))
+        }
+        return [file_path for file_path in files if path_key(file_path) not in covered_sidecars]
+
+    def _run_command_worker(
+        self,
+        paths,
+        mon_path: str,
+        event: Event,
+        label: str,
+        initial_failures: Optional[List[str]],
+        run_id: Optional[str],
+    ) -> None:
+        summary = self._new_command_summary()
+        try:
+            files = self._collect_command_files(paths)
+            self._update_command_progress(
+                total=len(files) + len(initial_failures or []),
+                current_path=files[0] if files else "",
+                phase="processing" if files or initial_failures else "completed",
+            )
+            for reason in initial_failures or []:
+                self._record_command_failure(summary, run_id, reason)
+            for event_path in files:
+                self._record_command_file(summary, run_id, event_path, mon_path)
+        except Exception as exc:
+            logger.exception("手动 /strm 扫描失败：%s", label)
+            self._record_command_failure(summary, run_id, str(exc))
+        finally:
+            if run_id and self._task_store:
+                if summary["failed"]:
+                    status = "completed_with_errors"
+                elif not summary["total"]:
+                    status = "completed_empty"
+                else:
+                    status = "completed"
+                self._task_store.finish_run(
+                    run_id,
+                    status=status,
+                    message=self._command_summary_title(label, summary),
+                )
+            finished_at = time.time()
+            self._update_command_progress(
+                running=False,
+                phase="completed",
+                current_path="",
+                finished_at=finished_at,
+                total=summary["total"],
+                processed=summary["processed"],
+                unchanged=summary["unchanged"],
+                skipped=summary["skipped"],
+                failed=summary["failed"],
+                result_counts=dict(summary["result_counts"]),
+                errors=list(summary["errors"]),
+                stalled=False,
+                stalled_seconds=0,
+                last_progress_at=finished_at,
+            )
+            self._command_running = False
+            self._command_guard.release()
+            self._post_command_summary(event, label, summary)
 
     def _command_summary_title(self, label: str, summary: Dict[str, Any]) -> str:
         total = int(summary.get("total", 0))
@@ -996,60 +1253,37 @@ class CloudStrmButler(_PluginBase):
         initial_failures: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         summary = self._new_command_summary()
-        for reason in initial_failures or []:
-            summary["total"] += 1
-            summary["failed"] += 1
-            if len(summary["errors"]) < 3:
-                summary["errors"].append(str(reason).replace("\n", " ")[:200])
         if not self._command_guard.acquire(blocking=False):
-            summary["total"] += 1
-            summary["failed"] += 1
-            if len(summary["errors"]) < 3:
-                summary["errors"].append("已有手动同步命令正在处理")
+            summary["total"] = 1
+            summary["failed"] = 1
+            summary["result_counts"]["failed"] = 1
+            summary["errors"].append("已有手动同步命令正在处理")
             self._post_command_summary(event, label + "（无法执行）", summary)
             return summary
 
         self._command_running = True
         run_id = self._task_store.start_run("command", mon_path) if self._task_store else None
-        try:
-            for candidate in paths or []:
-                candidate_path = Path(candidate)
-                if candidate_path.is_file():
-                    self._record_command_file(summary, run_id, str(candidate_path), mon_path)
-                    continue
-                if not candidate_path.is_dir():
-                    continue
-                for root, _dirs, files in os.walk(str(candidate_path)):
-                    for file_name in files:
-                        src_file = os.path.join(root, file_name)
-                        if Path(src_file).is_file():
-                            self._record_command_file(summary, run_id, str(src_file), mon_path)
-        except Exception as exc:
-            summary["total"] += 1
-            summary["failed"] += 1
-            summary["errors"].append(str(exc)[:160])
-            logger.exception("手动 /strm 扫描失败：%s", label)
-            if run_id and self._task_store:
-                self._task_store.update_run(run_id, queued=1, failed=1)
-        finally:
-            if run_id and self._task_store:
-                for _ in range(len(initial_failures or [])):
-                    self._task_store.update_run(run_id, queued=1, failed=1)
-                if summary["failed"]:
-                    status = "completed_with_errors"
-                elif not summary["total"]:
-                    status = "completed_empty"
-                else:
-                    status = "completed"
-                self._task_store.finish_run(
-                    run_id,
-                    status=status,
-                    message=self._command_summary_title(label, summary),
-                )
-            self._command_running = False
-            self._command_guard.release()
-
-        self._post_command_summary(event, label, summary)
+        started_at = time.time()
+        self._update_command_progress(
+            **{
+                **self._new_command_progress(),
+                "running": True,
+                "run_id": run_id or "",
+                "label": label,
+                "monitor_root": mon_path,
+                "phase": "discovering",
+                "started_at": started_at,
+                "last_progress_at": started_at,
+            }
+        )
+        worker = threading.Thread(
+            target=self._run_command_worker,
+            args=(paths, mon_path, event, label, initial_failures, run_id),
+            name="cloudstrmbutler-command",
+            daemon=True,
+        )
+        self._command_thread = worker
+        worker.start()
         return summary
 
     @eventmanager.register(EventType.PluginAction)
@@ -1271,6 +1505,7 @@ class CloudStrmButler(_PluginBase):
             "scan_interval": self._scan_interval,
             "copy_files": self._copy_files,
             "copy_subtitles": self._copy_subtitles,
+            "subtitle_formats": self._subtitle_formats,
             "refresh_emby": self._refresh_emby,
             "url": self._url,
             "config_version": 2,
@@ -1363,6 +1598,7 @@ class CloudStrmButler(_PluginBase):
             "orphaned_queued": orphaned_queued,
             "active_queued": active_queued,
             "engine": engine,
+            "command_progress": self._command_progress_snapshot(),
         })
         return {"code": 0, "data": status}
 
@@ -1462,6 +1698,7 @@ class CloudStrmButler(_PluginBase):
             "url": str(saved_value("url", self._url) or ""),
             "rmt_mediaext": str(saved_value("rmt_mediaext", self._rmt_mediaext) or ""),
             "other_mediaext": str(saved_value("other_mediaext", self._other_mediaext) or ""),
+            "subtitle_formats": str(saved_value("subtitle_formats", self._subtitle_formats) or ""),
             "emby_path": str(saved_value("emby_path", self._emby_path_serialized()) or ""),
             "path_replacements": str(saved_value("path_replacements", self._path_replacements_serialized()) or ""),
             "reliable_engine": saved_bool("reliable_engine", self._reliable_engine),
@@ -1573,7 +1810,7 @@ class CloudStrmButler(_PluginBase):
         """Vue 模式：详情页由远程 Page 组件渲染。"""
         return []
 
-    def stop_service(self):
+    def stop_service(self) -> bool:
         """
         退出插件
         """
@@ -1595,9 +1832,17 @@ class CloudStrmButler(_PluginBase):
         if self._sync_engine:
             self._sync_engine.stop()
             self._sync_engine = None
+        command_thread = self._command_thread
+        if command_thread and command_thread.is_alive():
+            command_thread.join(timeout=max(0, float(self._command_shutdown_timeout)))
+        if command_thread and command_thread.is_alive():
+            logger.warning("手动 /strm 扫描仍在运行，保留状态数据库等待任务完成：%s", self._command_progress_snapshot().get("current_path") or "未知文件")
+            return False
+        self._command_thread = None
         if self._state_store:
             self._state_store.close()
             self._state_store = None
         if self._task_store:
             self._task_store.close()
             self._task_store = None
+        return True

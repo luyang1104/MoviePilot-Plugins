@@ -27,7 +27,7 @@ class PendingJob:
 class TaskStore:
     """SQLite store for resumable work. Successful file state stays in SyncStateStore."""
 
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -109,6 +109,12 @@ class TaskStore:
             if "skipped" not in columns:
                 self._conn.execute("ALTER TABLE task_runs ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0")
             self._conn.execute("UPDATE schema_version SET version = 2")
+            current = 2
+        if current < 3:
+            columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(task_runs)").fetchall()}
+            if "result_counts" not in columns:
+                self._conn.execute("ALTER TABLE task_runs ADD COLUMN result_counts TEXT NOT NULL DEFAULT '{}'")
+            self._conn.execute("UPDATE schema_version SET version = 3")
         self._conn.commit()
 
     def enqueue(self, monitor_root: str, path: str, action: str, old_path: str = "", payload: Optional[dict] = None, delay: float = 0) -> bool:
@@ -209,6 +215,35 @@ class TaskStore:
             self._conn.execute(f"UPDATE task_runs SET {columns} WHERE run_id = ?", (*allowed.values(), run_id))
             self._conn.commit()
 
+    def update_run_result_counts(self, run_id: str, statuses) -> None:
+        """Accumulate user-facing per-file result categories for a run."""
+        values = statuses.keys() if isinstance(statuses, dict) else statuses or []
+        increments = {
+            str(key): int(value)
+            for key, value in (statuses.items() if isinstance(statuses, dict) else ((key, 1) for key in values))
+            if str(key) and int(value) > 0
+        }
+        if not increments:
+            return
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT result_counts FROM task_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if not row:
+                return
+            try:
+                result_counts = json.loads(row["result_counts"] or "{}")
+            except (TypeError, ValueError):
+                result_counts = {}
+            for key, value in increments.items():
+                result_counts[key] = int(result_counts.get(key) or 0) + value
+            self._conn.execute(
+                "UPDATE task_runs SET result_counts = ? WHERE run_id = ?",
+                (json.dumps(result_counts, ensure_ascii=False, separators=(",", ":")), run_id),
+            )
+            self._conn.commit()
+
     def finish_run(self, run_id: str, status: str = "completed", message: str = "") -> None:
         with self._lock:
             self._conn.execute(
@@ -274,10 +309,23 @@ class TaskStore:
             running = self._conn.execute("SELECT * FROM task_runs WHERE status = 'running' ORDER BY started_at DESC").fetchall()
             latest = self._conn.execute("SELECT * FROM task_runs ORDER BY started_at DESC LIMIT 20").fetchall()
             pending_cleanup = self._conn.execute("SELECT batch_id,monitor_root,paths,created_at,expires_at FROM cleanup_batches WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC", (time.time(),)).fetchall()
+        def run_dict(row):
+            item = dict(row)
+            try:
+                parsed_counts = json.loads(item.get("result_counts") or "{}")
+                item["result_counts"] = parsed_counts if isinstance(parsed_counts, dict) else {}
+            except (TypeError, ValueError):
+                item["result_counts"] = {}
+            legacy_skipped = int(item["result_counts"].pop("skipped", 0) or 0)
+            item["result_counts"]["existing_skipped"] = int(item["result_counts"].get("existing_skipped") or 0) + legacy_skipped
+            for key in ("existing_skipped", "copied_non_media", "copied_subtitle", "generated_strm", "failed"):
+                item["result_counts"].setdefault(key, 0)
+            return item
+
         return {
             "queued": queued,
-            "running": [dict(row) for row in running],
-            "recent_runs": [dict(row) for row in latest],
+            "running": [run_dict(row) for row in running],
+            "recent_runs": [run_dict(row) for row in latest],
             "cleanup_batches": [{**dict(row), "path_count": len(json.loads(row["paths"]))} for row in pending_cleanup],
         }
 

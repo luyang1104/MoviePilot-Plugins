@@ -1,5 +1,7 @@
 import shutil
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -38,6 +40,15 @@ class PluginTests(unittest.TestCase):
         cloud = base / "cloud"
         source.mkdir(parents=True, exist_ok=True)
         return source, target, cloud
+
+    @staticmethod
+    def wait_until(predicate, timeout=2):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return True
+            time.sleep(0.01)
+        return bool(predicate())
 
     def test_disabled_init_parses_rules_without_starting_services(self):
         base = self.new_temp()
@@ -351,6 +362,9 @@ class PluginTests(unittest.TestCase):
                     }
                 )
             )
+            self.assertTrue(self.wait_until(lambda: len(plugin.messages) == 1))
+
+        self.assertTrue(self.wait_until(lambda: len(plugin.messages) == 1))
 
         self.assertEqual(len(plugin.messages), 1)
         message = plugin.messages[0]
@@ -366,6 +380,145 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(run["processed"], 1)
         self.assertEqual(run["failed"], 1)
         self.assertEqual(run["status"], "completed_with_errors")
+
+    def test_manual_command_progress_exposes_current_file_and_stalled_state(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            plugin.remote_sync_one(
+                FakeEvent(
+                    {
+                        "action": "strm_one",
+                        "arg_str": str(source),
+                        "user": "user-1",
+                        "channel": "channel-1",
+                    }
+                )
+            )
+            self.assertTrue(started.wait(1))
+            progress = plugin.sync_status_api()["data"]["command_progress"]
+            self.assertTrue(progress["running"])
+            self.assertEqual(progress["processed"], 0)
+            self.assertEqual(progress["total"], 1)
+            self.assertEqual(progress["current_path"], str(media_file))
+
+            with plugin._command_progress_lock:
+                plugin._command_progress["last_progress_at"] = time.time() - plugin._command_stall_seconds - 1
+            stalled = plugin.sync_status_api()["data"]["command_progress"]
+            self.assertTrue(stalled["stalled"])
+            self.assertGreaterEqual(stalled["stalled_seconds"], plugin._command_stall_seconds)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["command_progress"]["running"]))
+        progress = plugin.sync_status_api()["data"]["command_progress"]
+        self.assertFalse(progress["stalled"])
+        self.assertEqual(progress["processed"], 1)
+
+    def test_manual_command_persists_file_result_categories(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        (source / "movie.nfo").write_text("nfo", encoding="utf-8")
+        (source / "movie.srt").write_text("subtitle", encoding="utf-8")
+
+        plugin.remote_sync_one(
+            FakeEvent(
+                {
+                    "action": "strm_one",
+                    "arg_str": str(source),
+                    "user": "user-1",
+                    "channel": "channel-1",
+                }
+            )
+        )
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["command_progress"]["running"]))
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        counts = run["result_counts"]
+        self.assertEqual(counts["generated_strm"], 1)
+        self.assertEqual(counts["copied_non_media"], 1)
+        self.assertEqual(counts["copied_subtitle"], 1)
+        self.assertEqual(counts["failed"], 0)
+
+    def test_stop_service_does_not_close_stores_while_manual_command_is_running(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin._command_shutdown_timeout = 0.05
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            plugin.remote_sync_one(FakeEvent({"action": "strm_one", "arg_str": str(source)}))
+            self.assertTrue(started.wait(1))
+            self.assertFalse(plugin.stop_service())
+            self.assertIsNotNone(plugin._task_store)
+            self.assertIsNotNone(plugin._state_store)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["command_progress"]["running"]))
+        self.assertTrue(plugin.stop_service())
+        self.assertIsNone(plugin._task_store)
+        self.assertIsNone(plugin._state_store)
+
+    def test_subtitle_formats_are_loaded_and_returned_by_form(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "subtitle_formats": ".srt, .vtt",
+            }
+        )
+        self.assertEqual(plugin._subtitle_extensions, {".srt", ".vtt"})
+        plugin.get_config = lambda: {"subtitle_formats": ".srt, .vtt"}
+        _, model = plugin.get_form()
+        self.assertEqual(model["subtitle_formats"], ".srt, .vtt")
+
+    def test_result_status_aliases_use_only_user_facing_categories(self):
+        self.assertEqual(
+            CloudStrmButler._normalise_result_statuses(["skipped", "generated_strm", "legacy"]),
+            {"existing_skipped": 2, "generated_strm": 1},
+        )
 
     def test_status_distinguishes_enabled_idle_plugin_from_orphaned_queue(self):
         base = self.new_temp()
@@ -465,6 +618,7 @@ class PluginTests(unittest.TestCase):
             )
         )
 
+        self.assertTrue(self.wait_until(lambda: len(plugin.messages) == 1))
         self.assertEqual(len(plugin.messages), 1)
         self.assertIn("失败", plugin.messages[0]["title"])
         self.assertIn("不存在", plugin.messages[0]["title"])

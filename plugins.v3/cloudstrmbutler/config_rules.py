@@ -122,6 +122,7 @@ def config_fingerprint(
     copy_files: bool,
     copy_subtitles: bool,
     uriencode: bool,
+    subtitle_extensions: set = None,
 ) -> str:
     """Fingerprint the settings that affect generated STRM content and sidecars."""
     import hashlib
@@ -137,6 +138,7 @@ def config_fingerprint(
         "copy_files": copy_files,
         "copy_subtitles": copy_subtitles,
         "uriencode": uriencode,
+        "subtitle_extensions": sorted(subtitle_extensions or set()),
     }
     serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
