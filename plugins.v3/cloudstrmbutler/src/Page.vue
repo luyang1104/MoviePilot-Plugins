@@ -375,14 +375,14 @@
                 </div>
                 <div class="pending-risk-note"><v-icon size="15">mdi-wrench-outline</v-icon><span>重试只会重新写入文件，不会删除已有 STRM。</span></div>
                 <div class="table-frame failure-table-frame">
-                  <v-table v-if="failures.length" density="comfortable" class="status-table"><thead><tr><th class="select-cell"><v-checkbox-btn :model-value="allFailuresSelected" :indeterminate="selectedFailureIds.length > 0 && !allFailuresSelected" aria-label="全选失败任务" :disabled="pending !== null" @update:model-value="toggleAllFailures" /></th><th>源文件</th><th>实际 STRM 输出</th><th>诊断</th><th>次数</th><th></th></tr></thead><tbody><tr v-for="item in failures" :key="item.id"><td class="select-cell"><v-checkbox-btn :model-value="isFailureSelected(item.id)" :aria-label="'选择失败任务 ' + item.id" :disabled="pending !== null" @update:model-value="value => toggleFailureSelection(item.id, value)" /></td><td class="path-cell" :title="item.path">{{ item.path }}</td><td class="path-cell" :title="item.actual_target || item.path">{{ item.actual_target || '未记录实际输出路径' }}</td><td class="failure-reason-cell"><span class="status-chip" :class="failureReasonTone(item)">{{ item.reason_label || '未分类错误' }}</span><span class="failure-raw-error">{{ item.error || '未返回原始错误' }}</span><span class="failure-repair-hint">{{ item.repair_hint || '请查看日志后修复。' }}</span></td><td>{{ item.attempts }}</td><td class="action-cell"><v-btn icon="mdi-replay" size="small" variant="text" color="primary" title="重试此任务" aria-label="重试此任务" :loading="pending === item.id" :disabled="pending !== null" @click="retry(item.id)" /></td></tr></tbody></v-table>
+                  <v-table v-if="failures.length" density="comfortable" class="status-table failure-status-table"><thead><tr><th class="select-cell"><v-checkbox-btn :model-value="allFailuresSelected" :indeterminate="selectedFailureIds.length > 0 && !allFailuresSelected" aria-label="全选失败任务" :disabled="pending !== null" @update:model-value="toggleAllFailures" /></th><th>文件 / 输出</th><th>诊断</th><th class="attempts-cell">次数</th><th class="action-cell">操作</th></tr></thead><tbody><tr v-for="item in failures" :key="item.id"><td class="select-cell"><v-checkbox-btn :model-value="isFailureSelected(item.id)" :aria-label="'选择失败任务 ' + item.id" :disabled="pending !== null" @update:model-value="value => toggleFailureSelection(item.id, value)" /></td><td class="failure-file-cell"><span class="path-cell" :title="item.path">{{ item.path }}</span><span class="path-cell path-cell--target" :title="item.actual_target || item.path">{{ item.actual_target || '未记录实际输出路径' }}</span></td><td class="failure-reason-cell" :title="[item.error, item.repair_hint].filter(Boolean).join('；')"><span class="status-chip" :class="failureReasonTone(item)">{{ item.reason_label || '未分类错误' }}</span><span class="failure-raw-error">{{ item.error || '未返回原始错误' }}</span><span class="failure-repair-hint">{{ item.repair_hint || '请查看日志后修复。' }}</span></td><td class="attempts-cell">{{ item.attempts }}</td><td class="action-cell"><v-btn icon="mdi-replay" size="small" variant="text" color="primary" title="重试此任务" aria-label="重试此任务" :loading="pending === item.id" :disabled="pending !== null" @click="retry(item.id)" /></td></tr></tbody></v-table>
                   <div v-else class="compact-empty"><v-icon size="18" color="success">mdi-check-circle-outline</v-icon><span>没有待重试的失败任务</span></div>
                 </div>
               </section>
 
               <section class="pending-item-group pending-item-group--cleanup" aria-labelledby="cleanup-title">
-                <div class="pending-group-heading"><div class="pending-group-title"><span class="pending-group-icon"><v-icon size="18">mdi-shield-check-outline</v-icon></span><div><h3 id="cleanup-title">清理确认</h3><p>确认扫描发现的缺失源文件，再删除插件生成的 STRM。</p></div></div><span class="section-count has-items">{{ status.cleanup_batches.length }}</span></div>
-                <div class="pending-risk-note pending-risk-note--warning"><v-icon size="15">mdi-alert-outline</v-icon><span>这是删除操作，仅处理插件记录过的生成文件，请确认源目录确实已完成变更。</span></div>
+                <div class="pending-group-heading"><div class="pending-group-title"><span class="pending-group-icon"><v-icon size="18">mdi-shield-check-outline</v-icon></span><div><h3 id="cleanup-title">清理确认</h3><p>确认扫描发现的缺失源文件，再删除插件生成的 STRM。</p></div></div><span class="section-count" :class="{ 'has-items': status.cleanup_batches.length }">{{ status.cleanup_batches.length }}</span></div>
+                <div v-if="status.cleanup_batches.length" class="pending-risk-note pending-risk-note--warning"><v-icon size="15">mdi-alert-outline</v-icon><span>这是删除操作，仅处理插件记录过的生成文件，请确认源目录确实已完成变更。</span></div>
                 <div v-if="status.cleanup_batches.length" class="table-frame"><v-table density="comfortable" class="status-table"><thead><tr><th>监控目录</th><th>文件数</th><th>创建时间</th><th></th></tr></thead><tbody><tr v-for="batch in status.cleanup_batches" :key="batch.batch_id"><td class="path-cell" :title="batch.monitor_root">{{ batch.monitor_root }}</td><td>{{ batch.path_count }}</td><td class="time-cell">{{ formatTime(batch.created_at) }}</td><td class="action-cell"><v-btn icon="mdi-check-circle-outline" size="small" variant="text" color="warning" title="确认清理" aria-label="确认清理" :loading="pending === batch.batch_id" @click="confirmCleanup(batch.batch_id)" /></td></tr></tbody></v-table></div>
                 <div v-else class="compact-empty"><v-icon size="18" color="success">mdi-shield-check-outline</v-icon><span>没有待确认的清理批次</span></div>
               </section>
@@ -442,142 +442,6 @@
           </div>
         </section>
 
-        <div class="dashboard-columns">
-          <section class="content-section" aria-labelledby="failures-title">
-            <div class="section-heading section-heading--compact">
-              <div>
-                <h2 id="failures-title">同步失败记录</h2>
-                <p>修复原因后，可选择多个任务重新加入队列。</p>
-              </div>
-              <div class="failure-actions">
-                <span class="section-count" :class="{ 'has-items': failures.length }">{{ failures.length }}</span>
-                <v-btn
-                  size="small"
-                  variant="tonal"
-                  :prepend-icon="allFailuresSelected ? 'mdi-checkbox-multiple-blank-outline' : 'mdi-checkbox-multiple-marked-outline'"
-                  :disabled="!failures.length || pending !== null"
-                  @click="toggleAllFailures"
-                >
-                  {{ allFailuresSelected ? '取消全选' : '全选' }}
-                </v-btn>
-                <v-btn
-                  size="small"
-                  color="primary"
-                  variant="flat"
-                  prepend-icon="mdi-replay"
-                  :loading="pending === 'failure-batch'"
-                  :disabled="!selectedFailureIds.length || pending !== null"
-                  @click="retrySelected"
-                >
-                  批量重试 {{ selectedFailureIds.length ? '(' + selectedFailureIds.length + ')' : '' }}
-                </v-btn>
-              </div>
-            </div>
-
-            <div v-if="failures.length" class="table-frame failure-table-frame">
-              <v-table density="comfortable" class="status-table">
-                <thead>
-                  <tr>
-                    <th class="select-cell">
-                      <v-checkbox-btn
-                        :model-value="allFailuresSelected"
-                        :indeterminate="selectedFailureIds.length > 0 && !allFailuresSelected"
-                        aria-label="全选失败任务"
-                        :disabled="pending !== null"
-                        @update:model-value="toggleAllFailures"
-                      />
-                    </th>
-                    <th>路径</th>
-                    <th>失败原因</th>
-                    <th>次数</th>
-                    <th>更新时间</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in failures" :key="item.id">
-                    <td class="select-cell">
-                      <v-checkbox-btn
-                        :model-value="isFailureSelected(item.id)"
-                        :aria-label="'选择失败任务 ' + item.id"
-                        :disabled="pending !== null"
-                        @update:model-value="value => toggleFailureSelection(item.id, value)"
-                      />
-                    </td>
-                    <td class="path-cell" :title="item.path">{{ item.path }}</td>
-                    <td class="failure-reason-cell" :title="item.error || item.repair_hint">
-                      <span class="status-chip" :class="failureReasonTone(item)">{{ item.reason_label || '未分类错误' }}</span>
-                      <span class="failure-raw-error">{{ item.error || '未返回原始错误' }}</span>
-                      <span class="failure-repair-hint">{{ item.repair_hint || item.error || '请查看日志后修复。' }}</span>
-                    </td>
-                    <td>{{ item.attempts }}</td>
-                    <td class="time-cell">{{ formatTime(item.updated_at) }}</td>
-                    <td class="action-cell">
-                      <v-btn
-                        icon="mdi-replay"
-                        size="small"
-                        variant="text"
-                        color="primary"
-                        title="重试此任务"
-                        aria-label="重试此任务"
-                        :loading="pending === item.id"
-                        :disabled="pending !== null"
-                        @click="retry(item.id)"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
-            </div>
-            <div v-else class="empty-state">
-              <div class="empty-icon empty-icon--success" aria-hidden="true"><v-icon size="19">mdi-check</v-icon></div>
-              <strong>系统运行良好</strong>
-              <span>暂无未解决的同步失败任务。</span>
-            </div>
-          </section>
-
-          <section class="content-section" aria-labelledby="cleanup-title">
-            <div class="section-heading section-heading--compact">
-              <div>
-                <h2 id="cleanup-title">待确认清理</h2>
-                <p>扫描发现的缺失 STRM 文件。</p>
-              </div>
-              <span class="section-count" :class="{ 'has-items': status.cleanup_batches.length }">{{ status.cleanup_batches.length }}</span>
-            </div>
-
-            <div v-if="status.cleanup_batches.length" class="table-frame">
-              <v-table density="comfortable" class="status-table">
-                <thead>
-                  <tr><th>监控目录</th><th>文件数</th><th>创建时间</th><th></th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="batch in status.cleanup_batches" :key="batch.batch_id">
-                    <td class="path-cell" :title="batch.monitor_root">{{ batch.monitor_root }}</td>
-                    <td>{{ batch.path_count }}</td>
-                    <td class="time-cell">{{ formatTime(batch.created_at) }}</td>
-                    <td class="action-cell">
-                      <v-btn
-                        icon="mdi-check-circle-outline"
-                        size="small"
-                        variant="text"
-                        color="warning"
-                        title="确认清理"
-                        aria-label="确认清理"
-                        :loading="pending === batch.batch_id"
-                        @click="confirmCleanup(batch.batch_id)"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </v-table>
-            </div>
-            <div v-else class="empty-state">
-              <div class="empty-icon" aria-hidden="true"><v-icon size="19">mdi-shield-check-outline</v-icon></div>
-              <strong>没有待确认批次</strong>
-              <span>缺失文件会在扫描后显示在这里。</span>
-            </div>
-          </section>
-        </div>
       </section>
 
           <section v-show="activeTab === 'config'" class="config-view-host" aria-labelledby="config-title">
@@ -605,7 +469,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.15' },
+  version: { type: String, default: '2.1.16' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -692,7 +556,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.15')
+const version = computed(() => props.version || '2.1.16')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -1302,7 +1166,11 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   overflow-x: auto;
 }
 .status-table { background: transparent; color: var(--cs-text); min-width: 600px; }
-.failure-table-frame .status-table { min-width: 860px; }
+.failure-table-frame .status-table { min-width: 0; }
+.failure-table-frame { max-height: 560px; overflow: auto; }
+.failure-status-table { table-layout: fixed; }
+.failure-status-table :deep(th), .failure-status-table :deep(td) { box-sizing: border-box; }
+.failure-status-table :deep(thead th) { position: sticky; top: 0; z-index: 1; }
 .status-table :deep(table) { width: 100%; }
 .status-table :deep(th) {
   background: rgba(255, 255, 255, .018);
@@ -1318,11 +1186,16 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .status-table :deep(tbody tr:hover) { background: rgba(255, 255, 255, .025); }
 .time-cell { color: var(--cs-muted) !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .path-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.failure-file-cell { min-width: 0; width: 40%; }
+.failure-file-cell .path-cell { display: block; max-width: none; }
+.failure-file-cell .path-cell--target { color: var(--cs-dim); margin-top: 5px; }
 .select-cell { text-align: center; width: 46px; }
 .select-cell :deep(.v-selection-control) { justify-content: center; }
-.failure-reason-cell { max-width: 360px; min-width: 230px; }
-.failure-raw-error { color: var(--cs-muted); display: block; font-size: 11px; line-height: 1.35; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.failure-repair-hint { color: var(--cs-dim); display: block; font-size: 11px; line-height: 1.35; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.failure-reason-cell { max-width: none; min-width: 0; width: 43%; }
+.failure-raw-error, .failure-repair-hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
+.failure-raw-error { color: var(--cs-muted); font-size: 11px; line-height: 1.35; margin-top: 5px; }
+.failure-repair-hint { color: var(--cs-dim); font-size: 11px; line-height: 1.35; margin-top: 4px; }
+.attempts-cell { text-align: center; width: 56px; }
 .task-center-section { border-top: 1px solid var(--cs-line); padding-top: 24px; }
 .task-center-header { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 13px; }
 .task-center-tabs { border-bottom: 1px solid var(--cs-line); display: flex; gap: 4px; margin-bottom: 16px; }
@@ -1330,7 +1203,7 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .task-center-tab:hover { color: var(--cs-text); }
 .task-center-tab.is-active { border-bottom-color: var(--cs-primary); color: var(--cs-primary); }
 .task-center-tab .section-count { height: 22px; min-width: 22px; }
-.pending-items-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pending-items-grid { align-items: start; display: grid; gap: 14px; grid-template-columns: minmax(0, 2fr) minmax(250px, .8fr); }
 .pending-item-group { background: var(--cs-surface); border: 1px solid var(--cs-line); border-radius: 7px; min-width: 0; padding: 15px; }
 .pending-item-group--failure { border-color: rgba(185, 99, 62, .35); }
 .pending-item-group--cleanup { border-color: rgba(215, 154, 63, .35); }
@@ -1339,8 +1212,8 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .pending-group-title h3 { color: var(--cs-text); font-size: 14px; font-weight: 700; margin: 0; }
 .pending-group-title p { color: var(--cs-dim); font-size: 11px; line-height: 1.4; margin-top: 4px; }
 .pending-group-icon { align-items: center; background: var(--cs-surface-raised); border: 1px solid var(--cs-line); border-radius: 6px; color: var(--cs-primary); display: flex; flex: 0 0 30px; height: 30px; justify-content: center; width: 30px; }
-.pending-risk-note { align-items: flex-start; background: #f5f7f8; border: 1px solid var(--cs-line); border-radius: 5px; color: var(--cs-muted); display: flex; font-size: 11px; gap: 7px; line-height: 1.4; margin-bottom: 10px; padding: 8px 9px; }
-.pending-risk-note--warning { background: #fff8ee; border-color: #edd9b7; color: #9a6b2e; }
+.pending-risk-note { align-items: flex-start; background: var(--cs-surface-inset); border: 1px solid var(--cs-line); border-radius: 5px; color: var(--cs-muted); display: flex; font-size: 11px; gap: 7px; line-height: 1.4; margin-bottom: 10px; padding: 8px 9px; }
+.pending-risk-note--warning { background: #36332b; border-color: #665d43; color: var(--cs-warning); }
 .compact-empty, .task-center-empty { align-items: center; color: var(--cs-muted); display: flex; gap: 8px; }
 .compact-empty { justify-content: center; min-height: 66px; }
 .task-center-empty { background: var(--cs-surface); border: 1px solid var(--cs-line); border-radius: 7px; flex-direction: column; justify-content: center; min-height: 92px; padding: 16px; }
@@ -1372,8 +1245,6 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .status-chip--warning { background: rgba(231, 183, 100, .12); border-color: rgba(231, 183, 100, .25); color: var(--cs-warning); }
 .status-chip--muted { background: rgba(165, 162, 177, .1); border-color: rgba(165, 162, 177, .18); color: var(--cs-muted); }
 
-.dashboard-columns { display: grid; gap: 28px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.dashboard-columns .content-section { margin-bottom: 0; }
 .empty-state {
   background: var(--cs-surface);
   border: 1px solid var(--cs-line);
@@ -1412,7 +1283,6 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .result-category-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .command-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-detail--path { grid-column: 1 / -1; }
-  .dashboard-columns { grid-template-columns: 1fr; }
   .pending-items-grid { grid-template-columns: 1fr; }
   .shell-content { padding: 26px 28px 40px; }
 }
@@ -1444,7 +1314,6 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .full-scan-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .metric-tile { min-height: 116px; padding: 13px; }
   .metric-tile strong { font-size: 25px; margin-top: 18px; }
-  .dashboard-columns { gap: 24px; }
 }
 
 /* Reference workbench treatment: a quiet light canvas with a fixed navigation rail. */
@@ -1983,7 +1852,6 @@ h2 { color: var(--cs-text); font-size: 16px; font-weight: 500; }
   .full-scan-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
   .result-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .result-category:last-child { grid-column: 1 / -1; }
-  .dashboard-columns { gap: 24px; grid-template-columns: 1fr; }
 }
 
 @media (max-width: 420px) {
