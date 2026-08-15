@@ -1,5 +1,9 @@
 <template>
-  <div class="config-root">
+  <div
+    class="config-root"
+    :class="{ 'config-root--embedded': embedded, 'v-theme--dark': embedded }"
+    :style="embedded ? { colorScheme: 'dark' } : undefined"
+  >
     <div v-if="!embedded" class="standalone-header">
       <div>
         <strong>云盘 Strm 小管家</strong>
@@ -477,5 +481,95 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .rule-card-actions { margin-left: auto; }
   .config-action-footer { align-items: stretch; flex-direction: column; gap: 14px; }
   .footer-actions { justify-content: flex-end; }
+}
+
+.config-root--embedded .config-panel {
+  --cs-bg: #121218;
+  --cs-surface: #19191f;
+  --cs-surface-raised: #1f1f27;
+  --cs-surface-inset: #101016;
+  --cs-line: #2d2d38;
+  --cs-line-strong: #393844;
+  --cs-text: #f2f1f7;
+  --cs-muted: #a3a0af;
+  --cs-dim: #747181;
+  --cs-primary: #8b6cf6;
+  --cs-primary-soft: #bcaeff;
+  --cs-success: #68d7a2;
+  --cs-danger: #ff8a9a;
+}
+
+.config-root--embedded .config-panel :deep(.v-field) {
+  background: var(--cs-surface-inset);
+}
+
+.config-root--embedded .module-icon,
+.config-root--embedded .rule-number {
+  background: #2b2347;
+  border-color: #594b9e;
+  color: var(--cs-primary-soft);
+}
+
+.config-root--embedded .module-status.is-enabled {
+  background: #203b31;
+  border-color: #356a54;
+  color: var(--cs-success);
+}
+
+.config-root--embedded .empty-icon {
+  background: #292632;
+  border-color: var(--cs-line);
+}
+
+.config-root--embedded .rule-card {
+  background: var(--cs-surface-raised);
+}
+
+.config-root--embedded .advanced-toggle:hover {
+  background: rgba(255, 255, 255, .025);
+}
+
+.config-root--embedded :deep(.v-field__outline),
+.config-root--embedded :deep(.v-field--focused .v-field__outline) {
+  color: var(--cs-line-strong);
+}
+
+.config-root--embedded :deep(.v-field--focused .v-field__outline) {
+  color: var(--cs-primary);
+}
+
+.config-root--embedded :deep(.v-label),
+.config-root--embedded :deep(.v-field__input),
+.config-root--embedded :deep(.v-field__append-inner),
+.config-root--embedded :deep(.v-field__prepend-inner) {
+  color: var(--cs-muted);
+}
+
+.config-root--embedded :deep(.v-field__input),
+.config-root--embedded :deep(.v-field__append-inner),
+.config-root--embedded :deep(.v-field__prepend-inner) {
+  color: var(--cs-text);
+}
+
+.config-root--embedded :deep(.v-switch .v-selection-control__input) {
+  color: var(--cs-primary);
+}
+
+.config-root--embedded :deep(.v-btn.bg-primary.v-btn--variant-flat) {
+  background: #8b6cf6 !important;
+  background-color: #8b6cf6 !important;
+  color: #17121f !important;
+}
+
+.config-root--embedded :deep(.v-btn.bg-primary.v-btn--variant-flat:hover:not(:disabled)) {
+  background: #9b7eff !important;
+  background-color: #9b7eff !important;
+}
+
+.config-root--embedded :deep(.v-btn.bg-primary.v-btn--variant-flat:disabled),
+.config-root--embedded :deep(.v-btn.bg-primary.v-btn--variant-flat.v-btn--disabled) {
+  background: #594b9e !important;
+  background-color: #594b9e !important;
+  color: #c7bdf0 !important;
 }
 </style>

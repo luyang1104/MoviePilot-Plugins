@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.11"
+    plugin_version = "2.1.12"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -200,6 +200,7 @@ class CloudStrmButler(_PluginBase):
         self._processing_overview_lock = threading.RLock()
         self._processing_overview_cache = None
         self._processing_overview_refreshing = False
+        self._processing_overview_last_refresh_at = 0.0
 
     def init_plugin(self, config: dict = None):
         if not self.stop_service():
@@ -219,7 +220,9 @@ class CloudStrmButler(_PluginBase):
 
         if config:
             self._enabled = _as_bool(config.get("enabled"))
-            self._onlyonce = _as_bool(config.get("onlyonce"))
+            # Legacy full-scan switches are retained for config compatibility,
+            # but full processing is now always user-initiated from the page.
+            self._onlyonce = False
             self._monitor = _as_bool(config.get("monitor"))
             self._cover = _as_bool(config.get("cover"))
             self._copy_files = _as_bool(config.get("copy_files"))
@@ -238,6 +241,8 @@ class CloudStrmButler(_PluginBase):
             except (TypeError, ValueError):
                 self._interval = 10
             try:
+                # Keep the setting round-trippable for compatibility, but do
+                # not schedule a full scan during plugin startup.
                 self._scan_interval = max(0, int(config.get("scan_interval") or 0))
             except (TypeError, ValueError):
                 self._scan_interval = 0
@@ -301,7 +306,7 @@ class CloudStrmButler(_PluginBase):
         self._state_store = SyncStateStore(self.get_data_path() / "sync_state.sqlite3")
         self._task_store = TaskStore(self.get_data_path() / "task_state.sqlite3")
         self._task_store.prune()
-        if self._reliable_engine and (self._enabled or self._onlyonce):
+        if self._reliable_engine and self._enabled:
             self._sync_engine = SyncEngine(self._task_store, self._run_reliable_job, completion=self._complete_reliable_job)
             self._sync_engine.start()
 
@@ -309,14 +314,11 @@ class CloudStrmButler(_PluginBase):
             logger.error(error)
             self.systemmessage.put(error)
 
-        if not (self._enabled or self._onlyonce):
+        if not self._enabled:
             return
 
         if not self._monitor_rules:
             logger.warning("没有可用的目录配置，不启动扫描任务")
-            if self._onlyonce:
-                self._onlyonce = False
-                self.__update_config()
             return
 
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
@@ -327,14 +329,6 @@ class CloudStrmButler(_PluginBase):
                 trigger="interval",
                 seconds=15,
                 name="云盘Strm小管家通知队列",
-            )
-
-        if self._scan_interval > 0:
-            self._scheduler.add_job(
-                func=self.scan,
-                trigger="interval",
-                minutes=self._scan_interval,
-                name="云盘Strm小管家周期全量扫描",
             )
 
         if self._refresh_emby and self._mediaservers:
@@ -357,19 +351,11 @@ class CloudStrmButler(_PluginBase):
             if rule.should_monitor(self._monitor):
                 self._start_observer(rule)
 
-        if self._onlyonce:
-            self._scheduler.add_job(
-                func=self.scan,
-                trigger="date",
-                run_date=datetime.now(tz=pytz.timezone(settings.TZ)) + timedelta(seconds=3),
-                name="云盘Strm小管家一次性全量扫描",
-            )
-            self._onlyonce = False
-            self.__update_config()
-
         if self._scheduler.get_jobs():
             self._scheduler.print_jobs()
-            self._scheduler.start()
+        # Starting an empty scheduler only keeps the runtime state consistent;
+        # full processing remains available exclusively through the manual API.
+        self._scheduler.start()
 
     def _start_observer(self, rule: MonitorRule):
         """Start a polling watcher for one valid monitor rule."""
@@ -534,6 +520,7 @@ class CloudStrmButler(_PluginBase):
     def _invalidate_processing_overview(self) -> None:
         with self._processing_overview_lock:
             self._processing_overview_cache = None
+            self._processing_overview_last_refresh_at = 0.0
 
     def _index_processing_overview(self) -> Dict[str, Any]:
         counts = {
@@ -545,7 +532,16 @@ class CloudStrmButler(_PluginBase):
             "subtitle_completed": 0,
         }
         if not self._state_store:
-            return {**counts, "media_strm_consistent": True, "ready": False, "last_checked_at": None}
+            return {
+                **counts,
+                "media_strm_consistent": True,
+                "ready": True,
+                "record_ready": True,
+                "refreshing": False,
+                "source_scan_pending": True,
+                "source_scan_error": "",
+                "last_checked_at": time.time(),
+            }
         records = [
             record
             for rule in self._monitor_rules
@@ -588,8 +584,14 @@ class CloudStrmButler(_PluginBase):
         return {
             **counts,
             "media_strm_consistent": counts["media_total"] == counts["strm_total"],
+            # The persisted index is immediately usable. A directory walk is
+            # only a background reconciliation and must not block the page.
             "ready": False,
-            "last_checked_at": None,
+            "record_ready": True,
+            "refreshing": False,
+            "source_scan_pending": True,
+            "source_scan_error": "",
+            "last_checked_at": time.time(),
         }
 
     def _refresh_processing_overview(self) -> None:
@@ -628,10 +630,29 @@ class CloudStrmButler(_PluginBase):
                     **counts,
                     "media_strm_consistent": counts["media_total"] == counts["strm_total"],
                     "ready": True,
+                    "record_ready": True,
+                    "refreshing": False,
+                    "source_scan_pending": False,
+                    "source_scan_error": "",
                     "last_checked_at": time.time(),
                 }
+                self._processing_overview_last_refresh_at = time.time()
         except Exception as exc:
             logger.warning("刷新处理概览失败：%s", exc)
+            with self._processing_overview_lock:
+                cached = dict(self._processing_overview_cache or {})
+                if not cached:
+                    cached = self._index_processing_overview()
+                cached.update({
+                    "ready": True,
+                    "record_ready": True,
+                    "refreshing": False,
+                    "source_scan_pending": False,
+                    "source_scan_error": "目录核对失败，当前显示已记录的处理结果",
+                    "last_checked_at": cached.get("last_checked_at") or time.time(),
+                })
+                self._processing_overview_cache = cached
+                self._processing_overview_last_refresh_at = time.time()
         finally:
             with self._processing_overview_lock:
                 self._processing_overview_refreshing = False
@@ -640,14 +661,26 @@ class CloudStrmButler(_PluginBase):
         with self._processing_overview_lock:
             cached = dict(self._processing_overview_cache or {})
             refreshing = self._processing_overview_refreshing
+            last_refresh_at = self._processing_overview_last_refresh_at
         if not cached:
             cached = self._index_processing_overview()
             with self._processing_overview_lock:
                 self._processing_overview_cache = dict(cached)
-        if not refreshing:
+                last_refresh_at = self._processing_overview_last_refresh_at
+        # Older persisted/API payloads only have `ready`; keep the distinction
+        # explicit so a slow source walk cannot hide usable records.
+        cached.setdefault("record_ready", bool(cached.get("ready")))
+        should_refresh = (
+            not refreshing
+            and bool(cached.get("source_scan_pending"))
+            or (not refreshing and time.time() - last_refresh_at >= 30)
+        )
+        if should_refresh:
             with self._processing_overview_lock:
                 self._processing_overview_refreshing = True
             threading.Thread(target=self._refresh_processing_overview, name="cloudstrmbutler-overview", daemon=True).start()
+            refreshing = True
+        cached["refreshing"] = refreshing
         return cached
 
     def _scan_rule(self, rule: MonitorRule, run_id: Optional[str] = None):

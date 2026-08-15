@@ -1,72 +1,17 @@
 <template>
-  <div class="cloudstrm-shell v-theme--light" style="color-scheme: light">
+  <div class="cloudstrm-shell v-theme--dark" style="color-scheme: dark">
     <div class="shell-frame">
-      <aside class="shell-sidebar">
+      <header class="shell-header">
+        <div class="shell-header-top">
           <div class="brand-lockup">
             <div class="brand-mark" aria-hidden="true">
               <v-icon size="21">mdi-cloud-sync-outline</v-icon>
             </div>
             <div class="brand-copy">
-              <div class="brand-title">
-                云盘 Strm 小管家
-                <span class="brand-version">v{{ version }}</span>
-              </div>
+              <div class="brand-title">云盘 STRM 小管家</div>
               <div class="brand-subtitle">STRM 同步与目录管理</div>
             </div>
-          </div>
-
-        <nav class="sidebar-nav" aria-label="插件视图">
-          <span class="sidebar-nav-label">同步管理</span>
-          <button
-            class="sidebar-nav-button"
-            :class="{ 'is-active': activeTab === 'dashboard' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'dashboard'"
-            @click="activeTab = 'dashboard'"
-          >
-            <v-icon size="18">mdi-chart-box-outline</v-icon>
-            <span>同步工作台</span>
-          </button>
-          <button
-            class="sidebar-nav-button"
-            :class="{ 'is-active': activeTab === 'config' }"
-            type="button"
-            role="tab"
-            :aria-selected="activeTab === 'config'"
-            @click="activeTab = 'config'"
-          >
-            <v-icon size="18">mdi-tune-variant</v-icon>
-            <span>运行设置</span>
-          </button>
-          <span class="sidebar-nav-label sidebar-nav-label--status">运行状态</span>
-          <div class="sidebar-runtime-state">
-            <span class="runtime-dot" :class="{ 'is-active': status.enabled }" aria-hidden="true"></span>
-            <div>
-              <strong>{{ status.enabled ? '插件已启用' : '插件未启用' }}</strong>
-              <span>{{ runtimeLabel }}</span>
-            </div>
-          </div>
-        </nav>
-
-        <div class="sidebar-health">
-          <div class="sidebar-health-heading">
-            <span class="sidebar-health-icon" aria-hidden="true"><v-icon size="16">mdi-check</v-icon></span>
-            <strong>{{ status.enabled ? '本次运行健康' : '等待启用插件' }}</strong>
-          </div>
-          <span>上次刷新 {{ lastUpdatedLabel }}</span>
-        </div>
-      </aside>
-
-      <div class="shell-main">
-        <header class="shell-header">
-          <div class="mobile-brand brand-lockup">
-            <div class="brand-mark" aria-hidden="true">
-              <v-icon size="19">mdi-cloud-sync-outline</v-icon>
-            </div>
-            <div class="brand-copy">
-              <div class="brand-title">云盘 Strm 小管家</div>
-            </div>
+            <span class="brand-version">v{{ version }}</span>
           </div>
           <div class="header-actions">
             <div class="runtime-indicator" :class="{ 'is-active': runtimeActive }">
@@ -74,8 +19,9 @@
               <span>{{ runtimeLabel }}</span>
             </div>
             <v-btn
+              class="header-refresh"
               icon="mdi-refresh"
-              variant="outlined"
+              variant="text"
               size="small"
               :loading="loading"
               title="刷新状态"
@@ -83,8 +29,33 @@
               @click="load"
             />
           </div>
-        </header>
-
+        </div>
+        <nav class="tab-bar" role="tablist" aria-label="插件视图">
+          <button
+            class="tab-button"
+            :class="{ 'is-active': activeTab === 'dashboard' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'dashboard'"
+            @click="activeTab = 'dashboard'"
+          >
+            <v-icon size="17">mdi-chart-box-outline</v-icon>
+            <span>运行状态</span>
+          </button>
+          <button
+            class="tab-button"
+            :class="{ 'is-active': activeTab === 'config' }"
+            type="button"
+            role="tab"
+            :aria-selected="activeTab === 'config'"
+            @click="activeTab = 'config'"
+          >
+            <v-icon size="17">mdi-tune-variant</v-icon>
+            <span>插件配置</span>
+          </button>
+        </nav>
+      </header>
+      <div class="shell-main">
         <div class="shell-divider" aria-hidden="true"></div>
 
         <main class="shell-content">
@@ -181,8 +152,8 @@
               <h2 id="processing-overview-title">处理概览</h2>
               <p>按源目录核对媒体、非媒体文件和字幕的处理结果。</p>
             </div>
-            <span class="overview-refresh-state" :class="{ 'is-ready': processingOverview.ready }">
-              {{ processingOverview.ready ? `已核对 ${formatTime(processingOverview.last_checked_at)}` : '正在核对源目录' }}
+            <span class="overview-refresh-state" :class="{ 'is-ready': processingOverview.record_ready }">
+              {{ processingOverview.ready ? `已核对 ${formatTime(processingOverview.last_checked_at)}` : processingOverview.record_ready ? '已有记录，后台核对中' : '正在核对源目录' }}
             </span>
           </div>
 
@@ -192,18 +163,22 @@
                 <span>STRM 生成记录</span>
                 <v-icon size="18">mdi-file-link-outline</v-icon>
               </div>
-              <div class="overview-pair">
-                <strong>{{ processingOverview.media_total }}</strong>
-                <span>媒体</span>
-                <span class="overview-divider">/</span>
-                <strong>{{ processingOverview.strm_total }}</strong>
-                <span>STRM</span>
+              <div class="overview-card-body">
+                <div class="overview-value-group">
+                  <span>媒体总数</span>
+                  <strong>{{ processingOverview.media_total }}</strong>
+                </div>
+                <div class="overview-value-group">
+                  <span>已生成 STRM</span>
+                  <strong>{{ processingOverview.strm_total }}</strong>
+                </div>
+                <div class="overview-consistency" :class="overviewConsistencyTone">
+                  <v-icon size="15">{{ processingOverview.media_strm_consistent ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}</v-icon>
+                  <strong>{{ overviewConsistencyLabel }}</strong>
+                  <span v-if="processingOverview.record_ready && !processingOverview.media_strm_consistent">少 {{ Math.max(0, Number(processingOverview.media_total || 0) - Number(processingOverview.strm_total || 0)) }} 个 STRM</span>
+                </div>
               </div>
-              <span class="overview-card-note">媒体总数 / 已生成 STRM</span>
-              <span class="overview-card-status" :class="overviewConsistencyTone">
-                <v-icon size="15">{{ processingOverview.media_strm_consistent ? 'mdi-check-circle-outline' : 'mdi-alert-circle-outline' }}</v-icon>
-                {{ overviewConsistencyLabel }}
-              </span>
+              <span class="overview-card-note">数量核对只比较媒体总数与已生成 STRM，不展开文件记录。</span>
             </article>
 
             <article class="processing-overview-card processing-overview-card--side">
@@ -533,7 +508,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.11' },
+  version: { type: String, default: '2.1.12' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -587,6 +562,10 @@ const status = reactive({
     subtitle_total: 0,
     subtitle_completed: 0,
     ready: false,
+    record_ready: false,
+    refreshing: false,
+    source_scan_pending: false,
+    source_scan_error: '',
     last_checked_at: null,
   },
   command_progress: {
@@ -614,7 +593,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.11')
+const version = computed(() => props.version || '2.1.12')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -673,11 +652,11 @@ const fullScanProgressPhaseLabel = computed(() => ({
   failed: '失败',
 }[fullScanProgress.value.phase] || fullScanProgress.value.phase || '未知'))
 const overviewConsistencyLabel = computed(() => {
-  if (!processingOverview.value.ready) return '等待核对'
+  if (!processingOverview.value.record_ready) return '等待核对'
   return processingOverview.value.media_strm_consistent ? '数量一致' : '数量不一致'
 })
 const overviewConsistencyTone = computed(() => {
-  if (!processingOverview.value.ready) return 'is-pending'
+  if (!processingOverview.value.record_ready) return 'is-pending'
   return processingOverview.value.media_strm_consistent ? 'is-consistent' : 'is-inconsistent'
 })
 const commandProgress = computed(() => status.command_progress)
@@ -1556,5 +1535,294 @@ h2 { color: var(--cs-text); font-size: 17px; }
   .metric-tile strong { font-size: 25px; }
   .result-category-grid, .command-detail-grid { grid-template-columns: 1fr 1fr; }
   .result-category:last-child { grid-column: 1 / -1; }
+}
+/* SVG reference: compact dark workbench with a two-row header. */
+.cloudstrm-shell {
+  --cs-bg: #121218;
+  --cs-surface: #19191f;
+  --cs-surface-raised: #1f1f27;
+  --cs-surface-inset: #101016;
+  --cs-line: #2d2d38;
+  --cs-line-strong: #393844;
+  --cs-text: #f2f1f7;
+  --cs-muted: #a3a0af;
+  --cs-dim: #747181;
+  --cs-primary: #7c4dff;
+  --cs-primary-soft: #bcaeff;
+  --cs-success: #68d7a2;
+  --cs-warning: #f0c276;
+  --cs-danger: #ff8a9a;
+  --cs-info: #82c8ff;
+  background: #0d0d12;
+  color: var(--cs-text);
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  min-height: 100vh;
+}
+
+.shell-frame {
+  background: var(--cs-bg);
+  border: 1px solid var(--cs-line-strong);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .28);
+  display: block;
+  margin: 48px auto;
+  max-width: 1344px;
+  min-height: calc(100vh - 96px);
+  overflow: hidden;
+  width: calc(100% - 96px);
+}
+
+.shell-header {
+  align-items: stretch;
+  background: var(--cs-surface);
+  display: block;
+  min-height: 126px;
+  padding: 0 24px;
+}
+.shell-header-top { min-height: 72px; }
+.brand-lockup { gap: 12px; }
+.brand-mark {
+  background: #2b214e;
+  border-color: #6655b8;
+  color: var(--cs-primary-soft);
+  flex-basis: 38px;
+  height: 38px;
+  width: 38px;
+}
+.brand-title { color: var(--cs-text); font-size: 16px; font-weight: 500; }
+.brand-subtitle { color: var(--cs-dim); }
+.brand-version { color: var(--cs-dim); font-size: 12px; margin-left: 0; }
+.header-actions { gap: 12px; }
+.runtime-indicator { color: var(--cs-muted); }
+.runtime-indicator.is-active { color: var(--cs-success); }
+.runtime-indicator.is-active .runtime-dot { background: var(--cs-success); box-shadow: none; }
+.header-refresh { color: var(--cs-muted) !important; }
+.header-refresh:hover { background: rgba(255, 255, 255, .06); }
+.tab-bar {
+  align-self: stretch;
+  border-top: 1px solid rgba(45, 45, 56, .7);
+  gap: 3px;
+  height: 54px;
+  margin-left: 0;
+}
+.tab-button {
+  color: var(--cs-muted);
+  font-size: 14px;
+  font-weight: 500;
+  min-height: 54px;
+  padding: 0 20px;
+}
+.tab-button:hover { background: rgba(255, 255, 255, .025); color: var(--cs-text); }
+.tab-button.is-active {
+  background: #211b34;
+  border-bottom-color: var(--cs-primary);
+  color: var(--cs-primary-soft);
+}
+.shell-main { background: var(--cs-bg); min-width: 0; }
+.shell-divider { background: var(--cs-line); }
+.shell-content { max-width: none; padding: 42px 48px 52px; }
+.shell-alert { margin-bottom: 22px; }
+.page-intro { gap: 24px; margin-bottom: 24px; }
+.eyebrow { color: var(--cs-primary-soft); }
+h1 { color: var(--cs-text); font-size: 25px; font-weight: 500; }
+.page-intro p { color: var(--cs-muted); font-size: 14px; }
+.intro-meta { border-left-color: var(--cs-line); }
+.meta-label { color: var(--cs-dim); }
+.intro-meta strong { color: var(--cs-muted); }
+.intro-actions > span { color: var(--cs-dim); }
+.cloudstrm-shell :deep(.v-btn) {
+  border-radius: 6px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.cloudstrm-shell :deep(.v-btn--variant-flat) { background: #8b6cf6; color: #17121f; }
+.cloudstrm-shell :deep(.v-btn--variant-flat:hover) { background: #9b7eff; }
+.cloudstrm-shell :deep(.v-btn--variant-outlined) { border-color: var(--cs-line-strong); color: var(--cs-muted); }
+.cloudstrm-shell :deep(.v-btn--variant-tonal) { background: #2b2347; color: var(--cs-primary-soft); }
+
+.runtime-banner {
+  background: var(--cs-surface);
+  border-color: var(--cs-line);
+  gap: 12px;
+  margin-bottom: 36px;
+  min-height: 64px;
+  padding: 12px 15px;
+}
+.runtime-banner.is-active { border-color: rgba(104, 215, 162, .28); }
+.banner-icon { background: #21352d; color: var(--cs-success); }
+.runtime-banner:not(.is-active) .banner-icon { background: #2b2a33; color: var(--cs-muted); }
+.banner-copy strong { color: var(--cs-text); font-size: 14px; }
+.banner-copy span { color: var(--cs-muted); font-size: 12px; }
+.runtime-banner :deep(.v-chip) { background: #203b31 !important; color: var(--cs-success) !important; }
+.runtime-banner:not(.is-active) :deep(.v-chip) { background: #292632 !important; color: var(--cs-muted) !important; }
+
+.content-section { margin-bottom: 32px; }
+.engine-metrics-section { border-top: 0; padding-top: 0; }
+.section-heading { margin-bottom: 14px; }
+h2 { color: var(--cs-text); font-size: 16px; font-weight: 500; }
+.section-heading p { color: var(--cs-dim); font-size: 12px; }
+.overview-refresh-state { color: var(--cs-dim); }
+.overview-refresh-state.is-ready { color: var(--cs-primary-soft); }
+.metric-grid { gap: 16px; margin-bottom: 36px; }
+.metric-tile, .processing-overview-card, .command-progress-frame, .table-frame, .empty-state {
+  background: var(--cs-surface);
+  border-color: var(--cs-line);
+  border-radius: 7px;
+  box-shadow: none;
+}
+.metric-tile { min-height: 112px; padding: 18px 20px 16px; }
+.metric-tile--accent { background: #1d1a29; border-color: #594b9e; }
+.metric-heading { color: var(--cs-muted); }
+.metric-heading .v-icon { color: var(--cs-dim); }
+.metric-tile--accent .metric-heading .v-icon { color: var(--cs-primary-soft); }
+.metric-tile strong { color: var(--cs-text); font-size: 28px; font-weight: 500; margin-top: 20px; }
+.metric-tile--accent strong { color: var(--cs-primary-soft); }
+.metric-caption { color: var(--cs-dim); }
+
+.processing-overview-section {
+  border-top: 1px solid var(--cs-line);
+  margin-bottom: 36px;
+  padding-top: 24px;
+}
+.processing-overview-grid { gap: 26px; grid-template-columns: 1.26fr 1fr; }
+.processing-overview-card { min-height: 190px; padding: 24px; }
+.processing-overview-card--strm { background: #1d1a29; border-color: #594b9e; }
+.overview-card-heading { color: var(--cs-text); font-size: 16px; }
+.overview-card-heading .v-icon { color: var(--cs-primary-soft); }
+.overview-card-body { align-items: stretch; display: grid; gap: 24px; grid-template-columns: 1fr 1fr 1.1fr; margin-top: 18px; }
+.overview-value-group { min-width: 0; }
+.overview-value-group span { color: var(--cs-muted); display: block; font-size: 12px; }
+.overview-value-group strong { color: var(--cs-text); display: block; font-size: 34px; font-weight: 500; line-height: 1; margin-top: 18px; }
+.overview-consistency {
+  align-content: center;
+  border-left: 1px solid var(--cs-line);
+  column-gap: 8px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  min-height: 82px;
+  padding-left: 26px;
+}
+.overview-consistency .v-icon { grid-row: 1 / span 2; }
+.overview-consistency strong { font-size: 14px; font-weight: 500; }
+.overview-consistency span { color: var(--cs-muted); font-size: 12px; grid-column: 2; margin-top: 5px; }
+.overview-consistency.is-consistent { color: var(--cs-success); }
+.overview-consistency.is-inconsistent { color: var(--cs-warning); }
+.overview-consistency.is-pending { color: var(--cs-warning); }
+.overview-card-note { color: var(--cs-dim); display: block; font-size: 11px; margin-top: 22px; }
+.processing-overview-card--side { gap: 14px; }
+.overview-side-caption { color: var(--cs-dim); font-size: 12px; }
+.overview-stat-row { grid-template-columns: minmax(150px, 1fr) auto auto; }
+.overview-stat-label { color: var(--cs-text); }
+.overview-stat-label .v-icon { color: var(--cs-dim); }
+.overview-stat-row strong { color: var(--cs-muted); font-size: 14px; }
+.overview-stat-completed { color: var(--cs-success) !important; }
+.overview-stat-completed--subtitle { color: var(--cs-warning) !important; }
+.cloudstrm-shell :deep(.v-progress-linear) { --v-theme-primary: 124, 77, 255; --v-theme-secondary: 45, 45, 56; --v-theme-success: 104, 215, 162; --v-theme-warning: 240, 194, 118; }
+
+.command-progress-frame { padding: 18px 22px 20px; }
+.full-scan-frame { padding: 18px 24px 20px; }
+.full-scan-toolbar { gap: 14px; }
+.scan-state, .status-chip { border-radius: 5px; }
+.scan-state { border-color: var(--cs-line); color: var(--cs-muted); }
+.scan-state--running, .scan-state--done { background: #203b31; border-color: #356a54; color: var(--cs-success); }
+.scan-state--idle { background: #292632; color: var(--cs-dim); }
+.full-scan-label, .full-scan-detail span, .full-scan-footer, .command-detail span { color: var(--cs-muted); }
+.full-scan-detail strong, .command-detail strong { color: var(--cs-text); }
+.command-detail { background: var(--cs-surface-inset); border-color: var(--cs-line); }
+.result-summary-heading strong { color: var(--cs-text); }
+.result-category { background: var(--cs-surface-inset); border-color: var(--cs-line); }
+.result-category span { color: var(--cs-muted); }
+.result-category--muted strong { color: var(--cs-muted); }
+.result-category--neutral strong { color: var(--cs-text); }
+.result-category--info strong { color: var(--cs-info); }
+.result-category--success strong { color: var(--cs-success); }
+.result-category--danger strong, .danger-number { color: var(--cs-danger) !important; }
+.stalled-warning { background: #36332b; border-color: #665d43; color: var(--cs-warning); }
+.status-chip--active { background: #2b2347; border-color: #594b9e; color: var(--cs-primary-soft); }
+.status-chip--success { background: #203b31; border-color: #356a54; color: var(--cs-success); }
+.status-chip--danger { background: #482630; border-color: #703c4b; color: var(--cs-danger); }
+.status-chip--muted { background: #292632; border-color: #4a4658; color: var(--cs-dim); }
+
+.status-table { color: var(--cs-text); min-width: 620px; }
+.status-table :deep(th) { background: #1f1f27; border-bottom-color: var(--cs-line) !important; color: var(--cs-dim) !important; }
+.status-table :deep(td) { border-bottom-color: var(--cs-line) !important; color: var(--cs-muted); }
+.status-table :deep(tbody tr:hover) { background: #1b1b22; }
+.result-inline--muted { background: #292632; color: var(--cs-muted); }
+.result-inline--neutral { background: #2a2931; color: var(--cs-text); }
+.result-inline--info { background: #203747; color: var(--cs-info); }
+.result-inline--success { background: #203b31; color: var(--cs-success); }
+.result-inline--danger { background: #482630; color: var(--cs-danger); }
+.section-count { background: var(--cs-surface); border-color: var(--cs-line); color: var(--cs-dim); }
+.section-count.has-items { border-color: #703c4b; color: var(--cs-danger); }
+.empty-icon { background: #292632; border-color: var(--cs-line); color: var(--cs-muted); }
+.empty-icon--success { background: #203b31; border-color: #356a54; color: var(--cs-success); }
+.empty-state strong { color: var(--cs-text); }
+.empty-state span { color: var(--cs-dim); }
+
+@media (max-width: 900px) {
+  .shell-frame { margin: 24px; min-height: calc(100vh - 48px); width: calc(100% - 48px); }
+  .shell-content { padding: 36px 28px 44px; }
+  .processing-overview-grid { grid-template-columns: 1fr; }
+  .processing-overview-card--side { min-height: 190px; }
+}
+
+@media (max-width: 700px) {
+  .shell-frame { border-radius: 0; margin: 0; min-height: 100vh; width: 100%; }
+  .shell-header { min-height: 112px; padding: 0 16px; }
+  .shell-header-top { min-height: 64px; }
+  .brand-subtitle, .brand-version, .runtime-indicator { display: none; }
+  .brand-title { font-size: 15px; }
+  .brand-mark { flex-basis: 34px; height: 34px; width: 34px; }
+  .tab-bar, .tab-button { height: 48px; min-height: 48px; }
+  .tab-button { flex: 1; justify-content: center; padding: 0 12px; }
+  .shell-content { padding: 28px 16px 40px; }
+  .page-intro { align-items: flex-start; display: flex; flex-direction: column; gap: 16px; }
+  .intro-actions { align-items: stretch; margin-left: 0; width: 100%; }
+  .intro-actions :deep(.v-btn) { width: 100%; }
+  .intro-actions > span { text-align: left; }
+  .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
+  .runtime-banner { align-items: flex-start; margin-bottom: 28px; padding: 16px; }
+  .banner-copy span { white-space: normal; }
+  .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .processing-overview-card { padding: 18px; }
+  .overview-card-body { gap: 18px; grid-template-columns: 1fr 1fr; }
+  .overview-consistency { border-left: 0; border-top: 1px solid var(--cs-line); grid-column: 1 / -1; min-height: 58px; padding: 14px 0 0; }
+  .overview-card-note { margin-top: 16px; }
+  .overview-stat-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .overview-stat-completed { grid-column: 2; grid-row: 1; }
+  .full-scan-toolbar { align-items: flex-start; flex-wrap: wrap; }
+  .full-scan-state { margin-left: 0; width: 100%; }
+  .full-scan-details, .command-detail-grid { grid-template-columns: 1fr; }
+  .command-detail--path { grid-column: auto; }
+  .full-scan-footer { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .result-category-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .result-category:last-child { grid-column: 1 / -1; }
+  .dashboard-columns { gap: 24px; grid-template-columns: 1fr; }
+}
+
+@media (max-width: 420px) {
+  .metric-grid { gap: 9px; }
+  .metric-tile { min-height: 116px; padding: 14px; }
+  .metric-tile strong { font-size: 25px; }
+  .overview-card-body { gap: 12px; }
+  .overview-value-group strong { font-size: 29px; }
+}
+
+.cloudstrm-shell :deep(.v-btn.bg-primary.v-btn--variant-flat) {
+  background: #8b6cf6 !important;
+  background-color: #8b6cf6 !important;
+  color: #17121f !important;
+}
+
+.cloudstrm-shell :deep(.v-btn.bg-primary.v-btn--variant-flat:hover:not(:disabled)) {
+  background: #9b7eff !important;
+  background-color: #9b7eff !important;
+}
+
+.cloudstrm-shell :deep(.v-btn.bg-primary.v-btn--variant-flat:disabled),
+.cloudstrm-shell :deep(.v-btn.bg-primary.v-btn--variant-flat.v-btn--disabled) {
+  background: #594b9e !important;
+  background-color: #594b9e !important;
+  color: #c7bdf0 !important;
 }
 </style>
