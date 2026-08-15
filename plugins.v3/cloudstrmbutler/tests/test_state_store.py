@@ -54,6 +54,46 @@ class SyncStateStoreTests(unittest.TestCase):
         self.assertEqual(deleted.content_hash, "hash")
         self.assertIsNone(self.store.get(r"C:\media", "a.mkv"))
 
+    def test_remove_output_unlinks_shared_output_without_deleting_other_outputs(self):
+        self.store.upsert(
+            r"C:\media",
+            "movie.mkv",
+            1,
+            1,
+            "hash",
+            [r"C:\out\movie.strm", r"C:\out\movie.srt"],
+            "finger",
+        )
+        self.store.upsert(
+            r"C:\media",
+            "movie.srt",
+            2,
+            2,
+            "",
+            [r"C:\out\movie.srt"],
+            "finger",
+        )
+
+        self.assertTrue(self.store.remove_output(r"C:\media", r"C:\out\movie.srt"))
+        self.assertEqual(self.store.get(r"C:\media", "movie.mkv").outputs, (r"c:\out\movie.strm",))
+        self.assertIsNone(self.store.get(r"C:\media", "movie.srt"))
+
+    def test_remove_output_for_source_keeps_shared_owner(self):
+        self.store.upsert(
+            r"C:\media", "movie.mkv", 1, 1, "", [r"C:\out\movie.srt"], "finger"
+        )
+        self.store.upsert(
+            r"C:\media", "movie.srt", 2, 2, "", [r"C:\out\movie.srt"], "finger"
+        )
+
+        self.assertTrue(
+            self.store.remove_output_for_source(
+                r"C:\media", "movie.mkv", r"C:\out\movie.srt"
+            )
+        )
+        self.assertIsNone(self.store.get(r"C:\media", "movie.mkv"))
+        self.assertIsNotNone(self.store.get(r"C:\media", "movie.srt"))
+
 
 if __name__ == "__main__":
     unittest.main()

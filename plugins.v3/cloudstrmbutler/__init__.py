@@ -76,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.14"
+    plugin_version = "2.1.15"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -712,7 +712,14 @@ class CloudStrmButler(_PluginBase):
                     seen.add(str(relative).replace("\\", "/"))
                     self._record_scan_discovered(rule, source_file)
                     source_path_key = path_key(source_file)
-                    if source_path_key in covered_sidecars:
+                    if (
+                        source_path_key in covered_sidecars
+                        and self._sidecar_record_is_current(
+                            source_file,
+                            rule.local_dir,
+                            self.__remap_path(source_file, rule.local_dir, rule.strm_dir),
+                        )
+                    ):
                         self._record_scan_result(run_id, {"status": "covered", "count_only": True})
                         continue
                     if is_ignored_path(source_file) or is_temporary_path(source_file):
@@ -920,6 +927,12 @@ class CloudStrmButler(_PluginBase):
 
         outputs: List[str] = []
         actual_target = ""
+        previous_record = (
+            self._state_store.get(mon_path, str(source_rel))
+            if self._state_store
+            else None
+        )
+        sidecar_records = []
         try:
             stat = source.stat()
             mtime_ns = int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000))
@@ -960,9 +973,32 @@ class CloudStrmButler(_PluginBase):
                     if self._should_copy_sidecar(str(sidecar_path))
                     if (sidecar_target := self.__remap_path(str(sidecar_path), mon_path, strm_dir))
                 )
-                if not self._cover and self._record_is_current(
+                current_sidecar_targets = {
+                    path_key(output)
+                    for output in expected_outputs
+                    if path_key(output) != path_key(strm_target)
+                }
+                stale_sidecar_outputs = [
+                    output
+                    for output in (previous_record.outputs if previous_record else [])
+                    if path_key(output) != path_key(strm_target)
+                    and path_key(output) not in current_sidecar_targets
+                ]
+                sidecar_needs_processing = any(
+                    self._should_copy_sidecar(str(sidecar_path))
+                    and bool(sidecar_target)
+                    and not self._sidecar_record_is_current(
+                        str(sidecar_path), mon_path, sidecar_target
+                    )
+                    for sidecar_path in sidecar_paths
+                    for sidecar_target in [
+                        self.__remap_path(str(sidecar_path), mon_path, strm_dir)
+                    ]
+                ) or bool(stale_sidecar_outputs)
+                media_record_current = self._record_is_current(
                     source_rel, mtime_ns, size, content_hash, mon_path, expected_outputs
-                ):
+                )
+                if not self._cover and media_record_current and not sidecar_needs_processing:
                     return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
                 if self._cover or not strm_existed:
                     write_check = self._check_write_target(strm_target)
@@ -986,17 +1022,31 @@ class CloudStrmButler(_PluginBase):
                     sidecar_target = self.__remap_path(str(sidecar_path), mon_path, strm_dir)
                     if sidecar_target:
                         actual_target = sidecar_target
+                        if (
+                            self._should_copy_sidecar(str(sidecar_path))
+                            and not self._cover
+                            and self._sidecar_record_is_current(
+                                str(sidecar_path), mon_path, sidecar_target
+                            )
+                        ):
+                            outputs.append(sidecar_target)
+                            continue
+                        if not self._should_copy_sidecar(str(sidecar_path)):
+                            self._remove_recorded_output(mon_path, sidecar_target)
+                            continue
                         sidecar_outputs = self.__handle_other_files(str(sidecar_path), sidecar_target)
                         outputs.extend(sidecar_outputs)
                         if sidecar_outputs:
                             result_statuses.extend(self._sidecar_result_statuses(str(sidecar_path)))
+                            sidecar_records.append((str(sidecar_path), sidecar_target))
             else:
+                should_copy_sidecar = self._should_copy_sidecar(event_path)
+                if not should_copy_sidecar:
+                    self._remove_recorded_output(mon_path, target_file)
+                    return {"status": "skipped", "result_statuses": ["skipped"]}
                 sidecar_expected = [
                     target_file
-                ] if (
-                    (self._copy_files and suffix in self._other_extensions)
-                    or (self._copy_subtitles and suffix in self._subtitle_extensions)
-                ) else []
+                ]
                 if not self._cover and self._record_is_current(
                     source_rel, mtime_ns, size, content_hash, mon_path, sidecar_expected
                 ):
@@ -1006,9 +1056,19 @@ class CloudStrmButler(_PluginBase):
                 result_statuses = self._sidecar_result_statuses(event_path) if outputs else ["skipped"]
 
             if not outputs:
+                if suffix not in self._media_extensions:
+                    self._remove_recorded_output(mon_path, target_file)
+                elif previous_record:
+                    self._remove_obsolete_outputs(mon_path, str(source_rel), previous_record.outputs, [])
+                else:
+                    self._remove_recorded_output(mon_path, target_file)
                 return {"status": "skipped", "result_statuses": ["skipped"]}
 
             if self._state_store is not None:
+                if previous_record:
+                    self._remove_obsolete_outputs(mon_path, str(source_rel), previous_record.outputs, outputs)
+                for sidecar_path, sidecar_target in sidecar_records:
+                    self._upsert_sidecar_record(sidecar_path, sidecar_target, mon_path)
                 self._state_store.upsert(
                     monitor_root=mon_path,
                     source_rel=str(source_rel),
@@ -1045,6 +1105,28 @@ class CloudStrmButler(_PluginBase):
         return (
             (self._copy_files and suffix in self._other_extensions)
             or (self._copy_subtitles and suffix in self._subtitle_extensions)
+        )
+
+    def _sidecar_record_is_current(
+        self, event_path: str, mon_path: str, target_file: str
+    ) -> bool:
+        if not self._state_store or not target_file:
+            return False
+        source = Path(event_path)
+        source_rel = relative_path(event_path, mon_path)
+        if source_rel is None:
+            return False
+        try:
+            stat = source.stat()
+        except OSError:
+            return False
+        return self._record_is_current(
+            source_rel,
+            int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000)),
+            int(stat.st_size),
+            "",
+            mon_path,
+            [target_file],
         )
 
     @staticmethod
@@ -1144,7 +1226,8 @@ class CloudStrmButler(_PluginBase):
         return outputs
 
     def __copy_sidecar_file(self, event_path: str, target_file: str, kind: str):
-        """Copy one sidecar and return the output path when successful."""
+        """Copy one sidecar through a same-directory temporary file."""
+        temp_path = None
         try:
             target_dir = os.path.dirname(target_file)
             if target_dir:
@@ -1152,7 +1235,19 @@ class CloudStrmButler(_PluginBase):
             write_check = self._check_write_target(target_file)
             if not write_check["writable"]:
                 raise PermissionError(write_check["raw_error"])
-            shutil.copy2(str(event_path), target_file)
+            target_path = Path(target_file)
+            with tempfile.NamedTemporaryFile(
+                prefix=f".{target_path.name}.",
+                suffix=".tmp",
+                dir=str(target_path.parent),
+                delete=False,
+            ) as temp_file:
+                temp_path = Path(temp_file.name)
+            shutil.copy2(str(event_path), str(temp_path))
+            if temp_path.stat().st_size != Path(event_path).stat().st_size:
+                raise OSError(11, f"{kind}复制后大小校验失败")
+            os.replace(str(temp_path), str(target_path))
+            temp_path = None
             logger.info(f"复制{kind} {str(event_path)} 到 {target_file}")
             return target_file
         except PermissionError:
@@ -1161,6 +1256,50 @@ class CloudStrmButler(_PluginBase):
         except Exception as exc:
             logger.error(f"复制{kind}失败：{exc}")
             raise
+        finally:
+            if temp_path:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+    def _upsert_sidecar_record(self, event_path: str, target_file: str, mon_path: str) -> None:
+        if not self._state_store:
+            return
+        source = Path(event_path)
+        stat = source.stat()
+        source_rel = relative_path(event_path, mon_path)
+        if source_rel is None:
+            return
+        self._state_store.upsert(
+            monitor_root=mon_path,
+            source_rel=str(source_rel),
+            mtime_ns=int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000)),
+            size=int(stat.st_size),
+            content_hash="",
+            outputs=[target_file],
+            config_fingerprint=self._config_fingerprint,
+        )
+
+    def _remove_recorded_output(self, mon_path: str, target_file: str) -> None:
+        if not self._state_store or not target_file:
+            return
+        if self._state_store.remove_output(mon_path, target_file):
+            self._remove_outputs([target_file])
+
+    def _remove_obsolete_outputs(self, mon_path: str, source_rel: str, previous_outputs, current_outputs) -> None:
+        if not self._state_store:
+            return
+        current = {path_key(output) for output in current_outputs or []}
+        for output in previous_outputs or []:
+            if path_key(output) in current:
+                continue
+            if self._state_store.remove_output_for_source(mon_path, source_rel, output):
+                if not self._state_store.has_output(mon_path, output):
+                    self._remove_outputs(
+                        [output],
+                        notify_emby=Path(output).suffix.lower() == ".strm",
+                    )
 
     @staticmethod
     def _is_retryable_io_error(error: Exception) -> bool:
@@ -1232,7 +1371,25 @@ class CloudStrmButler(_PluginBase):
             return
         record = self._state_store.delete(mon_path, str(source_rel))
         if record:
-            self._remove_outputs(record.outputs, notify_emby=bool(record.content_hash))
+            is_sidecar = (
+                Path(event_path).suffix.lower() in self._other_extensions
+                or Path(event_path).suffix.lower() in self._subtitle_extensions
+            )
+            if is_sidecar:
+                for output in record.outputs:
+                    self._state_store.remove_output(mon_path, output)
+                self._remove_outputs(record.outputs)
+                return
+            owned_outputs = [
+                output
+                for output in record.outputs
+                if not self._state_store.has_output(mon_path, output)
+            ]
+            self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+        else:
+            strm_dir = self._strm_dir_conf.get(mon_path)
+            target_file = self.__remap_path(event_path, mon_path, strm_dir) if strm_dir else None
+            self._remove_recorded_output(mon_path, target_file)
 
     def _remove_outputs(self, outputs, notify_emby: bool = False):
         """Remove only files that are recorded as generated by this plugin."""

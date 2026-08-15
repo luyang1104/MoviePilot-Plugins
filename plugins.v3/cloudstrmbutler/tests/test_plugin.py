@@ -292,6 +292,80 @@ class PluginTests(unittest.TestCase):
         create_mock.assert_not_called()
         self.assertTrue((target / "Series" / "movie.strm").is_file())
 
+    def test_media_processing_persists_independent_sidecar_record(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        sidecar.write_text("subtitle", encoding="utf-8")
+
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        sidecar_record = plugin._state_store.get(str(source), "movie.srt")
+        self.assertIsNotNone(sidecar_record)
+        self.assertEqual(sidecar_record.outputs, (str(target / "movie.srt").lower(),))
+
+    def test_deleting_sidecar_removes_shared_output_but_keeps_strm(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        sidecar.write_text("subtitle", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        sidecar.unlink()
+
+        plugin._CloudStrmButler__handle_deleted_file(str(sidecar), str(source))
+
+        self.assertFalse((target / "movie.srt").exists())
+        self.assertTrue((target / "movie.strm").exists())
+        media_record = plugin._state_store.get(str(source), "movie.mkv")
+        self.assertNotIn(str(target / "movie.srt").lower(), media_record.outputs)
+
+    def test_deleting_media_keeps_sidecar_while_sidecar_source_exists(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        sidecar.write_text("subtitle", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        media_file.unlink()
+        plugin._CloudStrmButler__handle_deleted_file(str(media_file), str(source))
+
+        self.assertFalse((target / "movie.strm").exists())
+        self.assertTrue((target / "movie.srt").is_file())
+        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.srt"))
+
     def test_delete_removes_recorded_outputs(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)
@@ -339,6 +413,52 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertTrue(result["retryable"])
         self.assertIn("Connection timed out", result["reason"])
+
+    def test_sidecar_atomic_copy_failure_keeps_previous_target_and_cleans_temp(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        sidecar = source / "movie.nfo"
+        sidecar.write_text("new", encoding="utf-8")
+        destination = target / "movie.nfo"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text("old", encoding="utf-8")
+
+        with patch("os.replace", side_effect=OSError(110, "Connection timed out")):
+            result = plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
+
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(destination.read_text(encoding="utf-8"), "old")
+        self.assertEqual(list(target.glob(".movie.nfo.*.tmp")), [])
+
+    def test_disabling_sidecar_copy_removes_old_output(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        sidecar = source / "movie.nfo"
+        sidecar.write_text("nfo", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
+        self.assertTrue((target / "movie.nfo").is_file())
+
+        plugin._copy_files = False
+        plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
+
+        self.assertFalse((target / "movie.nfo").exists())
+        self.assertIsNone(plugin._state_store.get(str(source), "movie.nfo"))
 
     def test_strm_write_timeout_is_reported_as_retryable_failure(self):
         base = self.new_temp()
@@ -874,6 +994,33 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(run["result_counts"]["generated_strm"], 1)
         self.assertEqual(run["result_counts"]["copied_non_media"], 1)
         self.assertEqual(run["result_counts"]["copied_subtitle"], 1)
+
+    def test_full_scan_refreshes_changed_sidecar_without_media_change(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        sidecar.write_text("old", encoding="utf-8")
+        plugin.scan("manual_full")
+        self.assertEqual((target / "movie.srt").read_text(encoding="utf-8"), "old")
+
+        sidecar.write_text("new subtitle", encoding="utf-8")
+        plugin.scan("manual_full")
+
+        self.assertEqual(
+            (target / "movie.srt").read_text(encoding="utf-8"),
+            "new subtitle",
+        )
 
     def test_full_scan_api_runs_in_background_and_skips_existing_outputs(self):
         base = self.new_temp()

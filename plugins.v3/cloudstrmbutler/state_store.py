@@ -130,6 +130,85 @@ class SyncStateStore:
             self._conn.commit()
         return self._row_to_record(row)
 
+    def remove_output(self, monitor_root: str, output: str) -> bool:
+        """Remove one generated output from every record that owns it."""
+        wanted = path_key(output)
+        if not wanted:
+            return False
+        root = self._normalise_root(monitor_root)
+        changed = False
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM sync_records WHERE monitor_root = ?",
+                (root,),
+            ).fetchall()
+            for row in rows:
+                record = self._row_to_record(row)
+                outputs = [item for item in record.outputs if path_key(item) != wanted]
+                if len(outputs) == len(record.outputs):
+                    continue
+                changed = True
+                if outputs:
+                    self._conn.execute(
+                        "UPDATE sync_records SET outputs = ? WHERE monitor_root = ? AND source_rel = ?",
+                        (json.dumps(outputs, ensure_ascii=False, separators=(",", ":")), root, record.source_rel),
+                    )
+                else:
+                    self._conn.execute(
+                        "DELETE FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                        (root, record.source_rel),
+                    )
+            if changed:
+                self._conn.commit()
+        return changed
+
+    def remove_output_for_source(self, monitor_root: str, source_rel: str, output: str) -> bool:
+        """Remove one output from one source record without touching shared owners."""
+        wanted = path_key(output)
+        if not wanted:
+            return False
+        root = self._normalise_root(monitor_root)
+        rel = self._normalise_rel(source_rel)
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                (root, rel),
+            ).fetchone()
+            if not row:
+                return False
+            record = self._row_to_record(row)
+            outputs = [item for item in record.outputs if path_key(item) != wanted]
+            if len(outputs) == len(record.outputs):
+                return False
+            if outputs:
+                self._conn.execute(
+                    "UPDATE sync_records SET outputs = ? WHERE monitor_root = ? AND source_rel = ?",
+                    (json.dumps(outputs, ensure_ascii=False, separators=(",", ":")), root, rel),
+                )
+            else:
+                self._conn.execute(
+                    "DELETE FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                    (root, rel),
+                )
+            self._conn.commit()
+        return True
+
+    def has_output(self, monitor_root: str, output: str) -> bool:
+        """Return whether another persisted source still owns an output."""
+        wanted = path_key(output)
+        if not wanted:
+            return False
+        root = self._normalise_root(monitor_root)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT outputs FROM sync_records WHERE monitor_root = ?",
+                (root,),
+            ).fetchall()
+        return any(
+            wanted in {path_key(item) for item in json.loads(row["outputs"] or "[]")}
+            for row in rows
+        )
+
     def reap(
         self,
         monitor_root: str,
