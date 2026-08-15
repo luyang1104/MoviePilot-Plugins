@@ -68,7 +68,7 @@ class SyncEngine:
                 "workers": len(self._threads),
             }
 
-    def stop(self, timeout: float = 20) -> None:
+    def stop(self, timeout: float = 20) -> bool:
         # Keep workers alive while draining work already accepted into memory.
         self._stop.set()
         deadline = time.monotonic() + max(0, timeout)
@@ -81,10 +81,14 @@ class SyncEngine:
                 break
         for thread in self._threads:
             thread.join(timeout=max(0, deadline - time.monotonic()))
+        stopped = all(not thread.is_alive() for thread in self._threads)
+        if not stopped:
+            return False
         self._threads = []
         with self._lock:
             self._scheduled.clear()
             self._active.clear()
+        return True
 
     def _worker(self) -> None:
         while True:

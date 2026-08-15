@@ -251,6 +251,13 @@ class PluginTests(unittest.TestCase):
 
         self.assertIsNotNone(plugin._scheduler)
         self.assertTrue(plugin._scheduler.running)
+        scan_jobs = [
+            (args, kwargs)
+            for args, kwargs in plugin._scheduler.jobs
+            if kwargs.get("name") == "云盘Strm小管家定时全量扫描"
+        ]
+        self.assertEqual(len(scan_jobs), 1)
+        self.assertEqual(scan_jobs[0][1]["minutes"], 5)
         self.assertEqual(len(plugin._observer), 1)
         self.assertTrue(plugin._observer[0].running)
         self.assertEqual(len(plugin._observer[0].handlers), 1)
@@ -340,6 +347,36 @@ class PluginTests(unittest.TestCase):
         self.assertTrue((target / "movie.strm").exists())
         media_record = plugin._state_store.get(str(source), "movie.mkv")
         self.assertNotIn(str(target / "movie.srt").lower(), media_record.outputs)
+
+    def test_confirm_cleanup_keeps_output_owned_by_existing_sidecar(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "cleanup_mode": "confirm",
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        sidecar = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        sidecar.write_text("subtitle", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        media_file.unlink()
+        plugin._reconcile_missing_records(str(source), {"movie.srt"})
+        batch_id = plugin._task_store.status()["cleanup_batches"][0]["batch_id"]
+
+        result = plugin.sync_confirm_cleanup_api({"batch_id": batch_id})
+
+        self.assertEqual(result["code"], 0)
+        self.assertFalse((target / "movie.strm").exists())
+        self.assertTrue((target / "movie.srt").exists())
+        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.srt"))
 
     def test_deleting_media_keeps_sidecar_while_sidecar_source_exists(self):
         base = self.new_temp()

@@ -269,6 +269,37 @@ class SyncStateStore:
             self._conn.commit()
         return deleted
 
+    def delete_if_matches(
+        self,
+        monitor_root: str,
+        source_rel: str,
+        expected_outputs: Optional[Iterable[str]] = None,
+    ) -> Optional[SyncRecord]:
+        """Delete one record only when it still matches a cleanup snapshot."""
+        root = self._normalise_root(monitor_root)
+        rel = self._normalise_rel(source_rel)
+        expected = None
+        if expected_outputs is not None:
+            expected = {path_key(item) for item in expected_outputs if item}
+
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                (root, rel),
+            ).fetchone()
+            if not row:
+                return None
+            record = self._row_to_record(row)
+            actual = {path_key(item) for item in record.outputs if item}
+            if expected is not None and actual != expected:
+                return None
+            self._conn.execute(
+                "DELETE FROM sync_records WHERE monitor_root = ? AND source_rel = ?",
+                (root, rel),
+            )
+            self._conn.commit()
+        return record
+
     def close(self):
         with self._lock:
             try:

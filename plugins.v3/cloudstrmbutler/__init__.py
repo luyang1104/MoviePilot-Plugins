@@ -76,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.16"
+    plugin_version = "2.1.17"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -323,6 +323,14 @@ class CloudStrmButler(_PluginBase):
             return
 
         self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+
+        if self._scan_interval > 0:
+            self._scheduler.add_job(
+                func=self.scan,
+                trigger="interval",
+                minutes=self._scan_interval,
+                name="云盘Strm小管家定时全量扫描",
+            )
 
         if self._notify:
             self._scheduler.add_job(
@@ -765,7 +773,7 @@ class CloudStrmButler(_PluginBase):
             return
         outputs = [output for record in stale for output in record.outputs]
         if self._task_store:
-            batch_id = self._task_store.create_cleanup_batch(monitor_root, outputs)
+            batch_id = self._task_store.create_cleanup_batch(monitor_root, outputs, records=stale)
             logger.warning(f"发现 {len(stale)} 个缺失源文件，已创建待确认清理批次：{batch_id}")
 
     def _record_run_result(self, run_id: Optional[str], result: Optional[dict]) -> None:
@@ -2193,15 +2201,55 @@ class CloudStrmButler(_PluginBase):
 
     def sync_confirm_cleanup_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         batch_id = str((payload or {}).get("batch_id") or "")
-        outputs = self._task_store.claim_cleanup_batch(batch_id) if self._task_store else None
-        if outputs is None:
+        items = self._task_store.claim_cleanup_batch(batch_id) if self._task_store else None
+        if items is None:
             return {"code": 1, "msg": "未找到待确认清理批次"}
         removed = 0
-        for root in self._strm_dir_conf:
-            records = self._state_store.delete_records_for_outputs(root, outputs) if self._state_store else []
-            for record in records:
-                self._remove_outputs(record.outputs, notify_emby=bool(record.content_hash))
-                removed += len(record.outputs)
+        for item in items:
+            if isinstance(item, dict):
+                root = str(item.get("monitor_root") or "")
+                source_rel = str(item.get("source_rel") or "")
+                expected_outputs = item.get("outputs") or []
+                if not root or not source_rel or Path(root, source_rel).exists():
+                    continue
+                record = (
+                    self._state_store.delete_if_matches(root, source_rel, expected_outputs)
+                    if self._state_store
+                    else None
+                )
+                if not record:
+                    continue
+                owned_outputs = [
+                    output
+                    for output in record.outputs
+                    if not self._state_store.has_output(root, output)
+                ]
+                self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+                removed += len(owned_outputs)
+                continue
+
+            # Support batches created by older plugin versions.
+            wanted = path_key(item)
+            for root in self._strm_dir_conf:
+                if not self._state_store:
+                    continue
+                for candidate in self._state_store.records_for_root(root):
+                    if wanted not in {path_key(output) for output in candidate.outputs}:
+                        continue
+                    if Path(root, candidate.source_rel).exists():
+                        continue
+                    record = self._state_store.delete_if_matches(
+                        root, candidate.source_rel, candidate.outputs
+                    )
+                    if not record:
+                        continue
+                    owned_outputs = [
+                        output
+                        for output in record.outputs
+                        if not self._state_store.has_output(root, output)
+                    ]
+                    self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+                    removed += len(owned_outputs)
         return {"code": 0, "data": {"removed": removed}, "msg": f"已清理 {removed} 个生成文件"}
 
     @staticmethod
@@ -2425,7 +2473,9 @@ class CloudStrmButler(_PluginBase):
             return False
         self._scan_thread = None
         if self._sync_engine:
-            self._sync_engine.stop()
+            if self._sync_engine.stop() is False:
+                logger.warning("可靠同步队列仍有任务运行，暂不关闭状态数据库")
+                return False
             self._sync_engine = None
         command_thread = self._command_thread
         if command_thread and command_thread.is_alive():

@@ -58,6 +58,27 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(snapshot["memory_queued"], 6)
         self.assertEqual(snapshot["scheduled"], 8)
 
+    def test_stop_reports_false_until_running_worker_has_finished(self):
+        started = __import__("threading").Event()
+        release = __import__("threading").Event()
+
+        def handler(job):
+            started.set()
+            release.wait(2)
+            return {"status": "processed"}
+
+        engine = SyncEngine(self.store, handler, workers=1)
+        engine.start()
+        engine.enqueue("/media", "/media/slow.mkv")
+
+        self.assertTrue(started.wait(1))
+        self.assertFalse(engine.stop(timeout=0.01))
+        self.assertTrue(engine._threads)
+
+        release.set()
+        self.assertTrue(engine.stop(timeout=2))
+        self.assertFalse(engine._threads)
+
 
 if __name__ == "__main__":
     unittest.main()

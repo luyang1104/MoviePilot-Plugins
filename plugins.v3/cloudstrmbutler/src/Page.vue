@@ -469,7 +469,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.16' },
+  version: { type: String, default: '2.1.17' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -556,7 +556,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.16')
+const version = computed(() => props.version || '2.1.17')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig

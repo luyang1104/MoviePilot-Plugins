@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from tests.stubs import load_plugin_module
 
@@ -77,6 +78,27 @@ class TaskStoreTests(unittest.TestCase):
         batch_id = self.store.create_cleanup_batch("/media", ["/out/a.strm", "/out/a.strm"])
         self.assertEqual(self.store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
         self.assertIsNone(self.store.claim_cleanup_batch(batch_id))
+
+    def test_cleanup_batch_can_keep_source_ownership(self):
+        batch_id = self.store.create_cleanup_batch(
+            "/media",
+            ["/out/a.strm", "/out/a.srt"],
+            records=[
+                SimpleNamespace(
+                    source_rel="movie.mkv",
+                    outputs=("/out/a.strm", "/out/a.srt"),
+                )
+            ],
+        )
+
+        self.assertEqual(
+            self.store.claim_cleanup_batch(batch_id),
+            [{
+                "monitor_root": "/media",
+                "source_rel": "movie.mkv",
+                "outputs": ["/out/a.srt", "/out/a.strm"],
+            }],
+        )
 
     def test_run_summary_is_exposed(self):
         run_id = self.store.start_run("scan", "/media")

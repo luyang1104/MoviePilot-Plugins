@@ -9,7 +9,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional
 
 
 @dataclass(frozen=True)
@@ -347,21 +347,46 @@ class TaskStore:
             self._conn.commit()
             return True
 
-    def create_cleanup_batch(self, monitor_root: str, paths: Iterable[str], ttl_seconds: int = 7 * 86400) -> Optional[str]:
+    def create_cleanup_batch(
+        self,
+        monitor_root: str,
+        paths: Iterable[str],
+        ttl_seconds: int = 7 * 86400,
+        records: Optional[Iterable[Any]] = None,
+    ) -> Optional[str]:
         unique_paths = sorted({str(path) for path in paths if path})
         if not unique_paths:
             return None
+
+        if records is None:
+            cleanup_items: list[Any] = unique_paths
+        else:
+            cleanup_items = []
+            for record in records:
+                source_rel = str(getattr(record, "source_rel", "") or "")
+                outputs = sorted({str(output) for output in getattr(record, "outputs", ()) if output})
+                if source_rel and outputs:
+                    cleanup_items.append(
+                        {
+                            "monitor_root": monitor_root,
+                            "source_rel": source_rel,
+                            "outputs": outputs,
+                        }
+                    )
+            if not cleanup_items:
+                return None
+
         batch_id = uuid.uuid4().hex
         now = time.time()
         with self._lock:
             self._conn.execute(
                 "INSERT INTO cleanup_batches(batch_id,monitor_root,status,paths,created_at,expires_at) VALUES(?,?,?,?,?,?)",
-                (batch_id, monitor_root, "pending", json.dumps(unique_paths, ensure_ascii=False), now, now + ttl_seconds),
+                (batch_id, monitor_root, "pending", json.dumps(cleanup_items, ensure_ascii=False), now, now + ttl_seconds),
             )
             self._conn.commit()
         return batch_id
 
-    def claim_cleanup_batch(self, batch_id: str) -> Optional[List[str]]:
+    def claim_cleanup_batch(self, batch_id: str) -> Optional[List[Any]]:
         with self._lock:
             row = self._conn.execute(
                 "SELECT paths FROM cleanup_batches WHERE batch_id = ? AND status = 'pending' AND (expires_at IS NULL OR expires_at > ?)",
