@@ -24,6 +24,61 @@ class PendingJob:
     payload: dict
 
 
+def classify_failure(error: str) -> dict:
+    """Turn a raw sync error into a concise diagnosis and repair hint."""
+    raw = str(error or "").strip()
+    text = raw.lower()
+
+    if "permission denied" in text or "errno 13" in text or "access is denied" in text:
+        return {
+            "reason_code": "permission_denied",
+            "reason_label": "目标目录没有写入权限",
+            "retryable": False,
+            "repair_hint": "请给 MoviePilot 运行账号授予目标目录的写入、创建目录和修改文件权限；NAS 还要检查 ACL、UID/GID 以及挂载是否为只读，修复后再重试。",
+        }
+    if "read-only file system" in text or "errno 30" in text or "readonly" in text:
+        return {
+            "reason_code": "read_only_mount",
+            "reason_label": "目标挂载是只读的",
+            "retryable": False,
+            "repair_hint": "检查 NAS、SMB/NFS 挂载状态和挂载参数，重新以读写方式挂载后再重试。",
+        }
+    if "no space left" in text or "errno 28" in text or "disk full" in text:
+        return {
+            "reason_code": "disk_full",
+            "reason_label": "目标磁盘空间不足",
+            "retryable": False,
+            "repair_hint": "清理目标挂载的空间或扩容，确认 inode 没有耗尽后再重试。",
+        }
+    if "no such file or directory" in text or "file not found" in text or "errno 2" in text:
+        return {
+            "reason_code": "path_missing",
+            "reason_label": "源文件或目标路径不存在",
+            "retryable": False,
+            "repair_hint": "确认源文件仍存在、目标挂载已连接，并检查 STRM 规则中的本地目录和输出目录映射。",
+        }
+    if any(token in text for token in ("connection timed out", "timed out", "i/o error", "input/output error", "stale file handle", "temporarily unavailable")):
+        return {
+            "reason_code": "storage_unavailable",
+            "reason_label": "NAS 或挂载暂时不可用",
+            "retryable": True,
+            "repair_hint": "检查 NAS 在线状态、网络连接和挂载日志；连接恢复后可直接重试。",
+        }
+    if any(token in text for token in ("template invalid", "invalid template", "invalid_content", "strm 模板")):
+        return {
+            "reason_code": "invalid_template",
+            "reason_label": "STRM 模板或规则无效",
+            "retryable": False,
+            "repair_hint": "检查规则是否包含 {local_file} 或 {cloud_file}，并确认云盘目录映射有效。",
+        }
+    return {
+        "reason_code": "unknown",
+        "reason_label": "未分类错误",
+        "retryable": False,
+        "repair_hint": "先查看原始错误并确认源文件、目标挂载和规则配置，修复后再重试。",
+    }
+
+
 class TaskStore:
     """SQLite store for resumable work. Successful file state stays in SyncStateStore."""
 
@@ -336,18 +391,45 @@ class TaskStore:
             query += " WHERE resolved_at IS NULL"
         query += " ORDER BY updated_at DESC LIMIT ?"
         with self._lock:
-            return [dict(row) for row in self._conn.execute(query, (max(1, min(limit, 500)),)).fetchall()]
+            items = [dict(row) for row in self._conn.execute(query, (max(1, min(limit, 500)),)).fetchall()]
+        for item in items:
+            item.update(classify_failure(item.get("error", "")))
+        return items
 
     def retry_failure(self, failure_id: int) -> bool:
+        return bool(self.retry_failures([failure_id]))
+
+    def retry_failures(self, failure_ids: Iterable[int]) -> List[int]:
+        """Requeue open failures and return only IDs accepted by the store."""
+        requested = []
+        for failure_id in failure_ids or []:
+            try:
+                value = int(failure_id)
+            except (TypeError, ValueError):
+                continue
+            if value > 0 and value not in requested:
+                requested.append(value)
+        if not requested:
+            return []
+
+        retried = []
         with self._lock:
-            row = self._conn.execute("SELECT * FROM task_failures WHERE id = ? AND resolved_at IS NULL", (failure_id,)).fetchone()
-            if not row:
-                return False
-            self.enqueue(row["monitor_root"], row["path"], row["action"])
             now = time.time()
-            self._conn.execute("UPDATE task_failures SET resolved_at = ?, updated_at = ? WHERE id = ?", (now, now, failure_id))
+            for failure_id in requested:
+                row = self._conn.execute(
+                    "SELECT * FROM task_failures WHERE id = ? AND resolved_at IS NULL",
+                    (failure_id,),
+                ).fetchone()
+                if not row:
+                    continue
+                self.enqueue(row["monitor_root"], row["path"], row["action"])
+                self._conn.execute(
+                    "UPDATE task_failures SET resolved_at = ?, updated_at = ? WHERE id = ?",
+                    (now, now, failure_id),
+                )
+                retried.append(failure_id)
             self._conn.commit()
-            return True
+        return retried
 
     def prune(self, now: Optional[float] = None) -> None:
         now = now or time.time()

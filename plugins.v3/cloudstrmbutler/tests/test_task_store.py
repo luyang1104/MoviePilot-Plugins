@@ -6,7 +6,7 @@ from tests.stubs import load_plugin_module
 
 load_plugin_module()
 
-from cloudstrmbutler.task_store import TaskStore
+from cloudstrmbutler.task_store import TaskStore, classify_failure
 
 
 class TaskStoreTests(unittest.TestCase):
@@ -32,6 +32,37 @@ class TaskStoreTests(unittest.TestCase):
         failure = self.store.failures()[0]
         self.assertTrue(self.store.retry_failure(failure["id"]))
         self.assertEqual(len(self.store.claim_ready()), 1)
+
+    def test_failures_expose_permission_diagnosis_and_repair_hint(self):
+        self.store.enqueue("/media", "/media/movie.ass", "sync")
+        job = self.store.claim_ready()[0]
+        self.store.fail_job(job, "[Errno 13] Permission denied: '/library/movie.ass'")
+
+        failure = self.store.failures()[0]
+
+        self.assertEqual(failure["reason_code"], "permission_denied")
+        self.assertFalse(failure["retryable"])
+        self.assertIn("写入", failure["repair_hint"])
+
+    def test_batch_retry_deduplicates_ids_and_ignores_resolved_failures(self):
+        self.store.enqueue("/media", "/media/one.mkv", "sync")
+        self.store.enqueue("/media", "/media/two.mkv", "sync")
+        jobs = self.store.claim_ready()
+        self.store.fail_job(jobs[0], "template invalid")
+        self.store.fail_job(jobs[1], "template invalid")
+        failures = self.store.failures()
+        first_id = failures[0]["id"]
+        second_id = failures[1]["id"]
+
+        self.assertEqual(self.store.retry_failures([first_id, first_id, second_id, "invalid", 999]), [first_id, second_id])
+        self.assertEqual(self.store.retry_failures([first_id, second_id]), [])
+        self.assertEqual({job.path for job in self.store.claim_ready()}, {"/media/one.mkv", "/media/two.mkv"})
+
+    def test_failure_classifier_marks_transient_storage_errors_retryable(self):
+        diagnosis = classify_failure("[Errno 110] Connection timed out")
+
+        self.assertEqual(diagnosis["reason_code"], "storage_unavailable")
+        self.assertTrue(diagnosis["retryable"])
 
     def test_cleanup_batch_is_single_use(self):
         batch_id = self.store.create_cleanup_batch("/media", ["/out/a.strm", "/out/a.strm"])

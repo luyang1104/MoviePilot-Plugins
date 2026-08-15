@@ -75,7 +75,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.12"
+    plugin_version = "2.1.13"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1832,6 +1832,7 @@ class CloudStrmButler(_PluginBase):
             {"path": "/sync_status", "endpoint": self.sync_status_api, "methods": ["GET"], "auth": "bear", "summary": "同步状态"},
             {"path": "/sync_failures", "endpoint": self.sync_failures_api, "methods": ["GET"], "auth": "bear", "summary": "同步失败记录"},
             {"path": "/sync_retry_failure", "endpoint": self.sync_retry_failure_api, "methods": ["POST"], "auth": "bear", "summary": "重试同步失败"},
+            {"path": "/sync_retry_failures", "endpoint": self.sync_retry_failures_api, "methods": ["POST"], "auth": "bear", "summary": "批量重试同步失败"},
             {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
             {"path": "/sync_full_scan", "endpoint": self.sync_full_scan_api, "methods": ["POST"], "auth": "bear", "summary": "执行一次全量处理"},
         ]
@@ -1921,6 +1922,23 @@ class CloudStrmButler(_PluginBase):
             return {"code": 1, "msg": "未找到可重试的失败任务"}
         self._sync_engine.pump()
         return {"code": 0, "msg": "已重新加入同步队列"}
+
+    def sync_retry_failures_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Requeue a selected set of open failures in one request."""
+        raw_ids = (payload or {}).get("failure_ids")
+        if not isinstance(raw_ids, list):
+            raw_ids = [raw_ids] if raw_ids is not None else []
+        if not self._task_store or not self._sync_engine:
+            return {"code": 1, "msg": "可靠同步引擎未启用，无法重试失败任务"}
+        retried_ids = self._task_store.retry_failures(raw_ids)
+        if not retried_ids:
+            return {"code": 1, "msg": "未找到可重试的失败任务"}
+        self._sync_engine.pump()
+        return {
+            "code": 0,
+            "data": {"retried_ids": retried_ids, "retried": len(retried_ids)},
+            "msg": f"已将 {len(retried_ids)} 个失败任务重新加入同步队列",
+        }
 
     def sync_confirm_cleanup_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         batch_id = str((payload or {}).get("batch_id") or "")

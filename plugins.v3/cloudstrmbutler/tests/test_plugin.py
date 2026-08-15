@@ -78,6 +78,7 @@ class PluginTests(unittest.TestCase):
                 "/sync_status",
                 "/sync_failures",
                 "/sync_retry_failure",
+                "/sync_retry_failures",
                 "/sync_confirm_cleanup",
                 "/sync_full_scan",
             ],
@@ -89,6 +90,29 @@ class PluginTests(unittest.TestCase):
         self.assertIn("plugin/CloudStrmButler/sync_status", page_source)
         self.assertIn("plugin/CloudStrmButler/sync_failures", page_source)
         self.assertNotIn("plugin/cloudstrmbutler/", page_source)
+
+    def test_batch_failure_retry_api_requeues_selected_failures(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin({
+            "enabled": True,
+            "reliable_engine": True,
+            "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+        })
+
+        plugin._task_store.enqueue(str(source), str(source / "one.mkv"), "sync")
+        job = plugin._task_store.claim_ready()[0]
+        plugin._task_store.fail_job(job, "[Errno 13] Permission denied")
+        failure_id = plugin._task_store.failures()[0]["id"]
+
+        with patch.object(plugin._sync_engine, "pump") as pump:
+            response = plugin.sync_retry_failures_api({"failure_ids": [failure_id, failure_id]})
+
+        self.assertEqual(response["code"], 0)
+        self.assertEqual(response["data"]["retried"], 1)
+        pump.assert_called_once()
+        self.assertEqual(len(plugin._task_store.claim_ready()), 1)
 
     def test_get_form_prefers_persisted_configuration_over_stale_instance_state(self):
         plugin = self.make_plugin(self.new_temp() / "data")

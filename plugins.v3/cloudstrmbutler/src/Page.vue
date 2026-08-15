@@ -401,19 +401,69 @@
             <div class="section-heading section-heading--compact">
               <div>
                 <h2 id="failures-title">同步失败记录</h2>
-                <p>需要重新加入队列的任务。</p>
+                <p>修复原因后，可选择多个任务重新加入队列。</p>
               </div>
-              <span class="section-count" :class="{ 'has-items': failures.length }">{{ failures.length }}</span>
+              <div class="failure-actions">
+                <span class="section-count" :class="{ 'has-items': failures.length }">{{ failures.length }}</span>
+                <v-btn
+                  size="small"
+                  variant="tonal"
+                  :prepend-icon="allFailuresSelected ? 'mdi-checkbox-multiple-blank-outline' : 'mdi-checkbox-multiple-marked-outline'"
+                  :disabled="!failures.length || pending !== null"
+                  @click="toggleAllFailures"
+                >
+                  {{ allFailuresSelected ? '取消全选' : '全选' }}
+                </v-btn>
+                <v-btn
+                  size="small"
+                  color="primary"
+                  variant="flat"
+                  prepend-icon="mdi-replay"
+                  :loading="pending === 'failure-batch'"
+                  :disabled="!selectedFailureIds.length || pending !== null"
+                  @click="retrySelected"
+                >
+                  批量重试 {{ selectedFailureIds.length ? '(' + selectedFailureIds.length + ')' : '' }}
+                </v-btn>
+              </div>
             </div>
 
-            <div v-if="failures.length" class="table-frame">
+            <div v-if="failures.length" class="table-frame failure-table-frame">
               <v-table density="comfortable" class="status-table">
                 <thead>
-                  <tr><th>路径</th><th>次数</th><th>更新时间</th><th></th></tr>
+                  <tr>
+                    <th class="select-cell">
+                      <v-checkbox-btn
+                        :model-value="allFailuresSelected"
+                        :indeterminate="selectedFailureIds.length > 0 && !allFailuresSelected"
+                        aria-label="全选失败任务"
+                        :disabled="pending !== null"
+                        @update:model-value="toggleAllFailures"
+                      />
+                    </th>
+                    <th>路径</th>
+                    <th>失败原因</th>
+                    <th>次数</th>
+                    <th>更新时间</th>
+                    <th></th>
+                  </tr>
                 </thead>
                 <tbody>
                   <tr v-for="item in failures" :key="item.id">
+                    <td class="select-cell">
+                      <v-checkbox-btn
+                        :model-value="isFailureSelected(item.id)"
+                        :aria-label="'选择失败任务 ' + item.id"
+                        :disabled="pending !== null"
+                        @update:model-value="value => toggleFailureSelection(item.id, value)"
+                      />
+                    </td>
                     <td class="path-cell" :title="item.path">{{ item.path }}</td>
+                    <td class="failure-reason-cell" :title="item.error || item.repair_hint">
+                      <span class="status-chip" :class="failureReasonTone(item)">{{ item.reason_label || '未分类错误' }}</span>
+                      <span class="failure-raw-error">{{ item.error || '未返回原始错误' }}</span>
+                      <span class="failure-repair-hint">{{ item.repair_hint || item.error || '请查看日志后修复。' }}</span>
+                    </td>
                     <td>{{ item.attempts }}</td>
                     <td class="time-cell">{{ formatTime(item.updated_at) }}</td>
                     <td class="action-cell">
@@ -425,6 +475,7 @@
                         title="重试此任务"
                         aria-label="重试此任务"
                         :loading="pending === item.id"
+                        :disabled="pending !== null"
                         @click="retry(item.id)"
                       />
                     </td>
@@ -508,7 +559,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.12' },
+  version: { type: String, default: '2.1.13' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -520,6 +571,7 @@ const pending = ref(null)
 const error = ref('')
 const lastUpdated = ref(null)
 const failures = ref([])
+const selectedFailureIds = ref([])
 const savedConfig = ref(null)
 const status = reactive({
   enabled: false,
@@ -593,7 +645,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.12')
+const version = computed(() => props.version || '2.1.13')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -682,6 +734,10 @@ const commandProgressPhaseLabel = computed(() => ({
   processing: '处理中',
   completed: '已完成',
 }[commandProgress.value.phase] || commandProgress.value.phase || '未知'))
+const allFailuresSelected = computed(() => (
+  failures.value.length > 0
+  && failures.value.every(item => selectedFailureIds.value.includes(Number(item.id)))
+))
 const resultCategories = [
   { key: 'existing_skipped', label: '已有内容跳过', tone: 'muted' },
   { key: 'copied_non_media', label: '复制非媒体', tone: 'neutral' },
@@ -771,6 +827,35 @@ function applyStatus(data = {}) {
   status.cleanup_batches = Array.isArray(data.cleanup_batches) ? data.cleanup_batches : []
 }
 
+function pruneFailureSelection() {
+  const visibleIds = new Set(failures.value.map(item => Number(item.id)))
+  selectedFailureIds.value = selectedFailureIds.value.filter(id => visibleIds.has(Number(id)))
+}
+
+function isFailureSelected(failureId) {
+  return selectedFailureIds.value.includes(Number(failureId))
+}
+
+function toggleFailureSelection(failureId, selected) {
+  const normalizedId = Number(failureId)
+  if (selected && !isFailureSelected(normalizedId)) {
+    selectedFailureIds.value = [...selectedFailureIds.value, normalizedId]
+    return
+  }
+  if (!selected) {
+    selectedFailureIds.value = selectedFailureIds.value.filter(id => id !== normalizedId)
+  }
+}
+
+function toggleAllFailures(value) {
+  const shouldSelect = typeof value === 'boolean' ? value : !allFailuresSelected.value
+  selectedFailureIds.value = shouldSelect ? failures.value.map(item => Number(item.id)) : []
+}
+
+function failureReasonTone(item = {}) {
+  return item.retryable ? 'status-chip--warning' : 'status-chip--danger'
+}
+
 async function startFullScan() {
   if (!props.api?.post || fullScanPending.value || status.scan_running || status.command_running) return
   fullScanPending.value = true
@@ -802,6 +887,7 @@ async function load() {
     if (failureResult?.code !== 0) throw new Error(failureResult?.msg || '读取失败任务失败')
     applyStatus(statusResult.data || {})
     failures.value = Array.isArray(failureResult?.data?.items) ? failureResult.data.items : []
+    pruneFailureSelection()
     lastUpdated.value = Date.now()
   } catch (err) {
     error.value = err.message || '读取状态失败'
@@ -830,6 +916,24 @@ async function retry(failureId) {
     await load()
   } catch (err) {
     error.value = err.message || '重试失败'
+  } finally {
+    pending.value = null
+  }
+}
+
+async function retrySelected() {
+  const failureIds = [...selectedFailureIds.value]
+  if (!failureIds.length || !props.api?.post) return
+  pending.value = 'failure-batch'
+  error.value = ''
+  try {
+    const response = await props.api.post('plugin/CloudStrmButler/sync_retry_failures', { failure_ids: failureIds })
+    const result = unwrapApiResponse(response)
+    if (result?.code !== 0) throw new Error(result?.msg || '批量重试失败')
+    selectedFailureIds.value = []
+    await load()
+  } catch (err) {
+    error.value = err.message || '批量重试失败'
   } finally {
     pending.value = null
   }
@@ -1125,6 +1229,7 @@ h1 { font-size: 25px; font-weight: 700; line-height: 1.2; }
 .content-section { margin-bottom: 32px; min-width: 0; }
 .section-heading { align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
 .section-heading--compact { align-items: center; }
+.failure-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .section-heading p { color: var(--cs-dim); font-size: 12px; margin-top: 5px; }
 .section-count {
@@ -1149,6 +1254,7 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   overflow-x: auto;
 }
 .status-table { background: transparent; color: var(--cs-text); min-width: 600px; }
+.failure-table-frame .status-table { min-width: 860px; }
 .status-table :deep(table) { width: 100%; }
 .status-table :deep(th) {
   background: rgba(255, 255, 255, .018);
@@ -1164,6 +1270,11 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .status-table :deep(tbody tr:hover) { background: rgba(255, 255, 255, .025); }
 .time-cell { color: var(--cs-muted) !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .path-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select-cell { text-align: center; width: 46px; }
+.select-cell :deep(.v-selection-control) { justify-content: center; }
+.failure-reason-cell { max-width: 360px; min-width: 230px; }
+.failure-raw-error { color: var(--cs-muted); display: block; font-size: 11px; line-height: 1.35; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.failure-repair-hint { color: var(--cs-dim); display: block; font-size: 11px; line-height: 1.35; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .result-cell { max-width: 360px; min-width: 230px; }
 .result-inline { border-radius: 3px; display: inline-block; font-size: 10px; line-height: 1.2; margin: 2px 5px 2px 0; padding: 4px 5px; white-space: nowrap; }
 .result-inline--muted { background: rgba(165, 162, 177, .1); color: var(--cs-muted); }
@@ -1187,6 +1298,7 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .status-chip--active { background: rgba(124, 77, 255, .14); border-color: rgba(181, 156, 255, .2); color: var(--cs-primary-soft); }
 .status-chip--success { background: rgba(89, 211, 155, .12); border-color: rgba(89, 211, 155, .2); color: var(--cs-success); }
 .status-chip--danger { background: rgba(255, 127, 146, .12); border-color: rgba(255, 127, 146, .2); color: var(--cs-danger); }
+.status-chip--warning { background: rgba(231, 183, 100, .12); border-color: rgba(231, 183, 100, .25); color: var(--cs-warning); }
 .status-chip--muted { background: rgba(165, 162, 177, .1); border-color: rgba(165, 162, 177, .18); color: var(--cs-muted); }
 
 .dashboard-columns { display: grid; gap: 28px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1241,6 +1353,8 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .brand-mark { flex-basis: 34px; height: 34px; width: 34px; }
   .shell-content { padding: 22px 14px 32px; }
   .page-intro { align-items: flex-start; display: flex; flex-direction: column; gap: 16px; }
+  .section-heading--compact { align-items: flex-start; flex-direction: column; gap: 10px; }
+  .failure-actions { justify-content: flex-start; width: 100%; }
   .intro-actions { align-items: flex-start; margin-left: 0; width: 100%; }
   .intro-actions > span { text-align: left; }
   .intro-meta { border-left: 0; border-top: 1px solid var(--cs-line); padding-left: 0; padding-top: 10px; width: 100%; }
