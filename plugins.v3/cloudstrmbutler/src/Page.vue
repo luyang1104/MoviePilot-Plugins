@@ -349,7 +349,53 @@
           </div>
         </section>
 
-        <section class="content-section" aria-labelledby="recent-runs-title">
+        <section class="content-section task-center-section" aria-labelledby="task-center-title">
+          <div class="task-center-header">
+            <div>
+              <h2 id="task-center-title">同步任务中心</h2>
+              <p>需要介入的事项优先显示，运行记录集中保留。</p>
+            </div>
+            <v-btn icon="mdi-refresh" variant="tonal" size="small" :loading="loading" title="刷新任务中心" aria-label="刷新任务中心" @click="load" />
+          </div>
+          <div class="task-center-tabs" role="tablist" aria-label="同步任务中心视图">
+            <button type="button" class="task-center-tab" :class="{ 'is-active': taskCenterTab === 'pending' }" role="tab" :aria-selected="taskCenterTab === 'pending'" @click="taskCenterTab = 'pending'">
+              <v-icon size="16">mdi-alert-circle-outline</v-icon><span>待处理事项</span><span class="section-count" :class="{ 'has-items': pendingItemCount }">{{ pendingItemCount }}</span>
+            </button>
+            <button type="button" class="task-center-tab" :class="{ 'is-active': taskCenterTab === 'history' }" role="tab" :aria-selected="taskCenterTab === 'history'" @click="taskCenterTab = 'history'">
+              <v-icon size="16">mdi-history</v-icon><span>运行记录</span><span class="section-count">{{ status.recent_runs.length }}</span>
+            </button>
+          </div>
+
+          <div v-if="taskCenterTab === 'pending'" class="task-center-panel" role="tabpanel">
+            <div v-if="pendingItemCount" class="pending-items-grid">
+              <section class="pending-item-group pending-item-group--failure" aria-labelledby="failures-title">
+                <div class="pending-group-heading">
+                  <div class="pending-group-title"><span class="pending-group-icon"><v-icon size="18">mdi-replay</v-icon></span><div><h3 id="failures-title">失败重试</h3><p>修复权限、挂载或规则后重新加入同步队列。</p></div></div>
+                  <div class="failure-actions"><span class="section-count has-items">{{ failures.length }}</span><v-btn size="small" variant="tonal" :prepend-icon="allFailuresSelected ? 'mdi-checkbox-multiple-blank-outline' : 'mdi-checkbox-multiple-marked-outline'" :disabled="!failures.length || pending !== null" @click="toggleAllFailures">{{ allFailuresSelected ? '取消全选' : '全选' }}</v-btn><v-btn size="small" color="primary" variant="flat" prepend-icon="mdi-replay" :loading="pending === 'failure-batch'" :disabled="!selectedFailureIds.length || pending !== null" @click="retrySelected">批量重试 {{ selectedFailureIds.length ? '(' + selectedFailureIds.length + ')' : '' }}</v-btn></div>
+                </div>
+                <div class="pending-risk-note"><v-icon size="15">mdi-wrench-outline</v-icon><span>重试只会重新写入文件，不会删除已有 STRM。</span></div>
+                <div class="table-frame failure-table-frame">
+                  <v-table v-if="failures.length" density="comfortable" class="status-table"><thead><tr><th class="select-cell"><v-checkbox-btn :model-value="allFailuresSelected" :indeterminate="selectedFailureIds.length > 0 && !allFailuresSelected" aria-label="全选失败任务" :disabled="pending !== null" @update:model-value="toggleAllFailures" /></th><th>源文件</th><th>实际 STRM 输出</th><th>诊断</th><th>次数</th><th></th></tr></thead><tbody><tr v-for="item in failures" :key="item.id"><td class="select-cell"><v-checkbox-btn :model-value="isFailureSelected(item.id)" :aria-label="'选择失败任务 ' + item.id" :disabled="pending !== null" @update:model-value="value => toggleFailureSelection(item.id, value)" /></td><td class="path-cell" :title="item.path">{{ item.path }}</td><td class="path-cell" :title="item.actual_target || item.path">{{ item.actual_target || '未记录实际输出路径' }}</td><td class="failure-reason-cell"><span class="status-chip" :class="failureReasonTone(item)">{{ item.reason_label || '未分类错误' }}</span><span class="failure-raw-error">{{ item.error || '未返回原始错误' }}</span><span class="failure-repair-hint">{{ item.repair_hint || '请查看日志后修复。' }}</span></td><td>{{ item.attempts }}</td><td class="action-cell"><v-btn icon="mdi-replay" size="small" variant="text" color="primary" title="重试此任务" aria-label="重试此任务" :loading="pending === item.id" :disabled="pending !== null" @click="retry(item.id)" /></td></tr></tbody></v-table>
+                  <div v-else class="compact-empty"><v-icon size="18" color="success">mdi-check-circle-outline</v-icon><span>没有待重试的失败任务</span></div>
+                </div>
+              </section>
+
+              <section class="pending-item-group pending-item-group--cleanup" aria-labelledby="cleanup-title">
+                <div class="pending-group-heading"><div class="pending-group-title"><span class="pending-group-icon"><v-icon size="18">mdi-shield-check-outline</v-icon></span><div><h3 id="cleanup-title">清理确认</h3><p>确认扫描发现的缺失源文件，再删除插件生成的 STRM。</p></div></div><span class="section-count has-items">{{ status.cleanup_batches.length }}</span></div>
+                <div class="pending-risk-note pending-risk-note--warning"><v-icon size="15">mdi-alert-outline</v-icon><span>这是删除操作，仅处理插件记录过的生成文件，请确认源目录确实已完成变更。</span></div>
+                <div v-if="status.cleanup_batches.length" class="table-frame"><v-table density="comfortable" class="status-table"><thead><tr><th>监控目录</th><th>文件数</th><th>创建时间</th><th></th></tr></thead><tbody><tr v-for="batch in status.cleanup_batches" :key="batch.batch_id"><td class="path-cell" :title="batch.monitor_root">{{ batch.monitor_root }}</td><td>{{ batch.path_count }}</td><td class="time-cell">{{ formatTime(batch.created_at) }}</td><td class="action-cell"><v-btn icon="mdi-check-circle-outline" size="small" variant="text" color="warning" title="确认清理" aria-label="确认清理" :loading="pending === batch.batch_id" @click="confirmCleanup(batch.batch_id)" /></td></tr></tbody></v-table></div>
+                <div v-else class="compact-empty"><v-icon size="18" color="success">mdi-shield-check-outline</v-icon><span>没有待确认的清理批次</span></div>
+              </section>
+            </div>
+            <div v-else class="task-center-empty"><v-icon size="19" color="success">mdi-check-circle-outline</v-icon><strong>当前无需介入</strong><span>失败重试和清理确认均为空，运行记录仍保留在“运行记录”中。</span></div>
+          </div>
+
+          <div v-else class="task-center-panel" role="tabpanel">
+            <div class="table-frame recent-task-table"><v-table density="comfortable" class="status-table"><thead><tr><th>状态</th><th>类型</th><th>排队</th><th>已处理</th><th>处理结果</th><th>时间</th></tr></thead><tbody><tr v-for="run in status.recent_runs" :key="run.run_id"><td><span class="status-chip" :class="statusTone(run.status)">{{ displayStatus(run.status) }}</span></td><td>{{ run.kind === 'manual_full' ? '全量扫描' : run.kind === 'command' ? '手动扫描' : '实时同步' }}</td><td>{{ run.queued ?? 0 }}</td><td>{{ run.processed ?? 0 }}</td><td class="result-cell"><template v-if="resultItems(run).length"><span v-for="item in resultItems(run)" :key="item.key" class="result-inline" :class="'result-inline--' + item.tone">{{ item.label }} {{ item.count }}</span></template><span v-else class="muted-value">-</span></td><td class="time-cell">{{ formatTime(run.finished_at || run.started_at) }}</td></tr><tr v-if="!status.recent_runs.length"><td colspan="6" class="empty-row">暂无运行记录</td></tr></tbody></v-table></div>
+          </div>
+        </section>
+
+        <section v-if="false" class="content-section" aria-labelledby="recent-runs-title">
           <div class="section-heading">
             <div>
               <h2 id="recent-runs-title">最近任务</h2>
@@ -559,7 +605,7 @@ const props = defineProps({
   api: { type: Object, default: () => ({}) },
   initialConfig: { type: Object, default: () => ({}) },
   config: { type: Object, default: () => ({}) },
-  version: { type: String, default: '2.1.13' },
+  version: { type: String, default: '2.1.14' },
   defaultTab: { type: String, default: 'dashboard' },
 })
 
@@ -572,6 +618,7 @@ const error = ref('')
 const lastUpdated = ref(null)
 const failures = ref([])
 const selectedFailureIds = ref([])
+const taskCenterTab = ref('pending')
 const savedConfig = ref(null)
 const status = reactive({
   enabled: false,
@@ -645,7 +692,7 @@ const status = reactive({
 })
 
 const fullScanPending = ref(false)
-const version = computed(() => props.version || '2.1.13')
+const version = computed(() => props.version || '2.1.14')
 const initialConfig = computed(() => {
   if (savedConfig.value && Object.keys(savedConfig.value).length) return savedConfig.value
   if (props.initialConfig && Object.keys(props.initialConfig).length) return props.initialConfig
@@ -738,6 +785,7 @@ const allFailuresSelected = computed(() => (
   failures.value.length > 0
   && failures.value.every(item => selectedFailureIds.value.includes(Number(item.id)))
 ))
+const pendingItemCount = computed(() => failures.value.length + status.cleanup_batches.length)
 const resultCategories = [
   { key: 'existing_skipped', label: '已有内容跳过', tone: 'muted' },
   { key: 'copied_non_media', label: '复制非媒体', tone: 'neutral' },
@@ -1275,6 +1323,29 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
 .failure-reason-cell { max-width: 360px; min-width: 230px; }
 .failure-raw-error { color: var(--cs-muted); display: block; font-size: 11px; line-height: 1.35; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .failure-repair-hint { color: var(--cs-dim); display: block; font-size: 11px; line-height: 1.35; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-center-section { border-top: 1px solid var(--cs-line); padding-top: 24px; }
+.task-center-header { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 13px; }
+.task-center-tabs { border-bottom: 1px solid var(--cs-line); display: flex; gap: 4px; margin-bottom: 16px; }
+.task-center-tab { align-items: center; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--cs-muted); cursor: pointer; display: inline-flex; font: inherit; gap: 8px; min-height: 40px; padding: 0 12px; }
+.task-center-tab:hover { color: var(--cs-text); }
+.task-center-tab.is-active { border-bottom-color: var(--cs-primary); color: var(--cs-primary); }
+.task-center-tab .section-count { height: 22px; min-width: 22px; }
+.pending-items-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pending-item-group { background: var(--cs-surface); border: 1px solid var(--cs-line); border-radius: 7px; min-width: 0; padding: 15px; }
+.pending-item-group--failure { border-color: rgba(185, 99, 62, .35); }
+.pending-item-group--cleanup { border-color: rgba(215, 154, 63, .35); }
+.pending-group-heading { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 11px; }
+.pending-group-title { align-items: flex-start; display: flex; gap: 10px; min-width: 0; }
+.pending-group-title h3 { color: var(--cs-text); font-size: 14px; font-weight: 700; margin: 0; }
+.pending-group-title p { color: var(--cs-dim); font-size: 11px; line-height: 1.4; margin-top: 4px; }
+.pending-group-icon { align-items: center; background: var(--cs-surface-raised); border: 1px solid var(--cs-line); border-radius: 6px; color: var(--cs-primary); display: flex; flex: 0 0 30px; height: 30px; justify-content: center; width: 30px; }
+.pending-risk-note { align-items: flex-start; background: #f5f7f8; border: 1px solid var(--cs-line); border-radius: 5px; color: var(--cs-muted); display: flex; font-size: 11px; gap: 7px; line-height: 1.4; margin-bottom: 10px; padding: 8px 9px; }
+.pending-risk-note--warning { background: #fff8ee; border-color: #edd9b7; color: #9a6b2e; }
+.compact-empty, .task-center-empty { align-items: center; color: var(--cs-muted); display: flex; gap: 8px; }
+.compact-empty { justify-content: center; min-height: 66px; }
+.task-center-empty { background: var(--cs-surface); border: 1px solid var(--cs-line); border-radius: 7px; flex-direction: column; justify-content: center; min-height: 92px; padding: 16px; }
+.task-center-empty strong { color: var(--cs-text); font-size: 13px; }
+.task-center-empty span { color: var(--cs-dim); font-size: 11px; }
 .result-cell { max-width: 360px; min-width: 230px; }
 .result-inline { border-radius: 3px; display: inline-block; font-size: 10px; line-height: 1.2; margin: 2px 5px 2px 0; padding: 4px 5px; white-space: nowrap; }
 .result-inline--muted { background: rgba(165, 162, 177, .1); color: var(--cs-muted); }
@@ -1342,6 +1413,7 @@ h2 { font-size: 15px; font-weight: 700; line-height: 1.3; }
   .command-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .command-detail--path { grid-column: 1 / -1; }
   .dashboard-columns { grid-template-columns: 1fr; }
+  .pending-items-grid { grid-template-columns: 1fr; }
   .shell-content { padding: 26px 28px 40px; }
 }
 

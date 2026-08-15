@@ -42,3 +42,14 @@ test('recent task table has only the four requested columns', async () => {
   assert.equal(source.includes('task-skipped'), false)
   assert.equal(source.includes('task-failed'), false)
 })
+
+test('task center prioritizes pending work and keeps compact empty state', async () => {
+  const source = await readFile(new URL('../src/Page.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('同步任务中心'), true)
+  assert.equal(source.includes('待处理事项'), true)
+  assert.equal(source.includes('运行记录'), true)
+  assert.equal(source.includes('当前无需介入'), true)
+  assert.equal(source.includes('pending-risk-note--warning'), true)
+  assert.equal(source.includes('重试只会重新写入文件'), true)
+})

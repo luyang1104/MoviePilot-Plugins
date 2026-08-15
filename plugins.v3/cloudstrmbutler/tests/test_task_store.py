@@ -44,6 +44,15 @@ class TaskStoreTests(unittest.TestCase):
         self.assertFalse(failure["retryable"])
         self.assertIn("写入", failure["repair_hint"])
 
+    def test_failures_keep_actual_strm_output_target(self):
+        self.store.enqueue("/media", "/media/movie.mkv", "sync")
+        job = self.store.claim_ready()[0]
+        self.store.fail_job(job, "[Errno 13] Permission denied", {"actual_target": "/library/movie.strm"})
+
+        failure = self.store.failures()[0]
+
+        self.assertEqual(failure["actual_target"], "/library/movie.strm")
+
     def test_batch_retry_deduplicates_ids_and_ignores_resolved_failures(self):
         self.store.enqueue("/media", "/media/one.mkv", "sync")
         self.store.enqueue("/media", "/media/two.mkv", "sync")

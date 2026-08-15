@@ -3,6 +3,7 @@ import hashlib
 import os
 import re
 import shutil
+import tempfile
 import threading
 import time
 import traceback
@@ -75,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.13"
+    plugin_version = "2.1.14"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -918,6 +919,7 @@ class CloudStrmButler(_PluginBase):
             self._active_paths.add(active_key)
 
         outputs: List[str] = []
+        actual_target = ""
         try:
             stat = source.stat()
             mtime_ns = int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000))
@@ -962,6 +964,18 @@ class CloudStrmButler(_PluginBase):
                     source_rel, mtime_ns, size, content_hash, mon_path, expected_outputs
                 ):
                     return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
+                if self._cover or not strm_existed:
+                    write_check = self._check_write_target(strm_target)
+                    if not write_check["writable"]:
+                        return {
+                            "status": "failed",
+                            "reason": write_check["raw_error"],
+                            "retryable": False,
+                            "actual_target": strm_target,
+                            "diagnosis": write_check,
+                            "result_statuses": ["failed"],
+                        }
+                actual_target = strm_target
                 strm_output = self.__create_strm_file(strm_file=target_file, strm_content=strm_content, source_file=event_path)
                 if strm_output:
                     outputs.append(strm_output)
@@ -971,6 +985,7 @@ class CloudStrmButler(_PluginBase):
                 for sidecar_path in sidecar_paths:
                     sidecar_target = self.__remap_path(str(sidecar_path), mon_path, strm_dir)
                     if sidecar_target:
+                        actual_target = sidecar_target
                         sidecar_outputs = self.__handle_other_files(str(sidecar_path), sidecar_target)
                         outputs.extend(sidecar_outputs)
                         if sidecar_outputs:
@@ -986,6 +1001,7 @@ class CloudStrmButler(_PluginBase):
                     source_rel, mtime_ns, size, content_hash, mon_path, sidecar_expected
                 ):
                     return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
+                actual_target = target_file
                 outputs.extend(self.__handle_other_files(event_path, target_file))
                 result_statuses = self._sidecar_result_statuses(event_path) if outputs else ["skipped"]
 
@@ -1010,10 +1026,14 @@ class CloudStrmButler(_PluginBase):
             }
         except Exception as exc:
             logger.error("目录监控发生错误：%s - %s", str(exc), traceback.format_exc())
+            actual_target = str(actual_target or locals().get("target_file") or "")
+            diagnosis = self._check_write_target(actual_target) if actual_target else {}
             return {
                 "status": "failed",
                 "reason": str(exc),
                 "retryable": self._is_retryable_io_error(exc),
+                "actual_target": actual_target,
+                "diagnosis": diagnosis,
                 "result_statuses": ["failed"],
             }
         finally:
@@ -1026,6 +1046,77 @@ class CloudStrmButler(_PluginBase):
             (self._copy_files and suffix in self._other_extensions)
             or (self._copy_subtitles and suffix in self._subtitle_extensions)
         )
+
+    @staticmethod
+    def _check_write_target(target: str) -> Dict[str, Any]:
+        """Probe the real output directory so failures explain the host-side cause."""
+        target_path = Path(str(target or "")).expanduser()
+        if not str(target_path):
+            return {
+                "writable": False,
+                "reason_code": "path_missing",
+                "reason_label": "STRM 输出目标为空",
+                "raw_error": "STRM 输出目标为空",
+                "repair_hint": "检查规则中的 STRM 输出目录和路径映射。",
+                "actual_target": "",
+            }
+        parent = target_path.parent
+        probe_parent = parent
+        try:
+            probe_parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            diagnosis = "read_only_mount" if getattr(exc, "errno", None) == 30 else "permission_denied" if getattr(exc, "errno", None) in {1, 13} else "storage_unavailable"
+            return {
+                "writable": False,
+                "reason_code": diagnosis,
+                "reason_label": {"read_only_mount": "目标挂载为只读", "permission_denied": "目标目录不可写", "storage_unavailable": "目标挂载暂时不可用"}[diagnosis],
+                "raw_error": str(exc),
+                "repair_hint": "检查 NAS 挂载状态、读写参数、容器 UID/GID 和 ACL；修复宿主环境后再重试。",
+                "actual_target": str(target_path),
+            }
+        if not os.access(str(probe_parent), os.W_OK | os.X_OK):
+            return {
+                "writable": False,
+                "reason_code": "permission_denied",
+                "reason_label": "目标目录不可写",
+                "raw_error": f"目标目录不可写: {parent}",
+                "repair_hint": "检查 MoviePilot 容器 UID/GID、NAS ACL 和挂载是否为只读；这些权限需要在宿主环境修复。",
+                "actual_target": str(target_path),
+            }
+        probe_path = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix=".cloudstrm-write-test-", dir=str(probe_parent), delete=False) as probe:
+                probe.write(b"cloudstrm-write-test")
+                probe_path = probe.name
+            return {
+                "writable": True,
+                "reason_code": "ok",
+                "reason_label": "目标目录可写",
+                "raw_error": "",
+                "repair_hint": "",
+                "actual_target": str(target_path),
+            }
+        except OSError as exc:
+            diagnosis = "read_only_mount" if getattr(exc, "errno", None) == 30 else "permission_denied" if getattr(exc, "errno", None) in {1, 13} else "storage_unavailable"
+            labels = {
+                "read_only_mount": "目标挂载为只读",
+                "permission_denied": "目标目录不可写",
+                "storage_unavailable": "目标挂载暂时不可用",
+            }
+            return {
+                "writable": False,
+                "reason_code": diagnosis,
+                "reason_label": labels[diagnosis],
+                "raw_error": str(exc),
+                "repair_hint": "检查 NAS 挂载状态、读写参数、容器 UID/GID 和 ACL；修复宿主环境后再重试。",
+                "actual_target": str(target_path),
+            }
+        finally:
+            if probe_path:
+                try:
+                    Path(probe_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _sidecar_result_statuses(self, event_path: str) -> List[str]:
         suffix = Path(event_path).suffix.lower()
@@ -1058,6 +1149,9 @@ class CloudStrmButler(_PluginBase):
             target_dir = os.path.dirname(target_file)
             if target_dir:
                 os.makedirs(target_dir, exist_ok=True)
+            write_check = self._check_write_target(target_file)
+            if not write_check["writable"]:
+                raise PermissionError(write_check["raw_error"])
             shutil.copy2(str(event_path), target_file)
             logger.info(f"复制{kind} {str(event_path)} 到 {target_file}")
             return target_file

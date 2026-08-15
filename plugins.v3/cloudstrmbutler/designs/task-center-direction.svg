@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">同步任务中心合并布局方向</title>
+  <desc id="desc">将同步失败记录、待确认清理和最近任务合并到一个任务中心中的界面方向稿。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="14" stdDeviation="22" flood-color="#08080d" flood-opacity="0.28"/>
+    </filter>
+    <style>
+      .ui { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+      .title { font-size: 28px; font-weight: 700; letter-spacing: 0; }
+      .section { font-size: 17px; font-weight: 700; letter-spacing: 0; }
+      .body { font-size: 14px; font-weight: 400; letter-spacing: 0; }
+      .small { font-size: 12px; font-weight: 400; letter-spacing: 0; }
+      .label { font-size: 12px; font-weight: 700; letter-spacing: 0; }
+      .number { font-size: 24px; font-weight: 700; letter-spacing: 0; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1000" fill="#101017"/>
+  <rect x="30" y="28" width="1540" height="944" rx="12" fill="#15151c" stroke="#2d2d38"/>
+
+  <g class="ui">
+    <circle cx="88" cy="83" r="22" fill="#2b2347" stroke="#594b9e"/>
+    <path d="M78 84c0-6 4-11 10-11 4 0 8 2 10 6M98 82v-7M98 75h-7M98 82c0 6-4 11-10 11-4 0-8-2-10-6M78 84v7M78 91h7" fill="none" stroke="#bcaeff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="126" y="78" class="title" fill="#f2f1f7">同步任务中心</text>
+    <text x="126" y="105" class="body" fill="#a3a0af">统一查看需要处理的事项与最近运行记录</text>
+
+    <text x="1260" y="72" class="small" fill="#747181">最后更新</text>
+    <text x="1260" y="96" class="body" fill="#c5c2ce">今天 10:42</text>
+    <rect x="1434" y="55" width="54" height="54" rx="8" fill="#382966"/>
+    <path d="M1461 72a10 10 0 1 0 9 14M1470 72v7h-7" fill="none" stroke="#bcaeff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <rect x="72" y="145" width="1456" height="752" rx="9" fill="#19191f" stroke="#2d2d38" filter="url(#shadow)"/>
+
+  <g class="ui">
+    <text x="108" y="189" class="section" fill="#f2f1f7">任务概览</text>
+    <text x="108" y="215" class="small" fill="#747181">需要你介入的事项优先显示，历史运行结果集中留档</text>
+
+    <rect x="1120" y="170" width="174" height="38" rx="6" fill="#2b2347" stroke="#594b9e"/>
+    <path d="M1144 189h14M1151 182v14" stroke="#bcaeff" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1172" y="194" class="label" fill="#bcaeff">待处理事项</text>
+    <rect x="1302" y="170" width="190" height="38" rx="6" fill="#101017" stroke="#2d2d38"/>
+    <path d="M1327 182v14M1322 186h10M1340 182v14M1335 186h10" stroke="#747181" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="1360" y="194" class="label" fill="#a3a0af">运行记录</text>
+  </g>
+
+  <line x1="72" y1="240" x2="1528" y2="240" stroke="#2d2d38"/>
+
+  <g class="ui">
+    <text x="108" y="279" class="section" fill="#f2f1f7">待处理事项</text>
+    <rect x="280" y="256" width="62" height="28" rx="14" fill="#202026" stroke="#393844"/>
+    <text x="311" y="275" text-anchor="middle" class="label" fill="#a3a0af">0 项</text>
+    <text x="108" y="306" class="small" fill="#747181">两类事项共享入口，但保留各自的处理动作和风险提示</text>
+
+    <rect x="108" y="330" width="690" height="112" rx="7" fill="#1f1f27" stroke="#2d2d38"/>
+    <circle cx="150" cy="386" r="24" fill="#2a1f28" stroke="#69404f"/>
+    <path d="M150 373v15l9 6M150 363v4M138 369l3 3M162 369l-3 3" fill="none" stroke="#ff8a9a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="190" y="375" class="section" fill="#f2f1f7">失败重试</text>
+    <text x="190" y="400" class="body" fill="#747181">修复权限、挂载或配置后重新加入同步队列</text>
+    <text x="744" y="385" text-anchor="end" class="number" fill="#a3a0af">0</text>
+    <text x="744" y="407" text-anchor="end" class="small" fill="#747181">待处理</text>
+
+    <rect x="822" y="330" width="690" height="112" rx="7" fill="#1f1f27" stroke="#2d2d38"/>
+    <circle cx="864" cy="386" r="24" fill="#29252a" stroke="#51485b"/>
+    <path d="M864 371l11 5v8c0 8-5 13-11 16-6-3-11-8-11-16v-8l11-5zM858 384l5 5 8-9" fill="none" stroke="#f0c276" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="904" y="375" class="section" fill="#f2f1f7">清理确认</text>
+    <text x="904" y="400" class="body" fill="#747181">确认扫描发现的缺失 STRM 文件后再执行删除</text>
+    <text x="1458" y="385" text-anchor="end" class="number" fill="#a3a0af">0</text>
+    <text x="1458" y="407" text-anchor="end" class="small" fill="#747181">待确认</text>
+
+    <rect x="108" y="462" width="1404" height="58" rx="6" fill="#17171e" stroke="#2d2d38"/>
+    <circle cx="142" cy="491" r="14" fill="#203b31" stroke="#356a54"/>
+    <path d="M135 491l5 5 9-10" fill="none" stroke="#68d7a2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="170" y="487" class="body" fill="#68d7a2" font-weight="700">当前无需处理</text>
+    <text x="314" y="487" class="body" fill="#a3a0af">同步失败和待确认清理均为空，运行记录仍保留在下方。</text>
+    <text x="1458" y="487" text-anchor="end" class="small" fill="#747181">状态正常</text>
+  </g>
+
+  <line x1="108" y1="556" x2="1492" y2="556" stroke="#2d2d38"/>
+
+  <g class="ui">
+    <text x="108" y="598" class="section" fill="#f2f1f7">运行记录</text>
+    <text x="108" y="625" class="small" fill="#747181">最近一次全量扫描与实时同步的处理摘要</text>
+    <rect x="1394" y="575" width="98" height="32" rx="6" fill="#101017" stroke="#393844"/>
+    <text x="1443" y="596" text-anchor="middle" class="label" fill="#a3a0af">查看全部</text>
+
+    <rect x="108" y="650" width="1404" height="192" rx="7" fill="#17171e" stroke="#2d2d38"/>
+    <rect x="108" y="650" width="1404" height="44" rx="7" fill="#1f1f27"/>
+    <line x1="108" y1="694" x2="1512" y2="694" stroke="#2d2d38"/>
+    <text x="138" y="677" class="label" fill="#747181">状态</text>
+    <text x="430" y="677" class="label" fill="#747181">类型</text>
+    <text x="690" y="677" class="label" fill="#747181">排队</text>
+    <text x="866" y="677" class="label" fill="#747181">已处理</text>
+    <text x="1080" y="677" class="label" fill="#747181">处理结果</text>
+    <text x="1428" y="677" class="label" fill="#747181">时间</text>
+
+    <rect x="132" y="712" width="70" height="26" rx="5" fill="#203b31" stroke="#356a54"/>
+    <text x="167" y="730" text-anchor="middle" class="label" fill="#68d7a2">已完成</text>
+    <text x="430" y="730" class="body" fill="#c5c2ce">实时同步</text>
+    <text x="690" y="730" class="body" fill="#c5c2ce">570</text>
+    <text x="866" y="730" class="body" fill="#c5c2ce">570</text>
+    <rect x="1080" y="711" width="126" height="27" rx="4" fill="#292633"/>
+    <text x="1093" y="729" class="small" fill="#a3a0af">已有内容跳过 1</text>
+    <text x="1428" y="730" class="small" fill="#747181">刚刚</text>
+
+    <line x1="132" y1="765" x2="1488" y2="765" stroke="#2d2d38"/>
+    <rect x="132" y="784" width="70" height="26" rx="5" fill="#203b31" stroke="#356a54"/>
+    <text x="167" y="802" text-anchor="middle" class="label" fill="#68d7a2">已完成</text>
+    <text x="430" y="802" class="body" fill="#c5c2ce">全量扫描</text>
+    <text x="690" y="802" class="body" fill="#c5c2ce">1</text>
+    <text x="866" y="802" class="body" fill="#c5c2ce">1</text>
+    <text x="1080" y="802" class="small" fill="#747181">-</text>
+    <text x="1428" y="802" class="small" fill="#747181">今天 09:18</text>
+  </g>
+
+  <rect x="72" y="918" width="1456" height="1" fill="#2d2d38"/>
+  <text class="ui small" x="108" y="949" fill="#5f5c69">设计方向：一个任务中心承载三类信息；待处理事项优先，运行记录降级为历史审计。</text>
+</svg>

@@ -24,7 +24,7 @@ class PendingJob:
     payload: dict
 
 
-def classify_failure(error: str) -> dict:
+def classify_failure(error: str, actual_target: str = "") -> dict:
     """Turn a raw sync error into a concise diagnosis and repair hint."""
     raw = str(error or "").strip()
     text = raw.lower()
@@ -35,6 +35,7 @@ def classify_failure(error: str) -> dict:
             "reason_label": "目标目录没有写入权限",
             "retryable": False,
             "repair_hint": "请给 MoviePilot 运行账号授予目标目录的写入、创建目录和修改文件权限；NAS 还要检查 ACL、UID/GID 以及挂载是否为只读，修复后再重试。",
+            "actual_target": actual_target,
         }
     if "read-only file system" in text or "errno 30" in text or "readonly" in text:
         return {
@@ -42,6 +43,7 @@ def classify_failure(error: str) -> dict:
             "reason_label": "目标挂载是只读的",
             "retryable": False,
             "repair_hint": "检查 NAS、SMB/NFS 挂载状态和挂载参数，重新以读写方式挂载后再重试。",
+            "actual_target": actual_target,
         }
     if "no space left" in text or "errno 28" in text or "disk full" in text:
         return {
@@ -49,6 +51,7 @@ def classify_failure(error: str) -> dict:
             "reason_label": "目标磁盘空间不足",
             "retryable": False,
             "repair_hint": "清理目标挂载的空间或扩容，确认 inode 没有耗尽后再重试。",
+            "actual_target": actual_target,
         }
     if "no such file or directory" in text or "file not found" in text or "errno 2" in text:
         return {
@@ -56,6 +59,7 @@ def classify_failure(error: str) -> dict:
             "reason_label": "源文件或目标路径不存在",
             "retryable": False,
             "repair_hint": "确认源文件仍存在、目标挂载已连接，并检查 STRM 规则中的本地目录和输出目录映射。",
+            "actual_target": actual_target,
         }
     if any(token in text for token in ("connection timed out", "timed out", "i/o error", "input/output error", "stale file handle", "temporarily unavailable")):
         return {
@@ -63,6 +67,7 @@ def classify_failure(error: str) -> dict:
             "reason_label": "NAS 或挂载暂时不可用",
             "retryable": True,
             "repair_hint": "检查 NAS 在线状态、网络连接和挂载日志；连接恢复后可直接重试。",
+            "actual_target": actual_target,
         }
     if any(token in text for token in ("template invalid", "invalid template", "invalid_content", "strm 模板")):
         return {
@@ -70,19 +75,21 @@ def classify_failure(error: str) -> dict:
             "reason_label": "STRM 模板或规则无效",
             "retryable": False,
             "repair_hint": "检查规则是否包含 {local_file} 或 {cloud_file}，并确认云盘目录映射有效。",
+            "actual_target": actual_target,
         }
     return {
         "reason_code": "unknown",
         "reason_label": "未分类错误",
         "retryable": False,
         "repair_hint": "先查看原始错误并确认源文件、目标挂载和规则配置，修复后再重试。",
+        "actual_target": actual_target,
     }
 
 
 class TaskStore:
     """SQLite store for resumable work. Successful file state stays in SyncStateStore."""
 
-    SCHEMA_VERSION = 3
+    SCHEMA_VERSION = 4
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -170,6 +177,12 @@ class TaskStore:
             if "result_counts" not in columns:
                 self._conn.execute("ALTER TABLE task_runs ADD COLUMN result_counts TEXT NOT NULL DEFAULT '{}'")
             self._conn.execute("UPDATE schema_version SET version = 3")
+            current = 3
+        if current < 4:
+            columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(task_failures)").fetchall()}
+            if "actual_target" not in columns:
+                self._conn.execute("ALTER TABLE task_failures ADD COLUMN actual_target TEXT NOT NULL DEFAULT ''")
+            self._conn.execute("UPDATE schema_version SET version = 4")
         self._conn.commit()
 
     def enqueue(self, monitor_root: str, path: str, action: str, old_path: str = "", payload: Optional[dict] = None, delay: float = 0) -> bool:
@@ -208,7 +221,7 @@ class TaskStore:
             self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (job_id,))
             self._conn.commit()
 
-    def retry_job(self, job: PendingJob, error: str, delay: float) -> None:
+    def retry_job(self, job: PendingJob, error: str, delay: float, diagnosis: Optional[dict] = None) -> None:
         now = time.time()
         attempts = job.attempts + 1
         with self._lock:
@@ -216,13 +229,13 @@ class TaskStore:
                 "UPDATE pending_jobs SET attempts = ?, available_at = ?, updated_at = ? WHERE id = ?",
                 (attempts, now + delay, now, job.id),
             )
-            self._upsert_failure(job.monitor_root, job.path, job.action, error, attempts, now)
+            self._upsert_failure(job.monitor_root, job.path, job.action, error, attempts, now, diagnosis)
             self._conn.commit()
 
-    def fail_job(self, job: PendingJob, error: str) -> None:
+    def fail_job(self, job: PendingJob, error: str, diagnosis: Optional[dict] = None) -> None:
         now = time.time()
         with self._lock:
-            self._upsert_failure(job.monitor_root, job.path, job.action, error, job.attempts + 1, now)
+            self._upsert_failure(job.monitor_root, job.path, job.action, error, job.attempts + 1, now, diagnosis)
             self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (job.id,))
             self._conn.commit()
 
@@ -235,20 +248,21 @@ class TaskStore:
             )
             self._conn.commit()
 
-    def _upsert_failure(self, root: str, path: str, action: str, error: str, attempts: int, now: float) -> None:
+    def _upsert_failure(self, root: str, path: str, action: str, error: str, attempts: int, now: float, diagnosis: Optional[dict] = None) -> None:
+        actual_target = str((diagnosis or {}).get("actual_target") or "")
         row = self._conn.execute(
             "SELECT id FROM task_failures WHERE monitor_root = ? AND path = ? AND action = ? AND resolved_at IS NULL",
             (root, path, action),
         ).fetchone()
         if row:
             self._conn.execute(
-                "UPDATE task_failures SET error = ?, attempts = ?, updated_at = ? WHERE id = ?",
-                (error[:2000], attempts, now, row["id"]),
+                "UPDATE task_failures SET error = ?, actual_target = ?, attempts = ?, updated_at = ? WHERE id = ?",
+                (error[:2000], actual_target, attempts, now, row["id"]),
             )
         else:
             self._conn.execute(
-                "INSERT INTO task_failures(monitor_root,path,action,error,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-                (root, path, action, error[:2000], attempts, now, now),
+                "INSERT INTO task_failures(monitor_root,path,action,error,actual_target,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                (root, path, action, error[:2000], actual_target, attempts, now, now),
             )
 
     def start_run(self, kind: str, monitor_root: Optional[str] = None) -> str:
@@ -393,7 +407,7 @@ class TaskStore:
         with self._lock:
             items = [dict(row) for row in self._conn.execute(query, (max(1, min(limit, 500)),)).fetchall()]
         for item in items:
-            item.update(classify_failure(item.get("error", "")))
+            item.update(classify_failure(item.get("error", ""), item.get("actual_target", "")))
         return items
 
     def retry_failure(self, failure_id: int) -> bool:

@@ -105,12 +105,12 @@ class SyncEngine:
                 status = result.get("status", "processed")
                 if status in {"failed", "unstable"} and self._retryable(result):
                     if job.attempts < len(self.RETRY_DELAYS):
-                        self.store.retry_job(job, str(result.get("reason") or status), self.RETRY_DELAYS[job.attempts])
+                        self.store.retry_job(job, str(result.get("reason") or status), self.RETRY_DELAYS[job.attempts], result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
                     else:
-                        self.store.fail_job(job, str(result.get("reason") or status))
+                        self.store.fail_job(job, str(result.get("reason") or status), result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
                         self._complete(job, {"status": "failed", "reason": str(result.get("reason") or status)})
                 elif status == "failed":
-                    self.store.fail_job(job, str(result.get("reason") or "同步失败"))
+                    self.store.fail_job(job, str(result.get("reason") or "同步失败"), result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
                     self._complete(job, result)
                 else:
                     self.store.remove_job(job.id)
@@ -118,9 +118,9 @@ class SyncEngine:
                     self._complete(job, result)
             except Exception as exc:
                 if job.attempts < len(self.RETRY_DELAYS):
-                    self.store.retry_job(job, str(exc), self.RETRY_DELAYS[job.attempts])
+                    self.store.retry_job(job, str(exc), self.RETRY_DELAYS[job.attempts], {"actual_target": job.payload.get("actual_target", "")})
                 else:
-                    self.store.fail_job(job, str(exc))
+                    self.store.fail_job(job, str(exc), {"actual_target": job.payload.get("actual_target", "")})
                     self._complete(job, {"status": "failed", "reason": str(exc)})
             finally:
                 with self._lock:
