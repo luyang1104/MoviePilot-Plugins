@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1240" viewBox="0 0 1800 1240" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 STRM 小管家 · MoviePilot 插件级简化方向</title>
+  <desc id="desc">深色 MoviePilot 插件页概念稿。只包含运行状态、插件配置、立即全量处理、待处理事项、最近运行和一行处理摘要。</desc>
+
+  <defs>
+    <filter id="frame-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+    <style>
+      .ui { font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; letter-spacing: 0; }
+      .mono { font-family: "Cascadia Mono", "Consolas", monospace; letter-spacing: 0; }
+      .host-label { font-size: 12px; font-weight: 600; }
+      .tiny { font-size: 11px; font-weight: 400; }
+      .small { font-size: 12px; font-weight: 400; }
+      .body { font-size: 13px; font-weight: 400; }
+      .body-strong { font-size: 13px; font-weight: 600; }
+      .section { font-size: 15px; font-weight: 600; }
+      .page-title { font-size: 23px; font-weight: 600; }
+      .metric { font-size: 22px; font-weight: 600; }
+      .ink { fill: #E7E3FC; }
+      .muted { fill: #A9A8B7; }
+      .dim { fill: #777886; }
+      .faint { fill: #5E606E; }
+      .line { stroke: #2A2D38; }
+      .line-soft { stroke: #242731; }
+      .primary { fill: #6E66ED; }
+      .primary-text { fill: #A8A3FF; }
+      .success { fill: #56CA00; }
+      .success-soft { fill: #B2ED8B; }
+      .warning { fill: #FFB400; }
+      .warning-soft { fill: #FFD777; }
+      .danger { fill: #FF4C51; }
+      .danger-soft { fill: #FF9A9D; }
+      .info { fill: #16B1FF; }
+    </style>
+  </defs>
+
+  <!-- Presentation surround: the plugin sits inside MoviePilot, so it does not create a second app shell. -->
+  <rect width="1800" height="1240" fill="#080A0F"/>
+  <text class="ui tiny" x="52" y="34" fill="#6E66ED" font-weight="700" letter-spacing="1.4">CLOUDSTRM / MOVIEPILOT PLUGIN</text>
+  <text class="ui tiny" x="1748" y="34" fill="#5E606E" text-anchor="end">v3 · compact dark direction</text>
+
+  <!-- MoviePilot host frame -->
+  <rect x="48" y="58" width="1704" height="1134" rx="12" fill="#0E1116" stroke="#2A2D38" filter="url(#frame-shadow)"/>
+
+  <!-- Host navigation -->
+  <rect x="49" y="59" width="1702" height="64" rx="11" fill="#14161F"/>
+  <path d="M49 112h1702" stroke="#2A2D38"/>
+  <rect x="76" y="76" width="32" height="32" rx="7" fill="#6E66ED"/>
+  <path d="M84 92h16M92 84v16" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+  <text class="ui" x="122" y="96" fill="#F5F3FF" font-size="15" font-weight="600">MoviePilot</text>
+  <text class="ui tiny" x="252" y="96" fill="#777886">首页</text>
+  <text class="ui tiny" x="306" y="96" fill="#777886">媒体</text>
+  <text class="ui tiny" x="360" y="96" fill="#777886">订阅</text>
+  <text class="ui tiny" x="414" y="96" fill="#777886">下载</text>
+  <rect x="468" y="76" width="66" height="32" rx="6" fill="#242339"/>
+  <text class="ui host-label" x="501" y="96" fill="#B7B2FF" text-anchor="middle">插件</text>
+  <circle cx="1638" cy="91" r="7" fill="#56CA00"/>
+  <text class="ui tiny" x="1653" y="95" fill="#A9A8B7">系统正常</text>
+  <circle cx="1710" cy="91" r="14" fill="#242731"/>
+  <text class="ui tiny" x="1710" y="95" fill="#E7E3FC" text-anchor="middle" font-weight="700">L</text>
+
+  <!-- Plugin header -->
+  <rect x="49" y="123" width="1702" height="112" fill="#0E1116"/>
+  <rect x="88" y="145" width="44" height="44" rx="9" fill="#211F45" stroke="#514DB1"/>
+  <path d="M98 166c3-8 7-11 12-11 4 0 7 2 9 5 5-2 9 1 9 6 0 5-4 8-9 8h-16c-5 0-8-3-8-7 0-4 1-6 3-8z" fill="none" stroke="#A8A3FF" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M104 173l5-5 4 3 7-8" fill="none" stroke="#A8A3FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui" x="148" y="164" fill="#E7E3FC" font-size="16" font-weight="600">云盘 STRM 小管家</text>
+  <text class="ui tiny" x="148" y="184" fill="#777886">STRM 同步与目录管理 · v2.2</text>
+  <rect x="1500" y="151" width="70" height="26" rx="13" fill="#19311B" stroke="#2E6B1C"/>
+  <circle cx="1516" cy="164" r="4" fill="#56CA00"/>
+  <text class="ui tiny" x="1527" y="168" fill="#B2ED8B">已启用</text>
+  <rect x="1584" y="151" width="40" height="26" rx="6" fill="#191C24" stroke="#2A2D38"/>
+  <path d="M1596 164a8 8 0 1 1 2 5" fill="none" stroke="#A9A8B7" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M1598 158v5h-5" fill="none" stroke="#A9A8B7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Plugin tabs: only two, matching the host plugin contract. -->
+  <path d="M88 225h1580" stroke="#2A2D38"/>
+  <rect x="88" y="210" width="96" height="16" fill="#0E1116"/>
+  <text class="ui body-strong" x="136" y="222" fill="#B7B2FF" text-anchor="middle">运行状态</text>
+  <path d="M88 225h96" stroke="#6E66ED" stroke-width="2"/>
+  <text class="ui body" x="232" y="222" fill="#777886">插件配置</text>
+
+  <!-- Page heading and one primary action -->
+  <text class="ui page-title ink" x="88" y="280">运行状态</text>
+  <text class="ui body muted" x="88" y="305">只看需要处理的事项和最近运行。</text>
+  <rect x="1512" y="259" width="156" height="42" rx="7" fill="#6E66ED"/>
+  <path d="M1535 278v10M1530 283h10" stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round"/>
+  <text class="ui body-strong" x="1600" y="285" fill="#FFFFFF" text-anchor="middle">立即全量处理</text>
+
+  <!-- Runtime status strip -->
+  <rect x="88" y="337" width="1580" height="86" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <rect x="108" y="359" width="42" height="42" rx="8" fill="#19311B"/>
+  <circle cx="129" cy="380" r="8" fill="none" stroke="#56CA00" stroke-width="1.8"/>
+  <path d="M125 380l3 3 6-7" fill="none" stroke="#56CA00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui body-strong" x="172" y="372" fill="#E7E3FC">目录监控正常</text>
+  <text class="ui small" x="172" y="394" fill="#A9A8B7">当前空闲 · 3 个目录规则 · 最近刷新 14:32</text>
+  <rect x="1450" y="366" width="64" height="28" rx="14" fill="#19311B" stroke="#2E6B1C"/>
+  <text class="ui small" x="1482" y="384" fill="#B2ED8B" text-anchor="middle">空闲</text>
+  <text class="ui small" x="1540" y="384" fill="#777886">队列 0</text>
+
+  <!-- Main content: attention first, recent runs second. -->
+  <text class="ui section ink" x="88" y="471">需要处理</text>
+  <text class="ui small dim" x="88" y="493">只有需要人工介入的事项会出现在这里。</text>
+  <rect x="88" y="515" width="760" height="86" rx="8" fill="#14161F" stroke="#3A2931"/>
+  <rect x="108" y="537" width="42" height="42" rx="8" fill="#3A2028"/>
+  <path d="M121 549l8 14 8-14" fill="none" stroke="#FF4C51" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M129 554v5M129 563v1" stroke="#FF9A9D" stroke-width="1.8" stroke-linecap="round"/>
+  <text class="ui body-strong" x="172" y="550" fill="#E7E3FC">失败任务</text>
+  <text class="ui small" x="172" y="573" fill="#A9A8B7">最近一次全量处理有 2 个动作失败</text>
+  <text class="ui metric danger" x="584" y="563" text-anchor="end">2</text>
+  <text class="ui tiny dim" x="596" y="563">个</text>
+  <rect x="704" y="539" width="116" height="38" rx="6" fill="#2A1D25" stroke="#63313B"/>
+  <text class="ui body-strong" x="762" y="563" fill="#FF9A9D" text-anchor="middle">重试失败</text>
+
+  <rect x="88" y="617" width="760" height="86" rx="8" fill="#14161F" stroke="#3B3425"/>
+  <rect x="108" y="639" width="42" height="42" rx="8" fill="#3A3020"/>
+  <circle cx="129" cy="660" r="9" fill="none" stroke="#FFB400" stroke-width="1.8"/>
+  <path d="M129 655v6l4 2" fill="none" stroke="#FFD777" stroke-width="1.8" stroke-linecap="round"/>
+  <text class="ui body-strong" x="172" y="652" fill="#E7E3FC">清理待确认</text>
+  <text class="ui small" x="172" y="675" fill="#A9A8B7">扫描发现 36 个候选文件，等待人工确认</text>
+  <text class="ui metric warning" x="584" y="665" text-anchor="end">1</text>
+  <text class="ui tiny dim" x="596" y="665">批</text>
+  <rect x="704" y="641" width="116" height="38" rx="6" fill="#332B1A" stroke="#705820"/>
+  <text class="ui body-strong" x="762" y="665" fill="#FFD777" text-anchor="middle">查看批次</text>
+
+  <!-- Recent runs list -->
+  <text class="ui section ink" x="902" y="471">最近运行</text>
+  <text class="ui small dim" x="902" y="493">保留运行级结果，详情按需打开。</text>
+  <text class="ui body-strong primary-text" x="1630" y="479" text-anchor="end">查看全部</text>
+  <rect x="902" y="515" width="766" height="286" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <path d="M922 601h726M922 687h726" stroke="#242731"/>
+
+  <!-- Recent run 1 -->
+  <rect x="922" y="535" width="74" height="24" rx="12" fill="#332B1A" stroke="#705820"/>
+  <text class="ui tiny" x="959" y="551" fill="#FFD777" text-anchor="middle">部分完成</text>
+  <text class="ui body-strong" x="1014" y="551" fill="#E7E3FC">全量处理</text>
+  <text class="ui small" x="1014" y="576" fill="#A9A8B7">12,480 个文件 · 2 个失败</text>
+  <text class="ui small dim" x="1628" y="551" text-anchor="end">今天 14:30</text>
+  <text class="ui tiny primary-text" x="1628" y="576" text-anchor="end">查看详情</text>
+
+  <!-- Recent run 2 -->
+  <rect x="922" y="621" width="66" height="24" rx="12" fill="#19311B" stroke="#2E6B1C"/>
+  <text class="ui tiny" x="955" y="637" fill="#B2ED8B" text-anchor="middle">已完成</text>
+  <text class="ui body-strong" x="1006" y="637" fill="#E7E3FC">目录监控</text>
+  <text class="ui small" x="1006" y="662" fill="#A9A8B7">5 个文件 · 用时 8 秒</text>
+  <text class="ui small dim" x="1628" y="637" text-anchor="end">今天 14:18</text>
+  <text class="ui tiny primary-text" x="1628" y="662" text-anchor="end">查看详情</text>
+
+  <!-- Recent run 3 -->
+  <rect x="922" y="707" width="66" height="24" rx="12" fill="#19311B" stroke="#2E6B1C"/>
+  <text class="ui tiny" x="955" y="723" fill="#B2ED8B" text-anchor="middle">已完成</text>
+  <text class="ui body-strong" x="1006" y="723" fill="#E7E3FC">定向处理</text>
+  <text class="ui small" x="1006" y="748" fill="#A9A8B7">60 个文件 · 用时 36 秒</text>
+  <text class="ui small dim" x="1628" y="723" text-anchor="end">今天 11:04</text>
+  <text class="ui tiny primary-text" x="1628" y="748" text-anchor="end">查看详情</text>
+
+  <!-- One compact summary line instead of four metric cards. -->
+  <text class="ui section ink" x="88" y="779">处理摘要</text>
+  <rect x="88" y="803" width="1580" height="102" rx="8" fill="#11141B" stroke="#2A2D38"/>
+  <text class="ui small dim" x="112" y="835">库存核对</text>
+  <text class="ui body-strong" x="112" y="866" fill="#E7E3FC">已生成 STRM</text>
+  <text class="ui metric primary-text" x="248" y="866">12,462</text>
+  <text class="ui small dim" x="346" y="866">/ 12,480 个媒体文件</text>
+  <path d="M554 824v60" stroke="#2A2D38"/>
+  <text class="ui small dim" x="590" y="835">字幕复制</text>
+  <text class="ui body-strong" x="590" y="866" fill="#E7E3FC">已完成</text>
+  <text class="ui metric success" x="682" y="866">3,012</text>
+  <text class="ui small dim" x="776" y="866">/ 3,012 个</text>
+  <path d="M926 824v60" stroke="#2A2D38"/>
+  <text class="ui small dim" x="962" y="835">最近核对</text>
+  <text class="ui body-strong" x="962" y="866" fill="#E7E3FC">今天 14:32</text>
+  <text class="ui small dim" x="1628" y="857" text-anchor="end">仅展示结果摘要</text>
+
+  <!-- Diagnostics are available, but intentionally quiet and collapsed. -->
+  <rect x="88" y="941" width="1580" height="52" rx="7" fill="#14161F" stroke="#2A2D38"/>
+  <path d="M112 962h12M118 956v12" stroke="#777886" stroke-width="1.6" stroke-linecap="round"/>
+  <text class="ui body" x="144" y="972" fill="#A9A8B7">高级诊断</text>
+  <text class="ui tiny dim" x="242" y="972">持久化队列 0 · 工作线程 2 · 自动重试 0 / 3</text>
+  <path d="M1630 961l7 7 7-7" fill="none" stroke="#777886" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Bottom note outside the usable plugin content. -->
+  <text class="ui tiny" x="88" y="1075" fill="#5E606E">设计意图：插件页只回答三件事 —— 现在是否正常、我需要处理什么、最近一次运行结果如何。</text>
+  <rect x="1520" y="1052" width="148" height="28" rx="14" fill="#211F45" stroke="#514DB1"/>
+  <text class="ui tiny" x="1594" y="1070" fill="#A8A3FF" text-anchor="middle">插件级简化方向</text>
+</svg>

@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2420" viewBox="0 0 1800 2420" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 STRM 小管家轻量版设计方向</title>
+  <desc id="desc">一个轻量 MoviePilot 插件运行页，包含直观数据、全量生成小弹窗和失败详情抽屉。</desc>
+  <defs>
+    <filter id="board-shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="14" stdDeviation="24" flood-color="#24314a" flood-opacity="0.12"/></filter>
+    <filter id="panel-shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="5" stdDeviation="10" flood-color="#24314a" flood-opacity="0.1"/></filter>
+    <style>
+      .ui { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; }
+      .title { font-size: 29px; font-weight: 700; letter-spacing: 0; }
+      .page-title { font-size: 25px; font-weight: 700; letter-spacing: 0; }
+      .section { font-size: 17px; font-weight: 700; letter-spacing: 0; }
+      .body { font-size: 14px; font-weight: 400; letter-spacing: 0; }
+      .small { font-size: 12px; font-weight: 400; letter-spacing: 0; }
+      .label { font-size: 12px; font-weight: 700; letter-spacing: 0; }
+      .metric { font-size: 29px; font-weight: 700; letter-spacing: 0; }
+      .muted { fill: #66758c; }
+      .faint { fill: #8d99aa; }
+      .line { stroke: #dbe3eb; }
+      .dark-line { stroke: #32435a; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="2420" fill="#e7edf3"/>
+  <text class="ui title" x="70" y="70" fill="#24314a">云盘 STRM 小管家 · 轻量版设计方向</text>
+  <text class="ui body muted" x="70" y="101">数据直观 · 操作简单 · 界面轻量 · 后台稳定</text>
+  <rect x="1426" y="48" width="128" height="30" rx="15" fill="#ffffff" stroke="#cbd6df"/>
+  <text class="ui label" x="1490" y="68" text-anchor="middle" fill="#2d6073">评审稿 v2.2</text>
+  <rect x="1568" y="48" width="162" height="30" rx="15" fill="#e7f5ec" stroke="#c6e6d2"/>
+  <text class="ui label" x="1649" y="68" text-anchor="middle" fill="#2d7052">暂未实施</text>
+
+  <!-- Frame 01: the only main screen -->
+  <g filter="url(#board-shadow)"><rect x="70" y="160" width="1660" height="780" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <!-- Minimal navigation -->
+    <rect x="70" y="160" width="224" height="780" rx="14" fill="#15243a"/><rect x="280" y="160" width="14" height="780" fill="#15243a"/>
+    <rect x="94" y="194" width="34" height="34" rx="8" fill="#d87348"/><path d="M104 212h14M111 205v14" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+    <text x="141" y="209" fill="#fff" font-size="16" font-weight="700">云盘 Strm</text><text x="141" y="227" fill="#aebbd0" font-size="12">小管家 · v2.1.17</text>
+    <text class="small" x="94" y="284" fill="#8d9bb3" font-weight="700">插件</text>
+    <rect x="84" y="298" width="196" height="44" rx="7" fill="#27435b"/><rect x="84" y="298" width="4" height="44" rx="2" fill="#e79851"/>
+    <path d="M107 317h14M114 310v14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><text class="body" x="138" y="325" fill="#fff" font-weight="700">运行状态</text>
+    <path d="M107 372h14v12h-14zM110 369h8" fill="none" stroke="#b9c6d7" stroke-width="1.6" stroke-linejoin="round"/><text class="body" x="138" y="381" fill="#c9d3e1">插件配置</text>
+    <line x1="94" y1="438" x2="264" y2="438" class="dark-line"/>
+    <circle cx="106" cy="472" r="5" fill="#65bd93"/><text class="body" x="121" y="477" fill="#d6dfeb">目录监控中</text><text class="small" x="121" y="498" fill="#8d9bb3">3 条规则 · 最近 14:32</text>
+    <rect x="94" y="850" width="170" height="64" rx="8" fill="#1d314a"/><text class="small" x="111" y="878" fill="#e7edf6" font-weight="700">通知已开启</text><text class="small" x="111" y="901" fill="#9db0c7">完成、失败、恢复摘要</text>
+
+    <!-- Main area -->
+    <rect x="294" y="160" width="1436" height="780" fill="#fbfcfe"/>
+    <text class="page-title" x="342" y="217" fill="#24314a">运行状态</text><text class="body muted" x="342" y="244">查看当前文件数量和最近处理结果。</text>
+    <rect x="1486" y="190" width="112" height="40" rx="6" fill="#fff" stroke="#bdc9d5"/><path d="M1507 203a10 10 0 1 0 9 14M1516 203v7h-7" fill="none" stroke="#51677d" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text class="label" x="1529" y="215" fill="#38546b">刷新</text>
+    <rect x="1612" y="190" width="94" height="40" rx="6" fill="#2d6073"/><path d="M1630 210h14m-7-7v14" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><text class="label" x="1651" y="215" fill="#fff">全量生成</text>
+    <line x1="342" y1="270" x2="1694" y2="270" class="line"/>
+
+    <!-- Quiet runtime state -->
+    <rect x="342" y="292" width="1352" height="64" rx="8" fill="#fff" stroke="#cfe2d8"/><rect x="342" y="292" width="6" height="64" rx="3" fill="#48a476"/><circle cx="380" cy="324" r="19" fill="#e6f5ed"/><path d="M371 325l6 6 12-14" fill="none" stroke="#34825e" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><text class="section" x="415" y="319" fill="#24314a">目录监控运行正常</text><text class="small muted" x="415" y="341">新增或修改文件会自动处理 · 当前没有积压</text><rect x="1580" y="310" width="86" height="28" rx="14" fill="#e7f5ec"/><circle cx="1597" cy="324" r="4" fill="#48a476"/><text class="small" x="1608" y="328" fill="#2d7052" font-weight="700">监控中</text>
+
+    <!-- Four numbers only -->
+    <text class="section" x="342" y="397" fill="#24314a">文件概览</text><text class="small muted" x="432" y="397">后台核对 · 今天 14:32:18</text>
+    <rect x="342" y="418" width="322" height="122" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="small muted" x="366" y="449">媒体总数</text><text class="metric" x="366" y="490" fill="#24314a">12,480</text><text class="small" x="366" y="518" fill="#48a476">已检查 12,480 · 待处理 0</text>
+    <rect x="682" y="418" width="322" height="122" rx="8" fill="#fff" stroke="#cfe0e5"/><text class="small muted" x="706" y="449">已生成 STRM</text><text class="metric" x="706" y="490" fill="#2d6073">12,462</text><text class="small" x="706" y="518" fill="#b9633e">已生成 12,462 · 待生成 18</text>
+    <rect x="1022" y="418" width="322" height="122" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="small muted" x="1046" y="449">字幕文件</text><text class="metric" x="1046" y="490" fill="#24314a">3,012</text><text class="small" x="1046" y="518" fill="#48a476">已完成 2,980 · 待处理 32</text>
+    <rect x="1362" y="418" width="332" height="122" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="small muted" x="1386" y="449">非媒体文件</text><text class="metric" x="1386" y="490" fill="#24314a">3,614</text><text class="small" x="1386" y="518" fill="#48a476">已完成 3,580 · 待处理 34</text>
+
+    <!-- Compact task summary -->
+    <rect x="342" y="570" width="1352" height="132" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="section" x="366" y="607" fill="#24314a">任务摘要</text><text class="small muted" x="464" y="607">最近 8 条 · 失败项可查看并重试</text><text class="label" x="1610" y="607" fill="#2d6073">查看全部</text><line x1="366" y1="622" x2="1670" y2="622" class="line"/>
+    <text class="small muted" x="366" y="653">等待中</text><text class="metric" x="366" y="684" fill="#d79a3f">24</text><text class="small muted" x="544" y="653">进行中</text><text class="metric" x="544" y="684" fill="#2d6073">3</text><text class="small muted" x="704" y="653">已处理</text><text class="metric" x="704" y="684" fill="#48a476">12,408</text><text class="small muted" x="884" y="653">已跳过</text><text class="metric" x="884" y="684" fill="#8d99aa">8,902</text><text class="small muted" x="1064" y="653">重试中</text><text class="metric" x="1064" y="684" fill="#d79a3f">6</text><text class="small muted" x="1224" y="653">失败</text><text class="metric" x="1224" y="684" fill="#b9633e">2</text><text class="small" x="1338" y="681" fill="#66758c">监控优先 · 定向其次 · 全量最低</text>
+
+    <rect x="342" y="730" width="1352" height="164" rx="8" fill="#fff" stroke="#dbe3eb"/><text class="section" x="366" y="767" fill="#24314a">最近任务</text><text class="small muted" x="462" y="767">只显示最近 8 条，保持页面轻量</text><line x1="366" y1="783" x2="1670" y2="783" class="line"/>
+    <text class="label" x="366" y="810" fill="#66758c">入口</text><text class="label" x="532" y="810" fill="#66758c">文件 / 动作</text><text class="label" x="1040" y="810" fill="#66758c">结果</text><text class="label" x="1370" y="810" fill="#66758c">状态</text><text class="label" x="1588" y="810" fill="#66758c">时间</text>
+    <line x1="366" y1="821" x2="1670" y2="821" stroke="#eef2f5"/>
+    <text class="small" x="366" y="848" fill="#24314a">全量</text><text class="small" x="532" y="848" fill="#66758c">电影 / 126 个媒体</text><text class="small" x="1040" y="848" fill="#66758c">STRM 126 · 跳过 1,203</text><rect x="1370" y="833" width="62" height="24" rx="12" fill="#e7f5ec"/><text class="small" x="1401" y="849" text-anchor="middle" fill="#2d7052" font-weight="700">已处理</text><text class="small muted" x="1588" y="848">14:30</text>
+    <line x1="366" y1="862" x2="1670" y2="862" stroke="#eef2f5"/>
+    <text class="small" x="366" y="884" fill="#24314a">监控</text><text class="small" x="532" y="884" fill="#66758c">国产剧 / 第 08 集.srt</text><text class="small" x="1040" y="884" fill="#b9633e">复制字幕失败 · 重试 3</text><rect x="1370" y="869" width="48" height="24" rx="12" fill="#fff0e5"/><text class="small" x="1394" y="885" text-anchor="middle" fill="#b9633e" font-weight="700">失败</text><text class="small muted" x="1588" y="884">14:18</text>
+  </g>
+  <text class="ui label" x="70" y="974" fill="#2d6073">01 · 运行状态主界面</text><text class="ui small muted" x="70" y="997">只保留四个核心数字、一个监控状态、一个任务摘要和一个全量生成入口。</text>
+
+  <!-- Frame 02: simple full scan dialog -->
+  <g filter="url(#board-shadow)"><rect x="70" y="1035" width="1660" height="590" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <rect x="70" y="1035" width="1660" height="590" rx="14" fill="#15243a" opacity="0.34"/>
+    <rect x="590" y="1110" width="760" height="440" rx="10" fill="#fff" filter="url(#panel-shadow)"/>
+    <text class="page-title" x="634" y="1160" fill="#24314a">全量生成</text><text class="body muted" x="634" y="1186">STRM 必定生成，下面两项只影响本次任务。</text>
+    <rect x="1276" y="1134" width="34" height="34" rx="6" fill="#f3f6f8"/><path d="M1286 1144l12 12m0-12-12 12" stroke="#52657b" stroke-width="1.6" stroke-linecap="round"/>
+    <line x1="590" y1="1210" x2="1350" y2="1210" class="line"/>
+    <text class="section" x="634" y="1254" fill="#24314a">本次处理</text>
+    <rect x="634" y="1274" width="672" height="54" rx="7" fill="#f4f8fb"/><rect x="656" y="1291" width="20" height="20" rx="4" fill="#2d6073"/><path d="M661 1301l4 4 7-8" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><text class="body" x="692" y="1307" fill="#24314a" font-weight="700">生成 STRM</text><text class="small muted" x="1140" y="1307">固定执行 · 全部规则</text>
+    <rect x="634" y="1340" width="672" height="54" rx="7" fill="#fff" stroke="#dbe3eb"/><rect x="656" y="1357" width="20" height="20" rx="4" fill="#2d6073"/><path d="M661 1367l4 4 7-8" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><text class="body" x="692" y="1373" fill="#24314a" font-weight="700">复制字幕</text><text class="small muted" x="1140" y="1373">沿用配置 · 3,012 个</text>
+    <rect x="634" y="1406" width="672" height="54" rx="7" fill="#fff" stroke="#dbe3eb"/><rect x="656" y="1423" width="20" height="20" rx="4" fill="#fff" stroke="#bdc9d5"/><text class="body" x="692" y="1439" fill="#24314a" font-weight="700">复制非媒体文件</text><text class="small muted" x="1140" y="1439">本次关闭 · 3,614 个</text>
+    <text class="small muted" x="634" y="1494">预计扫描 3 条规则 · 任务会在后台继续执行</text><rect x="1108" y="1480" width="84" height="40" rx="6" fill="#fff" stroke="#bdc9d5"/><text class="label" x="1134" y="1505" fill="#4c6076">取消</text><rect x="1202" y="1480" width="104" height="40" rx="6" fill="#2d6073"/><text class="label" x="1224" y="1505" fill="#fff">开始生成</text>
+  </g>
+  <text class="ui label" x="70" y="1659" fill="#2d6073">02 · 全量生成小弹窗</text><text class="ui small muted" x="70" y="1682">不展示优先级、线程、快照或复杂预估；用户只决定这次要不要复制字幕和非媒体文件。</text>
+
+  <!-- Frame 03: failure drawer -->
+  <g filter="url(#board-shadow)"><rect x="70" y="1720" width="1660" height="590" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <rect x="70" y="1720" width="1660" height="590" rx="14" fill="#15243a" opacity="0.28"/>
+    <rect x="1132" y="1720" width="598" height="590" fill="#fff" filter="url(#panel-shadow)"/>
+    <text class="page-title" x="1174" y="1780" fill="#24314a">失败详情</text><rect x="1622" y="1754" width="34" height="34" rx="6" fill="#f3f6f8"/><path d="M1632 1764l12 12m0-12-12 12" stroke="#52657b" stroke-width="1.6" stroke-linecap="round"/>
+    <rect x="1174" y="1808" width="86" height="26" rx="13" fill="#fff0e5"/><text class="small" x="1217" y="1826" text-anchor="middle" fill="#b9633e" font-weight="700">失败</text><text class="small muted" x="1280" y="1826">目录监控 · 今天 14:18</text>
+    <line x1="1132" y1="1858" x2="1730" y2="1858" class="line"/>
+    <text class="small muted" x="1174" y="1896">源文件</text><text class="body" x="1272" y="1896" fill="#24314a">/CloudDrive/电影/黑金营救.srt</text>
+    <text class="small muted" x="1174" y="1934">目标文件</text><text class="body" x="1272" y="1934" fill="#24314a">/Strm/电影/黑金营救.srt</text>
+    <text class="small muted" x="1174" y="1972">动作</text><text class="body" x="1272" y="1972" fill="#b9633e" font-weight="700">复制字幕</text>
+    <text class="small muted" x="1174" y="2010">尝试次数</text><text class="body" x="1272" y="2010" fill="#b9633e" font-weight="700">3 次 · 等待手动重试</text>
+    <rect x="1174" y="2042" width="514" height="88" rx="7" fill="#fff7ed" stroke="#f0cfad"/><text class="label" x="1196" y="2070" fill="#935237">目标目录没有写入权限</text><text class="small" x="1196" y="2096" fill="#9c6b56">检查 NAS 挂载、容器权限和目标目录 ACL，</text><text class="small" x="1196" y="2117" fill="#9c6b56">修复后可以再次尝试。</text>
+    <line x1="1132" y1="2180" x2="1730" y2="2180" class="line"/><text class="small muted" x="1174" y="2214">失败明细保留 30 天 · 未解决失败会持续显示</text>
+    <rect x="1428" y="2242" width="108" height="40" rx="6" fill="#fff" stroke="#d6a78c"/><text class="label" x="1482" y="2267" text-anchor="middle" fill="#a65332">重试</text><rect x="1548" y="2242" width="140" height="40" rx="6" fill="#2d6073"/><text class="label" x="1618" y="2267" text-anchor="middle" fill="#fff">关闭</text>
+  </g>
+  <text class="ui label" x="70" y="2344" fill="#2d6073">03 · 失败详情抽屉</text><text class="ui small muted" x="70" y="2367">默认只显示源文件、目标文件、动作、状态和失败原因；异常时提供一个直接的重试入口。</text>
+
+  <rect x="70" y="2392" width="1660" height="1" fill="#cbd6df"/><text class="ui small" x="70" y="2412" fill="#66758c">轻量版原则：不新增复杂导航 · 不展示后台实现 · 不做图表和实时动画 · 保留去重、有限重试和重启恢复</text>
+</svg>

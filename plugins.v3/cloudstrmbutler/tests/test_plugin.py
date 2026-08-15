@@ -81,6 +81,7 @@ class PluginTests(unittest.TestCase):
                 "/sync_retry_failures",
                 "/sync_confirm_cleanup",
                 "/sync_full_scan",
+                "/sync_cancel",
             ],
         )
 
@@ -618,6 +619,87 @@ class PluginTests(unittest.TestCase):
         self.assertFalse(progress["stalled"])
         self.assertEqual(progress["processed"], 1)
 
+    def test_manual_command_can_be_cancelled_and_keeps_cancelled_run_status(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin({
+            "enabled": False,
+            "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+        })
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            plugin.remote_sync_one(FakeEvent({"action": "strm_one", "arg_str": str(source)}))
+            self.assertTrue(started.wait(1))
+            response = plugin.sync_cancel_api({})
+            self.assertEqual(response["code"], 0)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["command_progress"]["running"]))
+        status = plugin.sync_status_api()["data"]
+        self.assertEqual(status["command_progress"]["phase"], "cancelled")
+        self.assertEqual(status["recent_runs"][0]["status"], "cancelled")
+
+    def test_full_scan_api_passes_one_shot_copy_options_to_worker(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin.init_plugin({"enabled": False})
+        captured = {}
+        finished = threading.Event()
+
+        def fake_scan(kind, options=None):
+            captured.update({"kind": kind, "options": options})
+            finished.set()
+
+        with patch.object(plugin, "scan", side_effect=fake_scan):
+            response = plugin.sync_full_scan_api({"copy_files": True, "copy_subtitles": "true"})
+            self.assertEqual(response["code"], 0)
+            self.assertTrue(finished.wait(1))
+
+        self.assertEqual(captured["kind"], "manual_full")
+        self.assertEqual(captured["options"], {"copy_files": True, "copy_subtitles": True})
+        self.assertEqual(response["data"]["copy_files"], True)
+        self.assertEqual(response["data"]["copy_subtitles"], True)
+
+    def test_full_scan_can_be_cancelled_and_keeps_cancelled_run_status(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin({
+            "enabled": False,
+            "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+        })
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            response = plugin.sync_full_scan_api({"copy_files": True, "copy_subtitles": False})
+            self.assertEqual(response["code"], 0)
+            self.assertTrue(started.wait(1))
+            cancel_response = plugin.sync_cancel_api({})
+            self.assertEqual(cancel_response["code"], 0)
+            release.set()
+
+        self.assertTrue(self.wait_until(lambda: not plugin.sync_status_api()["data"]["scan_running"]))
+        status = plugin.sync_status_api()["data"]
+        self.assertEqual(status["scan_progress"]["phase"], "cancelled")
+        self.assertEqual(status["recent_runs"][0]["status"], "cancelled")
+
     def test_manual_command_persists_file_result_categories(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)
@@ -820,7 +902,7 @@ class PluginTests(unittest.TestCase):
     def test_status_distinguishes_enabled_idle_plugin_from_orphaned_queue(self):
         base = self.new_temp()
         plugin = self.make_plugin(base / "data")
-        plugin.init_plugin({"enabled": True, "monitor": False})
+        plugin.init_plugin({"enabled": True, "monitor": False, "reliable_engine": False})
         plugin._task_store.enqueue("/media", "/media/old.mkv", "sync")
 
         status = plugin.sync_status_api()["data"]

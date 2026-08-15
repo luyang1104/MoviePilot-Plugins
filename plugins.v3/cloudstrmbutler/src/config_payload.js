@@ -137,7 +137,7 @@ export function buildConfigPayload(config = {}, savedRuleSlotCount = 0) {
     emby_path: String(config.emby_path || ''),
     path_replacements: String(config.path_replacements || ''),
     mediaservers: Array.isArray(config.mediaservers) ? [...config.mediaservers] : [],
-    reliable_engine: normalizeBoolean(config.reliable_engine),
+    reliable_engine: normalizeBoolean(config.reliable_engine, true),
     cleanup_mode: config.cleanup_mode || 'off',
     cleanup_probe: String(config.cleanup_probe || ''),
     // Clear the legacy text field when the structured editor is used.

@@ -63,11 +63,10 @@
           <div class="module-title-wrap">
             <div class="module-icon" aria-hidden="true"><v-icon size="18">mdi-shield-sync-outline</v-icon></div>
             <div>
-              <h2 id="reliable-settings-title">可靠同步与清理</h2>
-              <p>启用队列追踪、失败重试与缺失文件保护。</p>
+              <h2 id="reliable-settings-title">清理与重试</h2>
+              <p>失败任务会保留，修复问题后可以重新处理；缺失文件清理需要确认。</p>
             </div>
           </div>
-          <v-switch v-model="config.reliable_engine" color="primary" density="compact" hide-details aria-label="启用可靠同步引擎" />
         </div>
 
         <div class="field-grid field-grid--three">
@@ -228,7 +227,9 @@ const defaultConfig = {
   emby_path: '',
   path_replacements: '',
   mediaservers: [],
-  reliable_engine: false,
+  // The durable queue is the default for new configurations; an explicit
+  // legacy false value is still preserved when the host returns it.
+  reliable_engine: true,
   cleanup_mode: 'off',
   cleanup_probe: '',
   rules: [],
@@ -278,7 +279,7 @@ function hydrate(source) {
   config.emby_path = String(ic.emby_path || '')
   config.path_replacements = String(ic.path_replacements || '')
   config.mediaservers = Array.isArray(ic.mediaservers) ? [...ic.mediaservers] : []
-  config.reliable_engine = normalizeBoolean(ic.reliable_engine)
+  config.reliable_engine = normalizeBoolean(ic.reliable_engine, true)
   config.cleanup_mode = ['off', 'event', 'confirm'].includes(ic.cleanup_mode) ? ic.cleanup_mode : 'off'
   config.cleanup_probe = String(ic.cleanup_probe || '')
   config.rules = parseConfigRules(ic).map(makeRule)

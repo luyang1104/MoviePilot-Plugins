@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1380" viewBox="0 0 1800 1380" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 STRM 小管家 · MoviePilot 插件配置简化方向</title>
+  <desc id="desc">深色 MoviePilot 插件配置页概念稿。目录规则为核心，基础运行、同步行为、清理策略和高级兼容设置分层呈现。</desc>
+
+  <defs>
+    <filter id="frame-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+    <style>
+      .ui { font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif; letter-spacing: 0; }
+      .mono { font-family: "Cascadia Mono", "Consolas", monospace; letter-spacing: 0; }
+      .tiny { font-size: 11px; font-weight: 400; }
+      .small { font-size: 12px; font-weight: 400; }
+      .body { font-size: 13px; font-weight: 400; }
+      .body-strong { font-size: 13px; font-weight: 600; }
+      .section { font-size: 15px; font-weight: 600; }
+      .page-title { font-size: 23px; font-weight: 600; }
+      .ink { fill: #E7E3FC; }
+      .muted { fill: #A9A8B7; }
+      .dim { fill: #777886; }
+      .faint { fill: #5E606E; }
+      .line { stroke: #2A2D38; }
+      .line-soft { stroke: #242731; }
+      .primary { fill: #6E66ED; }
+      .primary-text { fill: #A8A3FF; }
+      .success { fill: #56CA00; }
+      .success-soft { fill: #B2ED8B; }
+      .warning { fill: #FFB400; }
+      .warning-soft { fill: #FFD777; }
+      .danger { fill: #FF4C51; }
+      .danger-soft { fill: #FF9A9D; }
+    </style>
+  </defs>
+
+  <!-- MoviePilot host context -->
+  <rect width="1800" height="1380" fill="#080A0F"/>
+  <text class="ui tiny" x="52" y="34" fill="#6E66ED" font-weight="700" letter-spacing="1.4">CLOUDSTRM / MOVIEPILOT PLUGIN</text>
+  <text class="ui tiny" x="1748" y="34" fill="#5E606E" text-anchor="end">v3 · compact config direction</text>
+  <rect x="48" y="58" width="1704" height="1264" rx="12" fill="#0E1116" stroke="#2A2D38" filter="url(#frame-shadow)"/>
+
+  <!-- Host navigation -->
+  <rect x="49" y="59" width="1702" height="64" rx="11" fill="#14161F"/>
+  <path d="M49 112h1702" stroke="#2A2D38"/>
+  <rect x="76" y="76" width="32" height="32" rx="7" fill="#6E66ED"/>
+  <path d="M84 92h16M92 84v16" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+  <text class="ui" x="122" y="96" fill="#F5F3FF" font-size="15" font-weight="600">MoviePilot</text>
+  <text class="ui tiny" x="252" y="96" fill="#777886">首页</text>
+  <text class="ui tiny" x="306" y="96" fill="#777886">媒体</text>
+  <text class="ui tiny" x="360" y="96" fill="#777886">订阅</text>
+  <text class="ui tiny" x="414" y="96" fill="#777886">下载</text>
+  <rect x="468" y="76" width="66" height="32" rx="6" fill="#242339"/>
+  <text class="ui body-strong" x="501" y="96" fill="#B7B2FF" text-anchor="middle">插件</text>
+  <circle cx="1638" cy="91" r="7" fill="#56CA00"/>
+  <text class="ui tiny" x="1653" y="95" fill="#A9A8B7">系统正常</text>
+  <circle cx="1710" cy="91" r="14" fill="#242731"/>
+  <text class="ui tiny" x="1710" y="95" fill="#E7E3FC" text-anchor="middle" font-weight="700">L</text>
+
+  <!-- Plugin header -->
+  <rect x="49" y="123" width="1702" height="112" fill="#0E1116"/>
+  <rect x="88" y="145" width="44" height="44" rx="9" fill="#211F45" stroke="#514DB1"/>
+  <path d="M98 166c3-8 7-11 12-11 4 0 7 2 9 5 5-2 9 1 9 6 0 5-4 8-9 8h-16c-5 0-8-3-8-7 0-4 1-6 3-8z" fill="none" stroke="#A8A3FF" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M104 173l5-5 4 3 7-8" fill="none" stroke="#A8A3FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui" x="148" y="164" fill="#E7E3FC" font-size="16" font-weight="600">云盘 STRM 小管家</text>
+  <text class="ui tiny" x="148" y="184" fill="#777886">STRM 同步与目录管理 · v2.2</text>
+  <rect x="1500" y="151" width="70" height="26" rx="13" fill="#19311B" stroke="#2E6B1C"/>
+  <circle cx="1516" cy="164" r="4" fill="#56CA00"/>
+  <text class="ui tiny" x="1527" y="168" fill="#B2ED8B">已启用</text>
+  <rect x="1584" y="151" width="40" height="26" rx="6" fill="#191C24" stroke="#2A2D38"/>
+  <path d="M1596 164a8 8 0 1 1 2 5" fill="none" stroke="#A9A8B7" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M1598 158v5h-5" fill="none" stroke="#A9A8B7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Plugin tabs -->
+  <path d="M88 225h1580" stroke="#2A2D38"/>
+  <text class="ui body" x="136" y="222" fill="#777886" text-anchor="middle">运行状态</text>
+  <rect x="202" y="210" width="96" height="16" fill="#0E1116"/>
+  <text class="ui body-strong" x="250" y="222" fill="#B7B2FF" text-anchor="middle">插件配置</text>
+  <path d="M202 225h96" stroke="#6E66ED" stroke-width="2"/>
+
+  <!-- Page heading -->
+  <text class="ui page-title ink" x="88" y="280">插件配置</text>
+  <text class="ui body muted" x="88" y="305">先配置目录规则，再选择同步行为；低频兼容项默认收起。</text>
+  <text class="ui tiny dim" x="1438" y="278">最近保存</text>
+  <text class="ui small muted" x="1504" y="278">今天 14:26</text>
+
+  <!-- Basic runtime -->
+  <text class="ui section ink" x="88" y="361">基础运行</text>
+  <text class="ui small dim" x="88" y="383">控制插件是否工作，以及是否监听新文件。</text>
+  <rect x="88" y="405" width="510" height="140" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <text class="ui body-strong" x="112" y="435" fill="#E7E3FC">插件状态</text>
+  <rect x="112" y="458" width="42" height="24" rx="12" fill="#6E66ED"/>
+  <circle cx="142" cy="470" r="9" fill="#FFFFFF"/>
+  <text class="ui small" x="170" y="475" fill="#E7E3FC">启用插件</text>
+  <text class="ui tiny success-soft" x="112" y="515">已启用 · 配置保存后立即生效</text>
+  <rect x="330" y="458" width="42" height="24" rx="12" fill="#6E66ED"/>
+  <circle cx="360" cy="470" r="9" fill="#FFFFFF"/>
+  <text class="ui small" x="388" y="475" fill="#E7E3FC">实时监控</text>
+  <text class="ui tiny dim" x="330" y="515">监听目录变化</text>
+
+  <!-- Sync behavior -->
+  <rect x="620" y="405" width="1048" height="140" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <text class="ui body-strong" x="644" y="435" fill="#E7E3FC">同步行为</text>
+  <text class="ui tiny dim" x="644" y="456">只保留日常会调整的选项</text>
+  <path d="M644 477h1000" stroke="#242731"/>
+  <rect x="644" y="495" width="30" height="18" rx="9" fill="#6E66ED"/>
+  <circle cx="665" cy="504" r="7" fill="#FFFFFF"/>
+  <text class="ui small" x="688" y="509" fill="#A9A8B7">复制字幕</text>
+  <rect x="870" y="495" width="30" height="18" rx="9" fill="#242731" stroke="#474A58"/>
+  <circle cx="879" cy="504" r="7" fill="#777886"/>
+  <text class="ui small" x="914" y="509" fill="#A9A8B7">复制旁车文件</text>
+  <rect x="1135" y="495" width="30" height="18" rx="9" fill="#242731" stroke="#474A58"/>
+  <circle cx="1144" cy="504" r="7" fill="#777886"/>
+  <text class="ui small" x="1179" y="509" fill="#A9A8B7">覆盖已有 STRM</text>
+  <rect x="1402" y="495" width="30" height="18" rx="9" fill="#6E66ED"/>
+  <circle cx="1423" cy="504" r="7" fill="#FFFFFF"/>
+  <text class="ui small" x="1446" y="509" fill="#A9A8B7">刷新 Emby</text>
+
+  <!-- Directory rules: primary configuration surface -->
+  <text class="ui section ink" x="88" y="599">目录规则</text>
+  <text class="ui small dim" x="88" y="621">把 MoviePilot 中的来源目录映射到 STRM 输出目录和云盘路径。</text>
+  <rect x="1514" y="585" width="154" height="36" rx="6" fill="#242339" stroke="#514DB1"/>
+  <path d="M1538 603h12M1544 597v12" stroke="#B7B2FF" stroke-width="1.7" stroke-linecap="round"/>
+  <text class="ui body-strong" x="1594" y="608" fill="#B7B2FF" text-anchor="middle">新增规则</text>
+  <rect x="88" y="645" width="1580" height="276" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <rect x="112" y="667" width="32" height="32" rx="6" fill="#242339" stroke="#514DB1"/>
+  <text class="ui small" x="128" y="688" fill="#B7B2FF" text-anchor="middle" font-weight="700">01</text>
+  <text class="ui body-strong" x="160" y="682" fill="#E7E3FC">国产剧</text>
+  <text class="ui tiny dim" x="160" y="699">目录规则 · 监控中</text>
+  <rect x="1494" y="670" width="82" height="26" rx="13" fill="#19311B" stroke="#2E6B1C"/>
+  <circle cx="1510" cy="683" r="4" fill="#56CA00"/>
+  <text class="ui tiny" x="1522" y="687" fill="#B2ED8B">监控中</text>
+  <path d="M1596 676l6 6 6-6M1596 690l6-6 6 6" fill="none" stroke="#777886" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M112 720h1532" stroke="#2A2D38"/>
+
+  <!-- Rule fields -->
+  <text class="ui tiny dim" x="112" y="746">分类标签</text>
+  <rect x="112" y="756" width="192" height="38" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <rect x="122" y="764" width="66" height="22" rx="11" fill="#242339"/>
+  <text class="ui tiny" x="155" y="779" fill="#B7B2FF" text-anchor="middle">国产剧</text>
+  <text class="ui tiny" x="280" y="780" fill="#777886">+</text>
+
+  <text class="ui tiny dim" x="330" y="746">来源目录</text>
+  <rect x="330" y="756" width="354" height="38" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <text class="ui mono tiny" x="344" y="780" fill="#A9A8B7">/CloudNAS/CloudDrive/国产剧</text>
+
+  <text class="ui tiny dim" x="708" y="746">STRM 生成目录</text>
+  <rect x="708" y="756" width="354" height="38" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <text class="ui mono tiny" x="722" y="780" fill="#A9A8B7">/CloudNAS/云盘Strm/media/国产剧</text>
+
+  <text class="ui tiny dim" x="1086" y="746">OpenList 云盘目录</text>
+  <rect x="1086" y="756" width="354" height="38" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <text class="ui mono tiny" x="1100" y="780" fill="#A9A8B7">/media/国产剧</text>
+
+  <text class="ui tiny dim" x="112" y="821">STRM 格式化模板</text>
+  <rect x="112" y="831" width="1160" height="38" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <text class="ui mono tiny" x="126" y="855" fill="#A9A8B7">http://192.168.1.10:5244/d{cloud_file}</text>
+  <text class="ui tiny dim" x="1300" y="855">必须包含 {local_file} 或 {cloud_file}</text>
+  <rect x="1500" y="831" width="76" height="38" rx="5" fill="#191C24" stroke="#3A3D4A"/>
+  <path d="M1520 850h18M1529 841v18" stroke="#777886" stroke-width="1.5" stroke-linecap="round"/>
+  <text class="ui tiny" x="1540" y="855" fill="#A9A8B7" text-anchor="middle">删除</text>
+
+  <path d="M112 888h1532" stroke="#242731"/>
+  <text class="ui tiny dim" x="112" y="907">规则按列表顺序匹配 · 目录路径使用 MoviePilot 内部可见路径</text>
+  <text class="ui tiny primary-text" x="1510" y="907">已配置 1 条规则</text>
+
+  <!-- Cleanup and reliability -->
+  <text class="ui section ink" x="88" y="979">清理与重试</text>
+  <text class="ui small dim" x="88" y="1001">涉及删除或失败恢复的设置单独放置，避免和普通同步开关混在一起。</text>
+  <rect x="88" y="1025" width="760" height="146" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <text class="ui body-strong" x="112" y="1055" fill="#E7E3FC">可靠同步</text>
+  <rect x="232" y="1043" width="42" height="24" rx="12" fill="#6E66ED"/>
+  <circle cx="262" cy="1055" r="9" fill="#FFFFFF"/>
+  <text class="ui small" x="290" y="1060" fill="#A9A8B7">启用失败重试与任务保留</text>
+  <path d="M112 1081h704" stroke="#242731"/>
+  <text class="ui tiny dim" x="112" y="1105">缺失文件清理</text>
+  <rect x="112" y="1115" width="214" height="34" rx="5" fill="#10131A" stroke="#3A3D4A"/>
+  <text class="ui small" x="126" y="1137" fill="#A9A8B7">扫描后进入待确认批次</text>
+  <path d="M304 1129l7 7 7-7" fill="none" stroke="#777886" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui tiny dim" x="370" y="1137">删除前必须人工确认</text>
+
+  <rect x="880" y="1025" width="788" height="146" rx="8" fill="#14161F" stroke="#2A2D38"/>
+  <text class="ui body-strong" x="904" y="1055" fill="#E7E3FC">高级兼容设置</text>
+  <text class="ui tiny dim" x="904" y="1077">媒体扩展名、字幕格式、媒体库路径映射和路径替换</text>
+  <path d="M904 1094h732" stroke="#242731"/>
+  <text class="ui small" x="904" y="1122" fill="#777886">当前使用默认媒体扩展名 · 字幕格式已配置 · 路径替换 0 条</text>
+  <path d="M1606 1110l7 7 7-7" fill="none" stroke="#A9A8B7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui tiny primary-text" x="904" y="1150">点击展开高级设置</text>
+
+  <!-- Sticky save actions -->
+  <path d="M88 1200h1580" stroke="#2A2D38"/>
+  <circle cx="104" cy="1230" r="4" fill="#FFB400"/>
+  <text class="ui small" x="118" y="1235" fill="#A9A8B7">修改尚未保存</text>
+  <text class="ui tiny dim" x="118" y="1254">保存后配置会立即提交给 MoviePilot</text>
+  <rect x="1458" y="1211" width="90" height="40" rx="6" fill="#191C24" stroke="#3A3D4A"/>
+  <text class="ui body-strong" x="1503" y="1236" fill="#A9A8B7" text-anchor="middle">重置</text>
+  <rect x="1562" y="1211" width="106" height="40" rx="6" fill="#6E66ED"/>
+  <path d="M1582 1224h15M1582 1229h15M1582 1234h10" stroke="#FFFFFF" stroke-width="1.5" stroke-linecap="round"/>
+  <text class="ui body-strong" x="1620" y="1236" fill="#FFFFFF" text-anchor="middle">保存配置</text>
+
+  <text class="ui tiny" x="88" y="1297" fill="#5E606E">配置页只回答三件事：插件是否启用、目录如何映射、同步行为怎么处理。</text>
+  <rect x="1518" y="1274" width="150" height="28" rx="14" fill="#211F45" stroke="#514DB1"/>
+  <text class="ui tiny" x="1593" y="1292" fill="#A8A3FF" text-anchor="middle">插件级简化方向</text>
+</svg>

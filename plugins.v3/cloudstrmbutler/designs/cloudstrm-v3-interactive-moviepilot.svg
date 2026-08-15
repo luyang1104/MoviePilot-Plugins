@@ -1,0 +1,300 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1800" height="1450" viewBox="0 0 1800 1450" role="img" aria-labelledby="title desc" onload="init(evt)">
+  <title id="title">云盘 STRM 小管家 - MoviePilot 交互式插件原型</title>
+  <desc id="desc">可交互的单文件 SVG 原型。运行状态与插件配置可切换，支持模拟全量处理、失败重试、清理确认、运行详情、目录规则新增删除、开关和配置保存。</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%"><feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000" flood-opacity=".34"/></filter>
+    <filter id="softShadow" x="-20%" y="-25%" width="140%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#000" flood-opacity=".28"/></filter>
+    <style><![CDATA[
+      .ui{font-family:"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;letter-spacing:0}
+      .mono{font-family:"Cascadia Mono",Consolas,monospace;letter-spacing:0}
+      .tiny{font-size:11px;font-weight:400}.small{font-size:12px;font-weight:400}.body{font-size:13px;font-weight:400}.strong{font-size:13px;font-weight:600}.section{font-size:15px;font-weight:600}.title{font-size:23px;font-weight:600}.metric{font-size:23px;font-weight:600}
+      .ink{fill:#E7E3FC}.muted{fill:#A9A8B7}.dim{fill:#777886}.faint{fill:#5E606E}.primary{fill:#6E66ED}.primaryText{fill:#B7B2FF}.success{fill:#56CA00}.successText{fill:#B2ED8B}.warning{fill:#FFB400}.warningText{fill:#FFD777}.danger{fill:#FF4C51}.dangerText{fill:#FF9A9D}
+      .click{cursor:pointer}.click:hover .hoverFill{fill:#2A2B3B}.focusable:focus{outline:none}.hidden{display:none}.tabActive{fill:#B7B2FF;font-weight:600}.tabIdle{fill:#777886}.switchOn{fill:#6E66ED}.switchOff{fill:#242731;stroke:#474A58}.checkOn{fill:#6E66ED}.checkOff{fill:#10131A;stroke:#474A58}
+      .html-field{box-sizing:border-box;width:100%;height:100%;border:1px solid #3A3D4A;border-radius:5px;background:#10131A;color:#A9A8B7;font:11px "Cascadia Mono",Consolas,monospace;outline:none;padding:0 12px}.html-field:focus{border-color:#6E66ED;color:#E7E3FC}.html-select{appearance:none;font-family:"Segoe UI","Microsoft YaHei",sans-serif;font-size:12px}.html-toggle{accent-color:#6E66ED;width:16px;height:16px;margin:0}.html-label{color:#A9A8B7;font:12px "Segoe UI","Microsoft YaHei",sans-serif;display:flex;align-items:center;gap:8px;white-space:nowrap}
+    ]]></style>
+  </defs>
+
+  <!-- MoviePilot container -->
+  <rect width="1800" height="1450" fill="#080A0F"/>
+  <text class="ui tiny primary" x="52" y="34" font-weight="700" letter-spacing="1.4">CLOUDSTRM / MOVIEPILOT PLUGIN</text>
+  <text class="ui tiny faint" x="1748" y="34" text-anchor="end">single-file interactive SVG prototype</text>
+  <rect x="48" y="58" width="1704" height="1342" rx="12" fill="#0E1116" stroke="#2A2D38" filter="url(#shadow)"/>
+
+  <!-- Host navigation -->
+  <rect x="49" y="59" width="1702" height="64" rx="11" fill="#14161F"/>
+  <path d="M49 112h1702" stroke="#2A2D38"/>
+  <rect x="76" y="76" width="32" height="32" rx="7" fill="#6E66ED"/>
+  <path d="M84 92h16M92 84v16" fill="none" stroke="#FFF" stroke-width="2" stroke-linecap="round"/>
+  <text class="ui" x="122" y="96" fill="#F5F3FF" font-size="15" font-weight="600">MoviePilot</text>
+  <text class="ui tiny dim" x="252" y="96">首页</text><text class="ui tiny dim" x="306" y="96">媒体</text><text class="ui tiny dim" x="360" y="96">订阅</text><text class="ui tiny dim" x="414" y="96">下载</text>
+  <rect x="468" y="76" width="66" height="32" rx="6" fill="#242339"/><text class="ui strong primaryText" x="501" y="96" text-anchor="middle">插件</text>
+  <circle cx="1638" cy="91" r="7" fill="#56CA00"/><text class="ui tiny muted" x="1653" y="95">系统正常</text><circle cx="1710" cy="91" r="14" fill="#242731"/><text class="ui tiny ink" x="1710" y="95" text-anchor="middle" font-weight="700">L</text>
+
+  <!-- Plugin header and tabs -->
+  <rect x="49" y="123" width="1702" height="112" fill="#0E1116"/>
+  <rect x="88" y="145" width="44" height="44" rx="9" fill="#211F45" stroke="#514DB1"/>
+  <path d="M98 166c3-8 7-11 12-11 4 0 7 2 9 5 5-2 9 1 9 6 0 5-4 8-9 8h-16c-5 0-8-3-8-7 0-4 1-6 3-8z" fill="none" stroke="#A8A3FF" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M104 173l5-5 4 3 7-8" fill="none" stroke="#A8A3FF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <text class="ui" x="148" y="164" fill="#E7E3FC" font-size="16" font-weight="600">云盘 STRM 小管家</text><text class="ui tiny dim" x="148" y="184">STRM 同步与目录管理 · v2.2</text>
+  <rect x="1492" y="151" width="78" height="26" rx="13" fill="#19311B" stroke="#2E6B1C"/><circle cx="1508" cy="164" r="4" fill="#56CA00"/><text id="header-enabled" class="ui tiny successText" x="1520" y="168">已启用</text>
+  <g class="click" data-action="refresh"><rect x="1584" y="151" width="40" height="26" rx="6" fill="#191C24" stroke="#2A2D38" class="hoverFill"/><path d="M1596 164a8 8 0 1 1 2 5M1598 158v5h-5" fill="none" stroke="#A9A8B7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><title>刷新状态</title></g>
+  <path d="M88 225h1580" stroke="#2A2D38"/>
+  <g class="click" data-action="dashboard"><rect x="88" y="210" width="96" height="16" fill="#0E1116"/><text id="tab-dashboard" class="ui strong tabActive" x="136" y="222" text-anchor="middle">运行状态</text><path id="tab-dashboard-line" d="M88 225h96" stroke="#6E66ED" stroke-width="2"/></g>
+  <g class="click" data-action="config"><rect x="202" y="210" width="96" height="16" fill="#0E1116"/><text id="tab-config" class="ui body tabIdle" x="250" y="222" text-anchor="middle">插件配置</text><path id="tab-config-line" d="M202 225h96" stroke="transparent" stroke-width="2"/></g>
+
+  <!-- Dashboard -->
+  <g id="dashboard-view">
+    <text class="ui title ink" x="88" y="280">运行状态</text><text class="ui body muted" x="88" y="305">只看需要处理的事项和最近运行。</text>
+    <g class="click" data-action="open-full-scan"><rect x="1512" y="259" width="156" height="42" rx="7" fill="#6E66ED" class="hoverFill"/><path d="M1535 278v10M1530 283h10" stroke="#FFF" stroke-width="1.8" stroke-linecap="round"/><text class="ui strong" x="1600" y="285" fill="#FFF" text-anchor="middle">立即全量处理</text></g>
+
+    <rect x="88" y="337" width="1580" height="86" rx="8" fill="#14161F" stroke="#2A2D38"/>
+    <rect x="108" y="359" width="42" height="42" rx="8" fill="#19311B"/><circle cx="129" cy="380" r="8" fill="none" stroke="#56CA00" stroke-width="1.8"/><path d="M125 380l3 3 6-7" fill="none" stroke="#56CA00" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text id="runtime-title" class="ui strong ink" x="172" y="372">目录监控正常</text><text id="runtime-copy" class="ui small muted" x="172" y="394">当前空闲 · 3 个目录规则 · 最近刷新 14:32</text>
+    <rect id="runtime-chip-bg" x="1450" y="366" width="64" height="28" rx="14" fill="#19311B" stroke="#2E6B1C"/><text id="runtime-chip" class="ui small successText" x="1482" y="384" text-anchor="middle">空闲</text><text id="runtime-queue" class="ui small dim" x="1540" y="384">队列 0</text>
+
+    <text class="ui section ink" x="88" y="471">需要处理</text><text class="ui small dim" x="88" y="493">只有需要人工介入的事项会出现在这里。</text>
+    <g id="failure-card"><rect x="88" y="515" width="760" height="86" rx="8" fill="#14161F" stroke="#3A2931"/><rect x="108" y="537" width="42" height="42" rx="8" fill="#3A2028"/><path d="M121 549l8 14 8-14" fill="none" stroke="#FF4C51" stroke-width="1.8" stroke-linejoin="round"/><path d="M129 554v5M129 563v1" stroke="#FF9A9D" stroke-width="1.8" stroke-linecap="round"/><text class="ui strong ink" x="172" y="550">失败任务</text><text id="failure-copy" class="ui small muted" x="172" y="573">最近一次全量处理有 2 个动作失败</text><text id="failure-count" class="ui metric danger" x="584" y="563" text-anchor="end">2</text><text class="ui tiny dim" x="596" y="563">个</text><g class="click" data-action="retry"><rect x="704" y="539" width="116" height="38" rx="6" fill="#2A1D25" stroke="#63313B" class="hoverFill"/><text id="retry-label" class="ui strong dangerText" x="762" y="563" text-anchor="middle">重试失败</text></g></g>
+    <g id="cleanup-card"><rect x="88" y="617" width="760" height="86" rx="8" fill="#14161F" stroke="#3B3425"/><rect x="108" y="639" width="42" height="42" rx="8" fill="#3A3020"/><circle cx="129" cy="660" r="9" fill="none" stroke="#FFB400" stroke-width="1.8"/><path d="M129 655v6l4 2" fill="none" stroke="#FFD777" stroke-width="1.8" stroke-linecap="round"/><text class="ui strong ink" x="172" y="652">清理待确认</text><text id="cleanup-copy" class="ui small muted" x="172" y="675">扫描发现 36 个候选文件，等待人工确认</text><text id="cleanup-count" class="ui metric warning" x="584" y="665" text-anchor="end">1</text><text class="ui tiny dim" x="596" y="665">批</text><g class="click" data-action="open-cleanup"><rect x="704" y="641" width="116" height="38" rx="6" fill="#332B1A" stroke="#705820" class="hoverFill"/><text class="ui strong warningText" x="762" y="665" text-anchor="middle">查看批次</text></g></g>
+
+    <text class="ui section ink" x="902" y="471">最近运行</text><text class="ui small dim" x="902" y="493">保留运行级结果，详情按需打开。</text><text class="ui strong primaryText" x="1630" y="479" text-anchor="end">查看全部</text>
+    <rect x="902" y="515" width="766" height="286" rx="8" fill="#14161F" stroke="#2A2D38"/><path d="M922 601h726M922 687h726" stroke="#242731"/>
+    <g class="click" data-action="details"><rect x="914" y="525" width="742" height="67" rx="6" fill="transparent" class="hoverFill"/><rect x="922" y="535" width="74" height="24" rx="12" fill="#332B1A" stroke="#705820"/><text class="ui tiny warningText" x="959" y="551" text-anchor="middle">部分完成</text><text class="ui strong ink" x="1014" y="551">全量处理</text><text class="ui small muted" x="1014" y="576">12,480 个文件 · 2 个失败</text><text class="ui small dim" x="1628" y="551" text-anchor="end">今天 14:30</text><text class="ui tiny primaryText" x="1628" y="576" text-anchor="end">查看详情</text></g>
+    <g><rect x="922" y="621" width="66" height="24" rx="12" fill="#19311B" stroke="#2E6B1C"/><text class="ui tiny successText" x="955" y="637" text-anchor="middle">已完成</text><text class="ui strong ink" x="1006" y="637">目录监控</text><text class="ui small muted" x="1006" y="662">5 个文件 · 用时 8 秒</text><text class="ui small dim" x="1628" y="637" text-anchor="end">今天 14:18</text><text class="ui tiny primaryText" x="1628" y="662" text-anchor="end">查看详情</text></g>
+    <g><rect x="922" y="707" width="66" height="24" rx="12" fill="#19311B" stroke="#2E6B1C"/><text class="ui tiny successText" x="955" y="723" text-anchor="middle">已完成</text><text class="ui strong ink" x="1006" y="723">定向处理</text><text class="ui small muted" x="1006" y="748">60 个文件 · 用时 36 秒</text><text class="ui small dim" x="1628" y="723" text-anchor="end">今天 11:04</text><text class="ui tiny primaryText" x="1628" y="748" text-anchor="end">查看详情</text></g>
+
+    <text class="ui section ink" x="88" y="779">处理摘要</text>
+    <rect x="88" y="803" width="1580" height="102" rx="8" fill="#11141B" stroke="#2A2D38"/>
+    <text class="ui small dim" x="112" y="835">库存核对</text><text class="ui strong ink" x="112" y="866">已生成 STRM</text><text class="ui metric primaryText" x="248" y="866">12,462</text><text class="ui small dim" x="346" y="866">/ 12,480 个媒体文件</text><path d="M554 824v60" stroke="#2A2D38"/>
+    <text class="ui small dim" x="590" y="835">字幕复制</text><text class="ui strong ink" x="590" y="866">已完成</text><text class="ui metric success" x="682" y="866">3,012</text><text class="ui small dim" x="776" y="866">/ 3,012 个</text><path d="M926 824v60" stroke="#2A2D38"/>
+    <text class="ui small dim" x="962" y="835">最近核对</text><text id="last-checked" class="ui strong ink" x="962" y="866">今天 14:32</text><text class="ui small dim" x="1628" y="857" text-anchor="end">仅展示结果摘要</text>
+    <g class="click" data-action="toggle-diagnostics"><rect x="88" y="941" width="1580" height="52" rx="7" fill="#14161F" stroke="#2A2D38" class="hoverFill"/><path d="M112 962h12M118 956v12" stroke="#777886" stroke-width="1.6" stroke-linecap="round"/><text class="ui body muted" x="144" y="972">高级诊断</text><text class="ui tiny dim" x="242" y="972">持久化队列 0 · 工作线程 2 · 自动重试 0 / 3</text><path id="diagnostics-arrow" d="M1630 961l7 7 7-7" fill="none" stroke="#777886" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g id="diagnostics" class="hidden"><rect x="88" y="1005" width="1580" height="82" rx="7" fill="#10131A" stroke="#2A2D38"/><text class="ui tiny dim" x="112" y="1034">持久化队列</text><text class="ui strong ink" x="112" y="1062">0</text><text class="ui tiny dim" x="276" y="1034">内存队列</text><text class="ui strong ink" x="276" y="1062">0</text><text class="ui tiny dim" x="440" y="1034">工作线程</text><text class="ui strong ink" x="440" y="1062">2</text><text class="ui tiny dim" x="604" y="1034">上次错误</text><text class="ui small successText" x="604" y="1062">无待恢复任务</text></g>
+  </g>
+
+  <!-- Configuration -->
+  <g id="config-view" display="none">
+    <text class="ui title ink" x="88" y="280">插件配置</text><text class="ui body muted" x="88" y="305">先配置目录规则，再选择同步行为；低频兼容项默认收起。</text>
+    <text id="save-time-label" class="ui small muted" x="1668" y="280" text-anchor="end">最近保存 今天 14:26</text>
+
+    <text class="ui section ink" x="88" y="361">基础运行</text><text class="ui small dim" x="88" y="383">控制插件是否工作，以及是否监听新文件。</text>
+    <rect x="88" y="405" width="510" height="140" rx="8" fill="#14161F" stroke="#2A2D38"/><text class="ui strong ink" x="112" y="435">插件状态</text><text class="ui tiny successText" x="112" y="515">配置保存后立即生效</text>
+    <foreignObject x="112" y="456" width="200" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="plugin-enabled" class="html-toggle" type="checkbox" checked="checked"/>启用插件</label></div></foreignObject>
+    <foreignObject x="330" y="456" width="210" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="monitor-enabled" class="html-toggle" type="checkbox" checked="checked"/>实时监控</label></div></foreignObject>
+
+    <rect x="620" y="405" width="1048" height="140" rx="8" fill="#14161F" stroke="#2A2D38"/><text class="ui strong ink" x="644" y="435">同步行为</text><text class="ui tiny dim" x="644" y="456">保留日常会调整的选项</text><path d="M644 477h1000" stroke="#242731"/>
+    <foreignObject x="644" y="492" width="190" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="subtitle-enabled" class="html-toggle" type="checkbox" checked="checked"/>复制字幕</label></div></foreignObject>
+    <foreignObject x="870" y="492" width="225" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="sidecar-enabled" class="html-toggle" type="checkbox"/>复制旁车文件</label></div></foreignObject>
+    <foreignObject x="1135" y="492" width="230" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="cover-enabled" class="html-toggle" type="checkbox"/>覆盖已有 STRM</label></div></foreignObject>
+    <foreignObject x="1402" y="492" width="190" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="emby-enabled" class="html-toggle" type="checkbox" checked="checked"/>刷新 Emby</label></div></foreignObject>
+
+    <text class="ui section ink" x="88" y="599">目录规则</text><text class="ui small dim" x="88" y="621">把 MoviePilot 中的来源目录映射到 STRM 输出目录和云盘路径。</text>
+    <g class="click" data-action="add-rule"><rect x="1514" y="585" width="154" height="36" rx="6" fill="#242339" stroke="#514DB1" class="hoverFill"/><path d="M1538 603h12M1544 597v12" stroke="#B7B2FF" stroke-width="1.7" stroke-linecap="round"/><text class="ui strong primaryText" x="1594" y="608" text-anchor="middle">新增规则</text></g>
+    <g id="rule-one"><rect x="88" y="645" width="1580" height="276" rx="8" fill="#14161F" stroke="#2A2D38"/><rect x="112" y="667" width="32" height="32" rx="6" fill="#242339" stroke="#514DB1"/><text class="ui small primaryText" x="128" y="688" text-anchor="middle" font-weight="700">01</text><text class="ui strong ink" x="160" y="682">国产剧</text><text class="ui tiny dim" x="160" y="699">目录规则 · 监控中</text><rect x="1494" y="670" width="82" height="26" rx="13" fill="#19311B" stroke="#2E6B1C"/><circle cx="1510" cy="683" r="4" fill="#56CA00"/><text class="ui tiny successText" x="1522" y="687">监控中</text><path d="M112 720h1532" stroke="#2A2D38"/>
+      <text class="ui tiny dim" x="112" y="746">分类标签</text><foreignObject x="112" y="756" width="192" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="rule-category" class="html-field" value="国产剧"/></div></foreignObject>
+      <text class="ui tiny dim" x="330" y="746">来源目录</text><foreignObject x="330" y="756" width="354" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="rule-local" class="html-field" value="/CloudNAS/CloudDrive/国产剧"/></div></foreignObject>
+      <text class="ui tiny dim" x="708" y="746">STRM 生成目录</text><foreignObject x="708" y="756" width="354" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="rule-strm" class="html-field" value="/CloudNAS/云盘Strm/media/国产剧"/></div></foreignObject>
+      <text class="ui tiny dim" x="1086" y="746">OpenList 云盘目录</text><foreignObject x="1086" y="756" width="354" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="rule-cloud" class="html-field" value="/media/国产剧"/></div></foreignObject>
+      <text class="ui tiny dim" x="112" y="821">STRM 格式化模板</text><foreignObject x="112" y="831" width="1160" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="rule-format" class="html-field" value="http://192.168.1.10:5244/d{cloud_file}"/></div></foreignObject><text class="ui tiny dim" x="1300" y="855">必须包含 {local_file} 或 {cloud_file}</text>
+      <g class="click" data-action="delete-rule"><rect x="1500" y="831" width="76" height="38" rx="5" fill="#191C24" stroke="#3A3D4A" class="hoverFill"/><path d="M1520 844h18M1524 844v16M1534 844v16M1517 844h24" stroke="#777886" stroke-width="1.5" stroke-linecap="round"/><text class="ui tiny muted" x="1540" y="855" text-anchor="middle">删除</text></g>
+      <path d="M112 888h1532" stroke="#242731"/><text class="ui tiny dim" x="112" y="907">规则按列表顺序匹配 · 目录路径使用 MoviePilot 内部可见路径</text><text id="rule-count" class="ui tiny primaryText" x="1510" y="907">已配置 1 条规则</text>
+    </g>
+
+    <text class="ui section ink" x="88" y="979">清理与重试</text><text class="ui small dim" x="88" y="1001">删除与失败恢复单独放置，避免和普通同步开关混在一起。</text>
+    <rect x="88" y="1025" width="760" height="146" rx="8" fill="#14161F" stroke="#2A2D38"/><text class="ui strong ink" x="112" y="1055">可靠同步</text><foreignObject x="232" y="1040" width="270" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="reliable-enabled" class="html-toggle" type="checkbox" checked="checked"/>启用失败重试与任务保留</label></div></foreignObject><path d="M112 1081h704" stroke="#242731"/><text class="ui tiny dim" x="112" y="1105">缺失文件清理</text><foreignObject x="112" y="1115" width="260" height="34"><div xmlns="http://www.w3.org/1999/xhtml"><select id="cleanup-mode" class="html-field html-select"><option>扫描后进入待确认批次</option><option>仅确认文件事件删除</option><option>关闭自动清理</option></select></div></foreignObject><text class="ui tiny dim" x="392" y="1137">删除前必须人工确认</text>
+
+    <g class="click" data-action="toggle-advanced"><rect x="880" y="1025" width="788" height="146" rx="8" fill="#14161F" stroke="#2A2D38" class="hoverFill"/><text class="ui strong ink" x="904" y="1055">高级兼容设置</text><text class="ui tiny dim" x="904" y="1077">媒体扩展名、字幕格式、媒体库路径映射和路径替换</text><path d="M904 1094h732" stroke="#242731"/><text id="advanced-summary" class="ui small dim" x="904" y="1122">当前使用默认媒体扩展名 · 字幕格式已配置 · 路径替换 0 条</text><path id="advanced-arrow" d="M1606 1110l7 7 7-7" fill="none" stroke="#A9A8B7" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><text id="advanced-action" class="ui tiny primaryText" x="904" y="1150">点击展开高级设置</text></g>
+    <g id="advanced-panel" class="hidden"><rect x="880" y="1179" width="788" height="112" rx="7" fill="#10131A" stroke="#2A2D38"/><text class="ui tiny dim" x="904" y="1204">字幕格式</text><foreignObject x="904" y="1214" width="344" height="34"><div xmlns="http://www.w3.org/1999/xhtml"><input class="html-field" value=".srt, .ass, .ssa, .sub, .vtt"/></div></foreignObject><text class="ui tiny dim" x="1272" y="1204">路径替换规则</text><foreignObject x="1272" y="1214" width="360" height="34"><div xmlns="http://www.w3.org/1999/xhtml"><input class="html-field" placeholder="源路径=&gt;目标路径"/></div></foreignObject><text class="ui tiny dim" x="904" y="1272">低频兼容项只在需要排障或接入新媒体库时调整。</text></g>
+
+    <path id="config-footer-line" d="M88 1320h1580" stroke="#2A2D38"/><circle id="save-dot" cx="104" cy="1350" r="4" fill="#FFB400"/><text id="save-state" class="ui small muted" x="118" y="1355">修改尚未保存</text><text class="ui tiny dim" x="118" y="1374">保存后配置会立即提交给 MoviePilot</text>
+    <g class="click" data-action="reset-config"><rect x="1458" y="1331" width="90" height="40" rx="6" fill="#191C24" stroke="#3A3D4A" class="hoverFill"/><text class="ui strong muted" x="1503" y="1356" text-anchor="middle">重置</text></g>
+    <g class="click" data-action="save-config"><rect x="1562" y="1331" width="106" height="40" rx="6" fill="#6E66ED" class="hoverFill"/><path d="M1582 1344h15M1582 1349h15M1582 1354h10" stroke="#FFF" stroke-width="1.5" stroke-linecap="round"/><text class="ui strong" x="1620" y="1356" fill="#FFF" text-anchor="middle">保存配置</text></g>
+  </g>
+
+  <!-- Full scan confirmation -->
+  <g id="full-scan-modal" class="hidden"><rect x="49" y="123" width="1702" height="1106" fill="#000" opacity=".58"/><rect x="590" y="316" width="620" height="450" rx="10" fill="#171923" stroke="#3A3D4A" filter="url(#softShadow)"/><text class="ui title ink" x="630" y="365">执行全量处理</text><g class="click" data-action="close-modal"><rect x="1140" y="340" width="38" height="38" rx="6" fill="#20232E" class="hoverFill"/><path d="M1151 351l16 16M1167 351l-16 16" stroke="#A9A8B7" stroke-width="1.6" stroke-linecap="round"/></g><text class="ui body muted" x="630" y="399">扫描全部已启用目录规则；已存在的文件会自动跳过。</text><path d="M630 430h540" stroke="#2A2D38"/>
+    <text class="ui section ink" x="630" y="465">本次处理内容</text>
+    <g class="click" data-action="toggle-scan-strm"><rect x="620" y="477" width="560" height="40" rx="6" fill="#000" opacity="0.001"/><rect id="scan-strm-box" x="630" y="487" width="20" height="20" rx="4" fill="#6E66ED"/><path id="scan-strm-check" d="M635 497l4 4 7-8" fill="none" stroke="#FFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><text class="ui body ink" x="666" y="503">生成 STRM</text><text class="ui small dim" x="1080" y="503" text-anchor="end">12,480 个媒体文件</text></g>
+    <g class="click" data-action="toggle-scan-subtitle"><rect x="620" y="529" width="560" height="40" rx="6" fill="#000" opacity="0.001"/><rect id="scan-subtitle-box" x="630" y="539" width="20" height="20" rx="4" fill="#6E66ED"/><path id="scan-subtitle-check" d="M635 549l4 4 7-8" fill="none" stroke="#FFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><text class="ui body ink" x="666" y="555">复制字幕</text><text class="ui small dim" x="1080" y="555" text-anchor="end">3,012 个文件</text></g>
+    <g class="click" data-action="toggle-scan-sidecar"><rect x="620" y="581" width="560" height="40" rx="6" fill="#000" opacity="0.001"/><rect id="scan-sidecar-box" x="630" y="591" width="20" height="20" rx="4" fill="#10131A" stroke="#474A58"/><path id="scan-sidecar-check" d="M635 601l4 4 7-8" fill="none" stroke="transparent" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><text class="ui body ink" x="666" y="607">复制旁车文件</text><text class="ui small dim" x="1080" y="607" text-anchor="end">3,614 个文件</text></g>
+    <rect x="630" y="642" width="540" height="58" rx="6" fill="#11141B" stroke="#2A2D38"/><text class="ui tiny dim" x="650" y="666">执行预览</text><text class="ui body ink" x="650" y="688">12,480 个文件任务</text><text id="action-preview" class="ui body primaryText" x="1150" y="688" text-anchor="end">15,492 个文件动作</text>
+    <g class="click" data-action="close-modal"><rect x="954" y="712" width="86" height="40" rx="6" fill="#20232E" class="hoverFill"/><text class="ui strong muted" x="997" y="737" text-anchor="middle">取消</text></g><g class="click" data-action="start-full-scan"><rect x="1050" y="712" width="120" height="40" rx="6" fill="#6E66ED" class="hoverFill"/><text class="ui strong" x="1110" y="737" fill="#FFF" text-anchor="middle">开始处理</text></g>
+  </g>
+
+  <!-- Cleanup confirmation -->
+  <g id="cleanup-modal" class="hidden"><rect x="49" y="123" width="1702" height="1106" fill="#000" opacity=".58"/><rect x="632" y="404" width="536" height="310" rx="10" fill="#171923" stroke="#3A3D4A" filter="url(#softShadow)"/><text class="ui title ink" x="672" y="453">确认清理批次</text><g class="click" data-action="close-modal"><rect x="1098" y="428" width="38" height="38" rx="6" fill="#20232E" class="hoverFill"/><path d="M1109 439l16 16M1125 439l-16 16" stroke="#A9A8B7" stroke-width="1.6" stroke-linecap="round"/></g><text class="ui body muted" x="672" y="491">将删除 36 个已确认缺失源文件对应的 STRM。</text><rect x="672" y="518" width="456" height="56" rx="6" fill="#332B1A" stroke="#705820"/><path d="M692 534l8 14 8-14" fill="none" stroke="#FFB400" stroke-width="1.7" stroke-linejoin="round"/><text class="ui small warningText" x="722" y="550">此操作不可撤销，请确认源文件确实已删除。</text><g class="click" data-action="close-modal"><rect x="912" y="638" width="86" height="40" rx="6" fill="#20232E" class="hoverFill"/><text class="ui strong muted" x="955" y="663" text-anchor="middle">取消</text></g><g class="click" data-action="confirm-cleanup"><rect x="1008" y="638" width="120" height="40" rx="6" fill="#FFB400" class="hoverFill"/><text class="ui strong" x="1068" y="663" fill="#171106" text-anchor="middle">确认清理</text></g></g>
+
+  <!-- Run details -->
+  <g id="details-modal" class="hidden"><rect x="49" y="123" width="1702" height="1106" fill="#000" opacity=".58"/><rect x="1018" y="235" width="650" height="822" rx="10" fill="#171923" stroke="#3A3D4A" filter="url(#softShadow)"/><text class="ui tiny dim" x="1052" y="278">最近运行 / 全量处理 / 今天 14:30</text><text class="ui title ink" x="1052" y="320">全量处理</text><rect x="1160" y="298" width="74" height="24" rx="12" fill="#332B1A" stroke="#705820"/><text class="ui tiny warningText" x="1197" y="314" text-anchor="middle">部分完成</text><g class="click" data-action="close-modal"><rect x="1598" y="278" width="38" height="38" rx="6" fill="#20232E" class="hoverFill"/><path d="M1609 289l16 16M1625 289l-16 16" stroke="#A9A8B7" stroke-width="1.6" stroke-linecap="round"/></g><text class="ui small muted" x="1052" y="354">运行已结束，但仍有 2 个失败动作。</text><path d="M1052 382h582" stroke="#2A2D38"/>
+    <text class="ui tiny dim" x="1052" y="416">文件任务</text><text class="ui metric ink" x="1052" y="448">12,480</text><text class="ui tiny dim" x="1208" y="416">文件动作</text><text class="ui metric primaryText" x="1208" y="448">15,492</text><text class="ui tiny dim" x="1370" y="416">失败</text><text class="ui metric danger" x="1370" y="448">2</text><text class="ui tiny dim" x="1490" y="416">通知</text><text class="ui strong successText" x="1490" y="446">已聚合</text>
+    <text class="ui section ink" x="1052" y="510">失败动作</text><text class="ui small dim" x="1140" y="510">修复权限或挂载后可单独重试。</text><g class="click" data-action="retry"><rect x="1490" y="483" width="144" height="36" rx="6" fill="#2A1D25" stroke="#63313B" class="hoverFill"/><text class="ui strong dangerText" x="1562" y="506" text-anchor="middle">重试全部失败</text></g>
+    <rect x="1052" y="536" width="582" height="130" rx="7" fill="#11141B" stroke="#2A2D38"/><text class="ui tiny dim" x="1072" y="561">源文件 / 动作</text><text class="ui tiny dim" x="1300" y="561">目标文件</text><text class="ui tiny dim" x="1530" y="561">状态</text><path d="M1072 577h542" stroke="#242731"/><text class="ui strong ink" x="1072" y="604">黑金营救.srt</text><text class="ui tiny dangerText" x="1072" y="627">复制字幕</text><text class="ui mono tiny muted" x="1300" y="604">/Strm/电影/黑金营救.srt</text><rect x="1530" y="590" width="58" height="22" rx="11" fill="#3A2028"/><text class="ui tiny dangerText" x="1559" y="605" text-anchor="middle">失败</text><text class="ui tiny dim" x="1072" y="651">尝试 3 / 3 · 权限不足</text>
+    <text class="ui section ink" x="1052" y="730">运行日志</text><rect x="1052" y="752" width="582" height="178" rx="7" fill="#10131A" stroke="#2A2D38"/><text class="ui mono tiny dim" x="1072" y="782">14:30:02  开始扫描 3 个已启用目录规则</text><text class="ui mono tiny successText" x="1072" y="808">14:31:40  生成 STRM 12,462 个，跳过已存在 18 个</text><text class="ui mono tiny successText" x="1072" y="834">14:31:58  已复制字幕 3,010 个</text><text class="ui mono tiny dangerText" x="1072" y="860">14:32:03  复制字幕失败 2 个</text><text class="ui mono tiny dim" x="1072" y="886">14:32:04  运行结束，已发送聚合通知</text>
+    <g class="click" data-action="close-modal"><rect x="1516" y="972" width="118" height="40" rx="6" fill="#6E66ED" class="hoverFill"/><text class="ui strong" x="1575" y="997" fill="#FFF" text-anchor="middle">关闭详情</text></g>
+  </g>
+
+  <!-- New directory rule editor -->
+  <g id="new-rule-modal" class="hidden"><rect x="49" y="123" width="1702" height="1276" fill="#000" opacity=".58"/><rect x="514" y="312" width="772" height="528" rx="10" fill="#171923" stroke="#3A3D4A" filter="url(#softShadow)"/><text class="ui title ink" x="554" y="361">新增目录规则</text><g class="click" data-action="close-modal"><rect x="1216" y="336" width="38" height="38" rx="6" fill="#20232E" class="hoverFill"/><path d="M1227 347l16 16M1243 347l-16 16" stroke="#A9A8B7" stroke-width="1.6" stroke-linecap="round"/></g><text class="ui body muted" x="554" y="395">新增规则后即可选择是否开启实时监控。</text><path d="M554 426h692" stroke="#2A2D38"/>
+    <text class="ui tiny dim" x="554" y="454">分类标签</text><foreignObject x="554" y="464" width="320" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="new-rule-category" class="html-field" placeholder="例如：电影、欧美剧"/></div></foreignObject>
+    <text class="ui tiny dim" x="900" y="454">监控</text><foreignObject x="900" y="462" width="160" height="32"><div xmlns="http://www.w3.org/1999/xhtml"><label class="html-label"><input id="new-rule-monitor" class="html-toggle" type="checkbox" checked="checked"/>实时监控</label></div></foreignObject>
+    <text class="ui tiny dim" x="554" y="530">来源目录</text><foreignObject x="554" y="540" width="692" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="new-rule-local" class="html-field" placeholder="/CloudNAS/CloudDrive/电影"/></div></foreignObject>
+    <text class="ui tiny dim" x="554" y="606">STRM 生成目录</text><foreignObject x="554" y="616" width="692" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="new-rule-strm" class="html-field" placeholder="/CloudNAS/云盘Strm/media/电影"/></div></foreignObject>
+    <text class="ui tiny dim" x="554" y="682">OpenList 云盘目录</text><foreignObject x="554" y="692" width="692" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="new-rule-cloud" class="html-field" placeholder="/media/电影"/></div></foreignObject>
+    <text class="ui tiny dim" x="554" y="758">STRM 格式化模板</text><foreignObject x="554" y="768" width="692" height="38"><div xmlns="http://www.w3.org/1999/xhtml"><input id="new-rule-format" class="html-field" value="http://192.168.1.10:5244/d{cloud_file}"/></div></foreignObject>
+    <g class="click" data-action="close-modal"><rect x="1030" y="784" width="96" height="40" rx="6" fill="#20232E" class="hoverFill"/><text class="ui strong muted" x="1078" y="809" text-anchor="middle">取消</text></g><g class="click" data-action="create-rule"><rect x="1136" y="784" width="110" height="40" rx="6" fill="#6E66ED" class="hoverFill"/><text class="ui strong" x="1191" y="809" fill="#FFF" text-anchor="middle">创建规则</text></g>
+  </g>
+
+  <!-- Toast -->
+  <g id="toast" class="hidden"><rect x="1328" y="1132" width="340" height="54" rx="8" fill="#20232E" stroke="#3A3D4A" filter="url(#softShadow)"/><circle id="toast-dot" cx="1354" cy="1159" r="6" fill="#56CA00"/><text id="toast-text" class="ui small ink" x="1372" y="1163">操作已完成</text></g>
+
+  <script type="application/ecmascript"><![CDATA[
+    var doc, scanOptions = { strm: true, subtitle: true, sidecar: false }, diagnosticsOpen = false, advancedOpen = false, addedRule = false, originals = {};
+    function byId(id) { return doc.getElementById(id); }
+    function setText(id, value) { byId(id).textContent = value; }
+    function show(id) { var node = byId(id); node.setAttribute('class', node.getAttribute('class').replace(/\bhidden\b/g, '').trim()); node.setAttribute('display', 'block'); }
+    function hide(id) { var node = byId(id); if (node.getAttribute('class').indexOf('hidden') < 0) node.setAttribute('class', (node.getAttribute('class') + ' hidden').trim()); node.setAttribute('display', 'none'); }
+    function toast(message, tone) {
+      setText('toast-text', message);
+      byId('toast-dot').setAttribute('fill', tone || '#56CA00');
+      show('toast');
+      clearTimeout(toast.timer);
+      toast.timer = setTimeout(function () { hide('toast'); }, 2800);
+    }
+    function switchView(view) {
+      var dashboard = view === 'dashboard';
+      byId('dashboard-view').setAttribute('display', dashboard ? 'block' : 'none');
+      byId('config-view').setAttribute('display', dashboard ? 'none' : 'block');
+      byId('tab-dashboard').setAttribute('class', 'ui ' + (dashboard ? 'strong tabActive' : 'body tabIdle'));
+      byId('tab-config').setAttribute('class', 'ui ' + (dashboard ? 'body tabIdle' : 'strong tabActive'));
+      byId('tab-dashboard-line').setAttribute('stroke', dashboard ? '#6E66ED' : 'transparent');
+      byId('tab-config-line').setAttribute('stroke', dashboard ? 'transparent' : '#6E66ED');
+    }
+    function closeModal() { ['full-scan-modal', 'cleanup-modal', 'details-modal', 'new-rule-modal'].forEach(hide); }
+    function openModal(id) { closeModal(); show(id); }
+    function toggleScan(name) {
+      scanOptions[name] = !scanOptions[name];
+      var box = byId('scan-' + name + '-box'), check = byId('scan-' + name + '-check');
+      box.setAttribute('fill', scanOptions[name] ? '#6E66ED' : '#10131A');
+      box.setAttribute('stroke', scanOptions[name] ? 'transparent' : '#474A58');
+      check.setAttribute('stroke', scanOptions[name] ? '#FFFFFF' : 'transparent');
+      var actions = 12480 + (scanOptions.subtitle ? 3012 : 0) + (scanOptions.sidecar ? 3614 : 0);
+      setText('action-preview', actions.toLocaleString() + ' 个文件动作');
+    }
+    function startScan() {
+      closeModal();
+      setText('runtime-title', '全量处理正在进行');
+      setText('runtime-copy', '正在扫描已启用目录规则 · 已处理 0 / 12,480');
+      setText('runtime-chip', '运行中');
+      setText('runtime-queue', '队列 1');
+      byId('runtime-chip-bg').setAttribute('fill', '#242339');
+      byId('runtime-chip-bg').setAttribute('stroke', '#514DB1');
+      byId('runtime-chip').setAttribute('class', 'ui small primaryText');
+      toast('全量处理已加入队列', '#6E66ED');
+      setTimeout(function () {
+        setText('runtime-copy', '正在扫描已启用目录规则 · 已处理 1,284 / 12,480');
+      }, 900);
+    }
+    function retryFailures() {
+      setText('failure-count', '0');
+      setText('failure-copy', '失败动作已重新加入队列');
+      setText('retry-label', '已加入队列');
+      setText('runtime-queue', '队列 2');
+      toast('2 个失败动作已加入重试队列', '#6E66ED');
+    }
+    function confirmCleanup() {
+      closeModal();
+      setText('cleanup-count', '0');
+      setText('cleanup-copy', '清理任务已确认并加入队列');
+      setText('runtime-queue', '队列 1');
+      toast('36 个候选文件已确认清理', '#FFB400');
+    }
+    function refresh() {
+      setText('runtime-copy', '当前空闲 · 3 个目录规则 · 最近刷新 刚刚');
+      setText('last-checked', '刚刚');
+      toast('运行状态已刷新', '#16B1FF');
+    }
+    function toggleDiagnostics() {
+      diagnosticsOpen = !diagnosticsOpen;
+      if (diagnosticsOpen) show('diagnostics'); else hide('diagnostics');
+      byId('diagnostics-arrow').setAttribute('d', diagnosticsOpen ? 'M1630 968l7-7 7 7' : 'M1630 961l7 7 7-7');
+    }
+    function addRule() { openModal('new-rule-modal'); }
+    function createRule() {
+      var local = byId('new-rule-local').value.trim(), strm = byId('new-rule-strm').value.trim();
+      if (!local || !strm) { toast('请填写来源目录和 STRM 生成目录', '#FF4C51'); return; }
+      addedRule = true;
+      setText('rule-count', '已配置 2 条规则');
+      closeModal();
+      toast('目录规则已创建，保存配置后生效', '#56CA00');
+    }
+    function deleteRule() {
+      if (addedRule) {
+        addedRule = false;
+        setText('rule-count', '已配置 1 条规则');
+        toast('新增目录规则已删除', '#FF4C51');
+      } else {
+        toast('至少保留一条目录规则以继续编辑', '#FFB400');
+      }
+    }
+    function toggleAdvanced() {
+      advancedOpen = !advancedOpen;
+      if (advancedOpen) show('advanced-panel'); else hide('advanced-panel');
+      setText('advanced-action', advancedOpen ? '点击收起高级设置' : '点击展开高级设置');
+      byId('advanced-arrow').setAttribute('d', advancedOpen ? 'M1606 1117l7-7 7 7' : 'M1606 1110l7 7 7-7');
+    }
+    function saveConfig() {
+      setText('save-state', '配置已保存并生效');
+      byId('save-dot').setAttribute('fill', '#56CA00');
+      setText('save-time-label', '最近保存 刚刚');
+      var enabled = byId('plugin-enabled').checked;
+      setText('header-enabled', enabled ? '已启用' : '未启用');
+      toast(enabled ? '配置已保存到 MoviePilot' : '配置已保存，插件已停用', enabled ? '#56CA00' : '#FFB400');
+    }
+    function resetConfig() {
+      var keys = Object.keys(originals);
+      for (var i = 0; i < keys.length; i++) {
+        var node = byId(keys[i]);
+        if (!node) continue;
+        if (node.type === 'checkbox') node.checked = originals[keys[i]];
+        else node.value = originals[keys[i]];
+      }
+      setText('save-state', '已恢复为上次保存的配置');
+      byId('save-dot').setAttribute('fill', '#16B1FF');
+      toast('已恢复上次保存的配置', '#16B1FF');
+    }
+    function init(evt) {
+      doc = evt.target.ownerDocument;
+      var controls = doc.querySelectorAll('input, select');
+      for (var i = 0; i < controls.length; i++) {
+        if (controls[i].id) originals[controls[i].id] = controls[i].type === 'checkbox' ? controls[i].checked : controls[i].value;
+        controls[i].addEventListener('input', function () { setText('save-state', '修改尚未保存'); byId('save-dot').setAttribute('fill', '#FFB400'); });
+        controls[i].addEventListener('change', function () { setText('save-state', '修改尚未保存'); byId('save-dot').setAttribute('fill', '#FFB400'); });
+      }
+      var buttons = doc.querySelectorAll('[data-action]');
+      for (var j = 0; j < buttons.length; j++) {
+        buttons[j].addEventListener('click', function () {
+          var action = this.getAttribute('data-action');
+          if (action === 'dashboard' || action === 'config') switchView(action);
+          else if (action === 'open-full-scan') openModal('full-scan-modal');
+          else if (action === 'toggle-scan-strm') toggleScan('strm');
+          else if (action === 'toggle-scan-subtitle') toggleScan('subtitle');
+          else if (action === 'toggle-scan-sidecar') toggleScan('sidecar');
+          else if (action === 'open-cleanup') openModal('cleanup-modal');
+          else if (action === 'details') openModal('details-modal');
+          else if (action === 'close-modal') closeModal();
+          else if (action === 'start-full-scan') startScan();
+          else if (action === 'retry') retryFailures();
+          else if (action === 'confirm-cleanup') confirmCleanup();
+          else if (action === 'refresh') refresh();
+          else if (action === 'toggle-diagnostics') toggleDiagnostics();
+          else if (action === 'add-rule') addRule();
+          else if (action === 'create-rule') createRule();
+          else if (action === 'delete-rule') deleteRule();
+          else if (action === 'toggle-advanced') toggleAdvanced();
+          else if (action === 'save-config') saveConfig();
+          else if (action === 'reset-config') resetConfig();
+        });
+      }
+      doc.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeModal(); });
+    }
+  ]]></script>
+</svg>

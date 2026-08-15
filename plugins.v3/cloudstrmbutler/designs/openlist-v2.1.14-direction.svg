@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1700" viewBox="0 0 1600 1700" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 STRM 小管家 v2.1.14 OpenList 工作台方向稿</title>
+  <desc id="desc">严格沿用 v2.1.14 深色紧凑工作台结构的方向稿，在原有运行状态、可靠同步指标、处理概览、全量处理、手动扫描和任务中心中加入 OpenList 来源与自动对账状态。</desc>
+  <defs>
+    <filter id="shell-shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="18" stdDeviation="28" flood-color="#000000" flood-opacity="0.28"/>
+    </filter>
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.14"/>
+    </filter>
+    <style>
+      .ui { font-family: "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif; letter-spacing: 0; }
+      .mono { font-family: Consolas, "SFMono-Regular", monospace; letter-spacing: 0; }
+      .title { font-size: 25px; font-weight: 500; }
+      .section { font-size: 16px; font-weight: 500; }
+      .body { font-size: 13px; font-weight: 400; }
+      .small { font-size: 12px; font-weight: 400; }
+      .label { font-size: 11px; font-weight: 600; }
+      .tiny { font-size: 10px; font-weight: 400; }
+      .metric { font-size: 28px; font-weight: 500; }
+      .number { font-size: 24px; font-weight: 500; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1700" fill="#0d0d12"/>
+  <rect x="100" y="26" width="1400" height="1648" rx="10" fill="#121218" stroke="#393844" filter="url(#shell-shadow)"/>
+
+  <!-- Exact v2.1.14 shell header: brand row plus two tabs. -->
+  <rect x="101" y="27" width="1398" height="125" rx="9" fill="#19191f"/>
+  <g class="ui">
+    <rect x="132" y="49" width="38" height="38" rx="8" fill="#2b214e" stroke="#6655b8"/>
+    <path d="M142 68h18M151 59v18" stroke="#bcaeff" stroke-width="2" stroke-linecap="round"/>
+    <text x="183" y="67" fill="#f2f1f7" font-size="16" font-weight="500">云盘 STRM 小管家</text>
+    <text x="183" y="86" fill="#747181" class="tiny">STRM 同步与目录管理</text>
+    <text x="335" y="76" fill="#747181" class="small">v2.1.14</text>
+
+    <circle cx="1319" cy="67" r="4" fill="#68d7a2"/>
+    <text x="1332" y="71" fill="#a3a0af" class="small">同步服务待机</text>
+    <path d="M1437 61a9 9 0 1 0 7 2" fill="none" stroke="#a3a0af" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M1437 54v7h7" fill="none" stroke="#a3a0af" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="1455" y="70" fill="#a3a0af" class="tiny">刷新</text>
+
+    <line x1="125" y1="99" x2="1475" y2="99" stroke="#2d2d38"/>
+    <rect x="125" y="99" width="132" height="53" fill="#211b34"/>
+    <rect x="125" y="149" width="132" height="3" fill="#7c4dff"/>
+    <path d="M148 118h12v12h-12zM163 118h12v12h-12z" fill="none" stroke="#bcaeff" stroke-width="1.4"/>
+    <text x="188" y="128" fill="#bcaeff" class="small" font-weight="600">运行状态</text>
+    <path d="M296 119h20M296 125h15M296 131h18" fill="none" stroke="#747181" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="330" y="128" fill="#a3a0af" class="small">插件配置</text>
+    <rect x="401" y="117" width="75" height="20" rx="10" fill="#203747"/>
+    <circle cx="414" cy="127" r="3" fill="#82c8ff"/>
+    <text x="423" y="131" fill="#82c8ff" class="tiny">OpenList</text>
+  </g>
+
+  <!-- v2.1.14 dashboard content flow. -->
+  <rect x="101" y="152" width="1398" height="1522" fill="#121218"/>
+  <g class="ui">
+    <!-- Page intro -->
+    <text x="148" y="201" fill="#bcaeff" font-size="10" font-weight="800" letter-spacing="1.1">OPERATIONS</text>
+    <text x="148" y="232" fill="#f2f1f7" class="title">同步工作台</text>
+    <text x="148" y="258" fill="#a3a0af" class="body">查看同步健康度，并优先处理需要你确认的事项。</text>
+    <line x1="1100" y1="199" x2="1100" y2="244" stroke="#2d2d38"/>
+    <text x="1122" y="207" fill="#747181" class="tiny">最后刷新</text>
+    <text x="1122" y="228" fill="#a3a0af" class="small">今天 14:32:18</text>
+    <rect x="1303" y="198" width="169" height="42" rx="6" fill="#8b6cf6"/>
+    <path d="M1324 218a9 9 0 1 0 7 2" fill="none" stroke="#17121f" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M1324 211v7h7" fill="none" stroke="#17121f" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="1352" y="223" fill="#17121f" class="small" font-weight="600">执行一次全量处理</text>
+    <text x="1303" y="256" fill="#747181" class="tiny">有效规则全部扫描 · 已存在跳过 · 缺失才生成</text>
+
+    <!-- Existing runtime banner, with OpenList source facts added as compact metadata. -->
+    <rect x="148" y="287" width="1304" height="82" rx="8" fill="#19191f" stroke="#356a54" filter="url(#card-shadow)"/>
+    <rect x="148" y="287" width="5" height="82" rx="2" fill="#68d7a2"/>
+    <rect x="174" y="307" width="42" height="42" rx="7" fill="#21352d"/>
+    <path d="M184 328a10 10 0 1 0 20 0M194 318v10l6 4" fill="none" stroke="#68d7a2" stroke-width="1.8" stroke-linecap="round"/>
+    <text x="234" y="317" fill="#f2f1f7" class="section">目录监控已启用，当前空闲</text>
+    <text x="234" y="340" fill="#a3a0af" class="small">OpenList 目录快照按固定间隔轮询，变更会进入可靠同步队列。</text>
+    <line x1="800" y1="303" x2="800" y2="353" stroke="#2d2d38"/>
+    <text x="826" y="317" fill="#747181" class="tiny">数据源</text>
+    <text x="826" y="340" fill="#82c8ff" class="small" font-weight="600">OpenList</text>
+    <text x="942" y="317" fill="#747181" class="tiny">来源目录</text>
+    <text x="942" y="340" fill="#a3a0af" class="mono" font-size="11">/media/library</text>
+    <text x="1108" y="317" fill="#747181" class="tiny">下次轮询</text>
+    <text x="1108" y="340" fill="#68d7a2" class="small">3 分钟后 · 5 分钟固定间隔</text>
+    <rect x="1351" y="311" width="77" height="30" rx="15" fill="#203b31" stroke="#356a54"/>
+    <circle cx="1368" cy="326" r="3.5" fill="#68d7a2"/>
+    <text x="1379" y="331" fill="#68d7a2" class="small">待机</text>
+
+    <!-- Engine metrics -->
+    <line x1="148" y1="404" x2="1452" y2="404" stroke="#2d2d38"/>
+    <text x="148" y="435" fill="#f2f1f7" class="section">可靠同步引擎指标</text>
+    <text x="344" y="435" fill="#747181" class="small">持久化队列、内存队列、处理中、工作线程作为现有引擎指标保留。</text>
+    <rect x="148" y="456" width="311" height="120" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <text x="172" y="487" fill="#a3a0af" class="small">持久化队列</text>
+    <path d="M423 476h18v18h-18zM427 472h10" fill="none" stroke="#747181" stroke-width="1.4" stroke-linejoin="round"/>
+    <text x="172" y="540" fill="#f2f1f7" class="metric">12</text>
+    <text x="226" y="538" fill="#747181" class="tiny">等待可靠引擎处理</text>
+    <rect x="473" y="456" width="311" height="120" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <text x="497" y="487" fill="#a3a0af" class="small">内存队列</text>
+    <path d="M744 475h18v20h-18zM748 470h10v5M748 481h10M748 487h10" fill="none" stroke="#747181" stroke-width="1.4" stroke-linejoin="round"/>
+    <text x="497" y="540" fill="#f2f1f7" class="metric">3</text>
+    <text x="551" y="538" fill="#747181" class="tiny">已载入可靠引擎、等待执行</text>
+    <rect x="798" y="456" width="311" height="120" rx="8" fill="#1d1a29" stroke="#594b9e"/>
+    <text x="822" y="487" fill="#a3a0af" class="small">处理中</text>
+    <path d="M1065 475a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM1065 480v6l4 3" fill="none" stroke="#bcaeff" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="822" y="540" fill="#bcaeff" class="metric">1</text>
+    <text x="876" y="538" fill="#747181" class="tiny">可靠引擎当前正在处理</text>
+    <rect x="1123" y="456" width="329" height="120" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <text x="1147" y="487" fill="#a3a0af" class="small">工作线程</text>
+    <path d="M1408 475h18v18h-18zM1412 480h10M1412 486h10" fill="none" stroke="#747181" stroke-width="1.4"/>
+    <text x="1147" y="540" fill="#f2f1f7" class="metric">2</text>
+    <text x="1201" y="538" fill="#747181" class="tiny">可靠引擎已启动的并发线程</text>
+
+    <!-- Processing overview -->
+    <line x1="148" y1="610" x2="1452" y2="610" stroke="#2d2d38"/>
+    <text x="148" y="641" fill="#f2f1f7" class="section">处理概览</text>
+    <text x="278" y="641" fill="#747181" class="small">按源目录核对媒体、非媒体文件和字幕的处理结果。</text>
+    <text x="1297" y="641" fill="#bcaeff" class="tiny">已有记录 · 后台核对中</text>
+
+    <rect x="148" y="660" width="790" height="184" rx="8" fill="#1d1a29" stroke="#594b9e"/>
+    <text x="174" y="693" fill="#f2f1f7" class="section">STRM 生成记录</text>
+    <path d="M878 681h18v22h-18zM882 687h10M882 693h10" fill="none" stroke="#bcaeff" stroke-width="1.5" stroke-linecap="round"/>
+    <text x="174" y="731" fill="#a3a0af" class="tiny">媒体总数</text>
+    <text x="174" y="780" fill="#f2f1f7" class="number">1,284</text>
+    <text x="395" y="731" fill="#a3a0af" class="tiny">已生成 STRM</text>
+    <text x="395" y="780" fill="#bcaeff" class="number">1,271</text>
+    <line x1="626" y1="712" x2="626" y2="806" stroke="#2d2d38"/>
+    <circle cx="668" cy="748" r="15" fill="#36332b"/>
+    <path d="M661 748h14M668 741v14" stroke="#f0c276" stroke-width="1.6" stroke-linecap="round"/>
+    <text x="696" y="744" fill="#f0c276" class="small">数量不一致 · 少 13 个 STRM</text>
+    <text x="696" y="767" fill="#a3a0af" class="tiny">差异已进入可靠同步队列</text>
+    <text x="174" y="820" fill="#747181" class="tiny">数量核对只比较媒体总数与已生成 STRM，不展开文件记录。</text>
+
+    <rect x="958" y="660" width="494" height="184" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <text x="984" y="693" fill="#f2f1f7" class="section">非媒体与字幕</text>
+    <text x="1320" y="693" fill="#747181" class="tiny">总数 / 已完成</text>
+    <line x1="984" y1="710" x2="1426" y2="710" stroke="#2d2d38"/>
+    <path d="M986 727h13v16h-13zM989 723h7" fill="none" stroke="#747181" stroke-width="1.3"/>
+    <text x="1013" y="741" fill="#a3a0af" class="small">非媒体文件</text>
+    <text x="1263" y="741" fill="#f2f1f7" class="small" font-weight="600">86 / 82</text>
+    <rect x="1350" y="734" width="66" height="6" rx="3" fill="#2d2d38"/>
+    <rect x="1350" y="734" width="63" height="6" rx="3" fill="#68d7a2"/>
+    <path d="M986 769h14M986 776h14M986 783h10" fill="none" stroke="#747181" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="1013" y="781" fill="#a3a0af" class="small">字幕文件</text>
+    <text x="1263" y="781" fill="#f2f1f7" class="small" font-weight="600">42 / 39</text>
+    <rect x="1350" y="774" width="66" height="6" rx="3" fill="#2d2d38"/>
+    <rect x="1350" y="774" width="61" height="6" rx="3" fill="#f0c276"/>
+    <text x="984" y="820" fill="#747181" class="tiny">非媒体与字幕沿用现有处理统计。</text>
+
+    <!-- Full scan section -->
+    <line x1="148" y1="879" x2="1452" y2="879" stroke="#2d2d38"/>
+    <text x="148" y="910" fill="#f2f1f7" class="section">一次全量处理</text>
+    <text x="306" y="910" fill="#747181" class="small">扫描所有有效规则，已存在跳过，不存在才生成。</text>
+    <rect x="1304" y="895" width="90" height="24" rx="5" fill="#203b31" stroke="#356a54"/>
+    <circle cx="1320" cy="907" r="4" fill="#68d7a2"/>
+    <text x="1331" y="911" fill="#68d7a2" class="tiny">已完成</text>
+    <rect x="1404" y="895" width="48" height="24" rx="5" fill="#2b2347" stroke="#594b9e"/>
+    <text x="1428" y="911" fill="#bcaeff" class="tiny" text-anchor="middle">刷新</text>
+
+    <rect x="148" y="930" width="1304" height="258" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <rect x="174" y="951" width="58" height="25" rx="5" fill="#203b31" stroke="#356a54"/>
+    <circle cx="190" cy="963" r="4" fill="#68d7a2"/>
+    <text x="202" y="967" fill="#68d7a2" class="tiny">已完成</text>
+    <text x="253" y="967" fill="#a3a0af" class="small">手动全量处理</text>
+    <text x="1354" y="967" fill="#747181" class="tiny">今天 14:30</text>
+    <line x1="174" y1="990" x2="1426" y2="990" stroke="#2d2d38"/>
+    <text x="174" y="1015" fill="#747181" class="tiny">当前规则</text>
+    <text x="174" y="1038" fill="#a3a0af" class="small">媒体库</text>
+    <text x="434" y="1015" fill="#747181" class="tiny">当前文件</text>
+    <text x="434" y="1038" fill="#f2f1f7" class="mono" font-size="11">/media/library/电影/示例.mkv</text>
+    <text x="1126" y="1015" fill="#747181" class="tiny">已处理</text>
+    <text x="1126" y="1038" fill="#a3a0af" class="small">48 / 48</text>
+    <rect x="174" y="1060" width="1252" height="7" rx="3" fill="#2d2d38"/>
+    <rect x="174" y="1060" width="1252" height="7" rx="3" fill="#68d7a2"/>
+    <text x="174" y="1090" fill="#747181" class="tiny">处理结果</text>
+    <rect x="174" y="1102" width="174" height="48" rx="6" fill="#101016" stroke="#2d2d38"/>
+    <text x="190" y="1121" fill="#747181" class="tiny">已有内容跳过</text>
+    <text x="190" y="1140" fill="#a3a0af" class="small">1,240</text>
+    <rect x="360" y="1102" width="174" height="48" rx="6" fill="#101016" stroke="#2d2d38"/>
+    <text x="376" y="1121" fill="#747181" class="tiny">复制非媒体</text>
+    <text x="376" y="1140" fill="#f2f1f7" class="small">86</text>
+    <rect x="546" y="1102" width="174" height="48" rx="6" fill="#101016" stroke="#2d2d38"/>
+    <text x="562" y="1121" fill="#747181" class="tiny">复制字幕</text>
+    <text x="562" y="1140" fill="#82c8ff" class="small">39</text>
+    <rect x="732" y="1102" width="174" height="48" rx="6" fill="#101016" stroke="#2d2d38"/>
+    <text x="748" y="1121" fill="#747181" class="tiny">生成 STRM</text>
+    <text x="748" y="1140" fill="#68d7a2" class="small">24</text>
+    <rect x="918" y="1102" width="174" height="48" rx="6" fill="#101016" stroke="#2d2d38"/>
+    <text x="934" y="1121" fill="#747181" class="tiny">失败</text>
+    <text x="934" y="1140" fill="#ff8a9a" class="small">2</text>
+    <text x="1426" y="1140" fill="#747181" class="tiny" text-anchor="end">已存在内容会自动跳过 · 运行中禁用重复执行</text>
+
+    <!-- Manual /strm command progress, retained from v2.1.14. -->
+    <line x1="148" y1="1224" x2="1452" y2="1224" stroke="#2d2d38"/>
+    <text x="148" y="1255" fill="#f2f1f7" class="section">手动 /strm 扫描</text>
+    <text x="332" y="1255" fill="#747181" class="small">手动扫描独立执行，进度不计入可靠同步引擎四项指标。</text>
+    <rect x="1355" y="1240" width="97" height="24" rx="5" fill="#203747" stroke="#396079"/>
+    <circle cx="1371" cy="1252" r="4" fill="#82c8ff"/>
+    <text x="1382" y="1256" fill="#82c8ff" class="tiny">已完成</text>
+    <rect x="148" y="1275" width="1304" height="178" rx="8" fill="#19191f" stroke="#2d2d38"/>
+    <text x="174" y="1307" fill="#a3a0af" class="tiny">手动 /strm</text>
+    <text x="174" y="1338" fill="#f2f1f7" class="number">48 / 48</text>
+    <text x="174" y="1361" fill="#747181" class="tiny">本次扫描已处理文件 / 总文件数</text>
+    <path d="M1391 1297a11 11 0 1 0 0 22 11 11 0 0 0 0-22zM1386 1308l4 4 7-8" fill="none" stroke="#68d7a2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="174" y="1380" width="1252" height="7" rx="3" fill="#2d2d38"/>
+    <rect x="174" y="1380" width="1252" height="7" rx="3" fill="#8b6cf6"/>
+    <rect x="174" y="1403" width="292" height="30" rx="5" fill="#101016" stroke="#2d2d38"/>
+    <text x="190" y="1422" fill="#747181" class="tiny">阶段</text>
+    <text x="240" y="1422" fill="#bcaeff" class="tiny">已完成</text>
+    <rect x="480" y="1403" width="624" height="30" rx="5" fill="#101016" stroke="#2d2d38"/>
+    <text x="496" y="1422" fill="#747181" class="tiny">当前文件</text>
+    <text x="565" y="1422" fill="#f2f1f7" class="mono" font-size="10">/media/library/电影/示例.mkv</text>
+    <rect x="1118" y="1403" width="308" height="30" rx="5" fill="#101016" stroke="#2d2d38"/>
+    <text x="1134" y="1422" fill="#747181" class="tiny">最后进度</text>
+    <text x="1200" y="1422" fill="#a3a0af" class="tiny">今天 14:30:08</text>
+
+    <!-- Task center, compact but complete. -->
+    <line x1="148" y1="1489" x2="1452" y2="1489" stroke="#2d2d38"/>
+    <text x="148" y="1520" fill="#f2f1f7" class="section">同步任务中心</text>
+    <text x="318" y="1520" fill="#747181" class="small">需要介入的事项优先显示，运行记录集中保留。</text>
+    <path d="M1361 1507h18M1361 1514h18M1361 1521h18" fill="none" stroke="#747181" stroke-width="1.4" stroke-linecap="round"/>
+    <text x="1390" y="1518" fill="#a3a0af" class="tiny">刷新</text>
+    <line x1="148" y1="1541" x2="1452" y2="1541" stroke="#2d2d38"/>
+    <rect x="148" y="1541" width="184" height="42" fill="#211b34"/>
+    <rect x="148" y="1581" width="184" height="2" fill="#7c4dff"/>
+    <path d="M168 1556a7 7 0 1 1 5 2" fill="none" stroke="#bcaeff" stroke-width="1.3" stroke-linecap="round"/>
+    <path d="M168 1551v5h5" fill="none" stroke="#bcaeff" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="185" y="1565" fill="#bcaeff" class="small">待处理事项</text>
+    <rect x="268" y="1553" width="38" height="19" rx="9" fill="#482630"/>
+    <text x="287" y="1566" fill="#ff8a9a" class="tiny" text-anchor="middle">3</text>
+    <text x="365" y="1565" fill="#a3a0af" class="small">运行记录</text>
+    <rect x="435" y="1553" width="38" height="19" rx="9" fill="#292632"/>
+    <text x="454" y="1566" fill="#a3a0af" class="tiny" text-anchor="middle">12</text>
+
+    <rect x="148" y="1604" width="638" height="49" rx="7" fill="#19191f" stroke="#703c4b"/>
+    <rect x="166" y="1615" width="28" height="28" rx="6" fill="#482630"/>
+    <path d="M174 1629a7 7 0 1 1 5 2" fill="none" stroke="#ff8a9a" stroke-width="1.3" stroke-linecap="round"/>
+    <path d="M174 1624v5h5" fill="none" stroke="#ff8a9a" stroke-width="1.3" stroke-linecap="round"/>
+    <text x="207" y="1626" fill="#f2f1f7" class="small" font-weight="600">失败重试</text>
+    <text x="207" y="1643" fill="#747181" class="tiny">2 个任务 · 修复后可批量重试 · 不删除已有 STRM</text>
+    <rect x="802" y="1604" width="638" height="49" rx="7" fill="#19191f" stroke="#665d43"/>
+    <rect x="820" y="1615" width="28" height="28" rx="6" fill="#36332b"/>
+    <path d="M828 1622h12v13h-12zM831 1619h6" fill="none" stroke="#f0c276" stroke-width="1.3"/>
+    <text x="861" y="1626" fill="#f2f1f7" class="small" font-weight="600">清理确认</text>
+    <text x="861" y="1643" fill="#747181" class="tiny">1 个待确认批次 · 仅处理插件记录过的生成文件</text>
+  </g>
+</svg>

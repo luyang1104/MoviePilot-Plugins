@@ -76,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.17"
+    plugin_version = "2.1.18"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -188,10 +188,15 @@ class CloudStrmButler(_PluginBase):
         self._scan_launch_lock = threading.Lock()
         self._scan_running = False
         self._scan_thread = None
+        self._scan_cancel = threading.Event()
+        self._cancelled_run_ids = set()
+        self._cancelled_run_lock = threading.Lock()
         self._scan_progress_lock = threading.RLock()
         self._scan_progress = self._new_scan_progress()
         self._command_running = False
         self._command_thread = None
+        self._command_cancel = threading.Event()
+        self._processing_options_lock = threading.RLock()
         self._command_progress_lock = threading.RLock()
         self._command_progress = self._new_command_progress()
         self._state_store = None
@@ -248,7 +253,9 @@ class CloudStrmButler(_PluginBase):
             except (TypeError, ValueError):
                 self._scan_interval = 0
             self._path_replacements = dict(parse_path_mappings(config.get("path_replacements")))
-            self._reliable_engine = _as_bool(config.get("reliable_engine"))
+            # Keep the old switch readable, but make the durable queue the
+            # default for new configurations. Explicit false remains compatible.
+            self._reliable_engine = _as_bool(config.get("reliable_engine"), True)
             self._cleanup_mode = str(config.get("cleanup_mode") or "off").lower()
             self._cleanup_probe = str(config.get("cleanup_probe") or "").strip()
             self._rmt_mediaext = config.get("rmt_mediaext") or self._default_rmt_mediaext
@@ -438,6 +445,8 @@ class CloudStrmButler(_PluginBase):
         with self._scan_progress_lock:
             if run_id and self._scan_progress.get("run_id") != run_id:
                 return
+            if self._is_run_cancelled(run_id):
+                return
             if not run_id and not self._scan_progress.get("running"):
                 return
             self._scan_progress["processed"] = int(self._scan_progress.get("processed") or 0) + 1
@@ -458,12 +467,26 @@ class CloudStrmButler(_PluginBase):
             finished_at = time.time()
             self._scan_progress.update(running=False, phase=phase, current_path="", finished_at=finished_at, last_progress_at=finished_at)
 
+    def _mark_run_cancelled(self, run_id: Optional[str]) -> None:
+        if run_id:
+            with self._cancelled_run_lock:
+                self._cancelled_run_ids.add(str(run_id))
+            if self._task_store:
+                self._task_store.cancel_run(str(run_id))
+                self._task_store.cancel_run_jobs(str(run_id))
+
+    def _is_run_cancelled(self, run_id: Optional[str]) -> bool:
+        if not run_id:
+            return False
+        with self._cancelled_run_lock:
+            return str(run_id) in self._cancelled_run_ids
+
     def _scan_is_active(self) -> bool:
         thread = self._scan_thread
         other_thread_running = bool(thread and thread.is_alive() and thread is not threading.current_thread())
         return bool(self._scan_running or self._scan_progress_snapshot().get("running") or other_thread_running)
 
-    def scan(self, kind: str = "scan"):
+    def scan(self, kind: str = "scan", options: Optional[Dict[str, Any]] = None):
         """Run an idempotent full directory reconciliation."""
         if self._command_running or self._scan_is_active():
             logger.warning("已有手动扫描正在执行，跳过本次全量扫描请求")
@@ -472,6 +495,13 @@ class CloudStrmButler(_PluginBase):
             logger.warning("已有增量扫描正在执行，跳过本次请求")
             return False
         self._scan_running = True
+        self._scan_cancel.clear()
+        scan_options = options if isinstance(options, dict) else {}
+        previous_options = (self._copy_files, self._copy_subtitles)
+        if "copy_files" in scan_options:
+            self._copy_files = _as_bool(scan_options.get("copy_files"))
+        if "copy_subtitles" in scan_options:
+            self._copy_subtitles = _as_bool(scan_options.get("copy_subtitles"))
         started = time.monotonic()
         run_id = self._task_store.start_run(kind) if self._task_store else None
         now = time.time()
@@ -489,11 +519,16 @@ class CloudStrmButler(_PluginBase):
         try:
             logger.info("开始增量执行")
             for rule in self._monitor_rules:
+                if self._scan_cancel.is_set():
+                    break
                 self._update_scan_progress(current_rule=rule.local_dir, current_path=rule.local_dir)
                 self._scan_rule(rule, run_id=run_id)
             logger.info("增量执行完成，耗时 %.1f 秒", time.monotonic() - started)
             if run_id and self._task_store:
-                if self._reliable_engine:
+                if self._scan_cancel.is_set():
+                    self._task_store.cancel_run(run_id, "用户取消")
+                    self._finish_scan_progress(run_id, phase="cancelled")
+                elif self._reliable_engine:
                     settled = self._task_store.finish_run_if_settled(run_id)
                     if settled:
                         self._finish_scan_progress(run_id)
@@ -511,7 +546,9 @@ class CloudStrmButler(_PluginBase):
             self._finish_scan_progress(run_id, phase="failed")
             raise
         finally:
+            self._copy_files, self._copy_subtitles = previous_options
             self._scan_running = False
+            self._scan_cancel.clear()
             self._scan_guard.release()
             if self._scan_thread is threading.current_thread():
                 self._scan_thread = None
@@ -702,6 +739,9 @@ class CloudStrmButler(_PluginBase):
         completed = True
         try:
             for root, _dirs, files in os.walk(rule.local_dir):
+                if self._scan_cancel.is_set():
+                    completed = False
+                    break
                 # Mark media sidecars before processing this directory so the
                 # result counts do not depend on filesystem listing order.
                 for file_name in files:
@@ -713,6 +753,9 @@ class CloudStrmButler(_PluginBase):
                             if self._should_copy_sidecar(str(sidecar))
                         )
                 for file_name in files:
+                    if self._scan_cancel.is_set():
+                        completed = False
+                        break
                     source_file = os.path.join(root, file_name)
                     relative = relative_path(source_file, rule.local_dir)
                     if relative is None:
@@ -737,7 +780,11 @@ class CloudStrmButler(_PluginBase):
                         self._record_scan_result(run_id, {"status": "skipped", "result_statuses": ["existing_skipped"]})
                         continue
                     if self._reliable_engine and self._sync_engine:
-                        payload = {"run_id": run_id} if run_id else None
+                        payload = {
+                            "run_id": run_id,
+                            "copy_files": self._copy_files,
+                            "copy_subtitles": self._copy_subtitles,
+                        } if run_id else None
                         if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
                         self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload)
@@ -751,7 +798,7 @@ class CloudStrmButler(_PluginBase):
             completed = False
             logger.error(f"遍历监控目录失败：{rule.local_dir} - {exc}")
 
-        if completed and self._state_store is not None:
+        if completed and not self._scan_cancel.is_set() and self._state_store is not None:
             self._reconcile_missing_records(rule.local_dir, seen, run_id)
 
     def _reconcile_missing_records(self, monitor_root: str, seen: set, run_id: Optional[str] = None):
@@ -825,20 +872,32 @@ class CloudStrmButler(_PluginBase):
             self._sync_engine.pump()
 
     def _run_reliable_job(self, job: PendingJob) -> dict:
-        if job.action == "delete":
-            if self._cleanup_mode == "event":
-                self.__handle_deleted_file(job.path, job.monitor_root)
-                return {"status": "deleted"}
-            return {"status": "ignored"}
-        result = self.__handle_file(
-            event_path=job.path,
-            mon_path=job.monitor_root,
-            wait_stable=bool(job.payload.get("wait_stable")),
-        )
-        return result
+        if self._is_run_cancelled(job.payload.get("run_id")):
+            return {"status": "cancelled"}
+        with self._processing_options_lock:
+            previous_options = (self._copy_files, self._copy_subtitles)
+            if "copy_files" in job.payload:
+                self._copy_files = _as_bool(job.payload.get("copy_files"))
+            if "copy_subtitles" in job.payload:
+                self._copy_subtitles = _as_bool(job.payload.get("copy_subtitles"))
+            try:
+                if job.action == "delete":
+                    if self._cleanup_mode == "event":
+                        self.__handle_deleted_file(job.path, job.monitor_root)
+                        return {"status": "deleted"}
+                    return {"status": "ignored"}
+                return self.__handle_file(
+                    event_path=job.path,
+                    mon_path=job.monitor_root,
+                    wait_stable=bool(job.payload.get("wait_stable")),
+                )
+            finally:
+                self._copy_files, self._copy_subtitles = previous_options
 
     def _complete_reliable_job(self, job: PendingJob, result: dict):
         run_id = job.payload.get("run_id")
+        if self._is_run_cancelled(run_id):
+            return
         self._record_run_result(run_id, result)
         self._record_scan_result(run_id, result)
         if run_id and self._task_store:
@@ -1677,6 +1736,8 @@ class CloudStrmButler(_PluginBase):
         """Collect files before processing so the command can show a real total."""
         files: List[str] = []
         for candidate in paths or []:
+            if self._command_cancel.is_set():
+                break
             candidate_path = Path(candidate)
             self._touch_command_progress(current_path=str(candidate_path), phase="discovering")
             if candidate_path.is_file():
@@ -1685,8 +1746,12 @@ class CloudStrmButler(_PluginBase):
             if not candidate_path.is_dir():
                 continue
             for root, _dirs, names in os.walk(str(candidate_path)):
+                if self._command_cancel.is_set():
+                    break
                 self._touch_command_progress(current_path=root, phase="discovering")
                 for file_name in names:
+                    if self._command_cancel.is_set():
+                        break
                     src_file = os.path.join(root, file_name)
                     if Path(src_file).is_file():
                         files.append(src_file)
@@ -1716,15 +1781,23 @@ class CloudStrmButler(_PluginBase):
                 phase="processing" if files or initial_failures else "completed",
             )
             for reason in initial_failures or []:
+                if self._command_cancel.is_set():
+                    break
                 self._record_command_failure(summary, run_id, reason)
             for event_path in files:
+                if self._command_cancel.is_set():
+                    break
                 self._record_command_file(summary, run_id, event_path, mon_path)
         except Exception as exc:
             logger.exception("手动 /strm 扫描失败：%s", label)
             self._record_command_failure(summary, run_id, str(exc))
         finally:
+            cancelled = bool(self._command_cancel.is_set() or self._is_run_cancelled(run_id))
             if run_id and self._task_store:
-                if summary["failed"]:
+                if cancelled:
+                    status = "cancelled"
+                    self._task_store.cancel_run(run_id, "用户取消")
+                elif summary["failed"]:
                     status = "completed_with_errors"
                 elif not summary["total"]:
                     status = "completed_empty"
@@ -1738,7 +1811,7 @@ class CloudStrmButler(_PluginBase):
             finished_at = time.time()
             self._update_command_progress(
                 running=False,
-                phase="completed",
+                phase="cancelled" if cancelled else "completed",
                 current_path="",
                 finished_at=finished_at,
                 total=summary["total"],
@@ -1754,6 +1827,7 @@ class CloudStrmButler(_PluginBase):
             )
             self._command_running = False
             self._command_guard.release()
+            self._command_cancel.clear()
             self._post_command_summary(event, label, summary)
 
     def _command_summary_title(self, label: str, summary: Dict[str, Any]) -> str:
@@ -1810,6 +1884,7 @@ class CloudStrmButler(_PluginBase):
             return summary
 
         self._command_running = True
+        self._command_cancel.clear()
         run_id = self._task_store.start_run("command", mon_path) if self._task_store else None
         started_at = time.time()
         self._update_command_progress(
@@ -2094,6 +2169,7 @@ class CloudStrmButler(_PluginBase):
             {"path": "/sync_retry_failures", "endpoint": self.sync_retry_failures_api, "methods": ["POST"], "auth": "bear", "summary": "批量重试同步失败"},
             {"path": "/sync_confirm_cleanup", "endpoint": self.sync_confirm_cleanup_api, "methods": ["POST"], "auth": "bear", "summary": "确认 STRM 清理"},
             {"path": "/sync_full_scan", "endpoint": self.sync_full_scan_api, "methods": ["POST"], "auth": "bear", "summary": "执行一次全量处理"},
+            {"path": "/sync_cancel", "endpoint": self.sync_cancel_api, "methods": ["POST"], "auth": "bear", "summary": "取消当前同步任务"},
         ]
 
     def sync_status_api(self) -> Dict[str, Any]:
@@ -2158,18 +2234,38 @@ class CloudStrmButler(_PluginBase):
 
     def sync_full_scan_api(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Start one idempotent full scan without blocking the API request."""
+        raw_payload = payload if isinstance(payload, dict) else {}
+        options = {
+            "copy_files": _as_bool(raw_payload.get("copy_files"), self._copy_files),
+            "copy_subtitles": _as_bool(raw_payload.get("copy_subtitles"), self._copy_subtitles),
+        }
         with self._scan_launch_lock:
             if self._command_running or self._scan_is_active():
                 return {"code": 1, "msg": "已有扫描正在执行，请等待当前任务完成"}
             worker = threading.Thread(
                 target=self.scan,
-                args=("manual_full",),
+                args=("manual_full", options),
                 name="cloudstrmbutler-full-scan",
                 daemon=True,
             )
             self._scan_thread = worker
             worker.start()
-        return {"code": 0, "data": {"kind": "manual_full", "status": "started"}, "msg": "全量处理已开始"}
+        return {"code": 0, "data": {"kind": "manual_full", "status": "started", **options}, "msg": "全量处理已开始"}
+
+    def sync_cancel_api(self, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Request cancellation for the active full scan or /strm command."""
+        del payload
+        if self._scan_running or self._scan_progress_snapshot().get("running"):
+            self._scan_cancel.set()
+            run_id = self._scan_progress_snapshot().get("run_id") or ""
+            self._mark_run_cancelled(run_id)
+            return {"code": 0, "data": {"kind": "manual_full", "status": "cancelling", "run_id": run_id}, "msg": "已请求取消全量处理"}
+        if self._command_running or self._command_progress_snapshot().get("running"):
+            self._command_cancel.set()
+            run_id = self._command_progress_snapshot().get("run_id") or ""
+            self._mark_run_cancelled(run_id)
+            return {"code": 0, "data": {"kind": "command", "status": "cancelling", "run_id": run_id}, "msg": "已请求取消定向处理"}
+        return {"code": 1, "msg": "当前没有正在执行的任务"}
 
     def sync_failures_api(self, limit: int = 100) -> Dict[str, Any]:
         failures = self._task_store.failures(limit=limit) if self._task_store else []

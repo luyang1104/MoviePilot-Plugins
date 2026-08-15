@@ -43,13 +43,19 @@ test('recent task table has only the four requested columns', async () => {
   assert.equal(source.includes('task-failed'), false)
 })
 
-test('task center prioritizes pending work and keeps compact empty state', async () => {
+test('dashboard keeps intervention UI compact and diagnostics collapsed by default', async () => {
   const source = await readFile(new URL('../src/Page.vue', import.meta.url), 'utf8')
 
-  assert.equal(source.includes('同步任务中心'), true)
-  assert.equal(source.includes('待处理事项'), true)
-  assert.equal(source.includes('运行记录'), true)
-  assert.equal(source.includes('当前无需介入'), true)
-  assert.equal(source.includes('pending-risk-note--warning'), true)
-  assert.equal(source.includes('重试只会重新写入文件'), true)
+  assert.equal(source.includes('需要处理的失败'), true)
+  assert.equal(source.includes('近期任务'), true)
+  assert.equal(source.includes('高级诊断'), true)
+  assert.equal(source.includes('<details class="diagnostics-section">'), true)
+  assert.equal(source.includes('同步任务中心'), false)
+})
+
+test('config keeps the durable queue enabled for new settings', async () => {
+  const source = await readFile(new URL('../src/Config.vue', import.meta.url), 'utf8')
+
+  assert.equal(source.includes('reliable_engine: true'), true)
+  assert.equal(source.includes('normalizeBoolean(ic.reliable_engine, true)'), true)
 })

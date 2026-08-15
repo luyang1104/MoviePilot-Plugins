@@ -1,0 +1,336 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="2860" viewBox="0 0 1800 2860" role="img" aria-labelledby="title desc">
+  <title id="title">云盘 STRM 小管家 · 任务中心优化设计</title>
+  <desc id="desc">以统一任务层级、状态语义和语义色为核心的任务中心高保真设计稿，包含同步工作台、全量生成抽屉、任务中心和任务详情。</desc>
+  <defs>
+    <filter id="board-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="12" stdDeviation="20" flood-color="#193042" flood-opacity="0.12"/>
+    </filter>
+    <filter id="panel-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#193042" flood-opacity="0.12"/>
+    </filter>
+    <style>
+      .ui { font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif; letter-spacing: 0; }
+      .title { font-size: 29px; font-weight: 700; }
+      .page-title { font-size: 25px; font-weight: 700; }
+      .section { font-size: 17px; font-weight: 700; }
+      .body { font-size: 14px; font-weight: 400; }
+      .small { font-size: 12px; font-weight: 400; }
+      .label { font-size: 12px; font-weight: 700; }
+      .metric { font-size: 27px; font-weight: 700; }
+      .big-number { font-size: 31px; font-weight: 700; }
+      .mono { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 12px; }
+      .ink { fill: #15232f; }
+      .muted { fill: #60717f; }
+      .faint { fill: #8493a0; }
+      .border { stroke: #d8e1e8; }
+      .hairline { stroke: #edf1f4; }
+      .primary { fill: #0f766e; }
+      .primary-text { fill: #0f766e; }
+      .success { fill: #15803d; }
+      .warning { fill: #b45309; }
+      .danger { fill: #b42318; }
+      .neutral { fill: #64748b; }
+    </style>
+
+    <symbol id="sidebar-dashboard" class="ui" viewBox="0 0 250 850">
+      <rect width="250" height="850" rx="12" fill="#172a3a"/>
+      <rect x="234" width="16" height="850" fill="#172a3a"/>
+      <rect x="26" y="34" width="34" height="34" rx="8" fill="#0f766e"/>
+      <path d="M36 51h14M43 44v14" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+      <text x="73" y="50" fill="#ffffff" font-size="16" font-weight="700">云盘 Strm</text>
+      <text x="73" y="68" fill="#a9bac8" font-size="12">小管家 · v2.2</text>
+      <text class="small" x="26" y="124" fill="#8398a8" font-weight="700">同步管理</text>
+      <rect x="16" y="138" width="218" height="44" rx="7" fill="#23485a"/>
+      <rect x="16" y="138" width="4" height="44" rx="2" fill="#2dd4bf"/>
+      <path d="M39 156h14M46 149v14" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+      <text class="body" x="70" y="165" fill="#ffffff" font-weight="700">同步工作台</text>
+      <text class="body" x="70" y="219" fill="#c3d0da">任务中心</text>
+      <text class="body" x="70" y="273" fill="#c3d0da">路径规则</text>
+      <text class="body" x="70" y="327" fill="#c3d0da">运行设置</text>
+      <line x1="26" y1="374" x2="224" y2="374" stroke="#304656"/>
+      <text class="small" x="26" y="410" fill="#8398a8" font-weight="700">运行状态</text>
+      <circle cx="38" cy="442" r="5" fill="#4ade80"/>
+      <text class="body" x="53" y="447" fill="#d6e1e8">目录监控已启用</text>
+      <text class="small" x="53" y="468" fill="#8398a8">队列空闲 · 刚刚刷新</text>
+      <rect x="26" y="752" width="198" height="72" rx="8" fill="#1e3b4b"/>
+      <circle cx="48" cy="776" r="9" fill="#23815e"/>
+      <path d="M43 776l4 4 7-8" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="small" x="68" y="778" fill="#e5edf2" font-weight="700">系统健康</text>
+      <text class="small" x="43" y="805" fill="#a3b6c4">无待恢复任务</text>
+    </symbol>
+
+    <symbol id="sidebar-task" class="ui" viewBox="0 0 250 850">
+      <rect width="250" height="850" rx="12" fill="#172a3a"/>
+      <rect x="234" width="16" height="850" fill="#172a3a"/>
+      <rect x="26" y="34" width="34" height="34" rx="8" fill="#0f766e"/>
+      <path d="M36 51h14M43 44v14" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round"/>
+      <text x="73" y="50" fill="#ffffff" font-size="16" font-weight="700">云盘 Strm</text>
+      <text x="73" y="68" fill="#a9bac8" font-size="12">小管家 · v2.2</text>
+      <text class="small" x="26" y="124" fill="#8398a8" font-weight="700">同步管理</text>
+      <rect x="16" y="138" width="218" height="44" rx="7" fill="#23485a"/>
+      <rect x="16" y="138" width="4" height="44" rx="2" fill="#2dd4bf"/>
+      <path d="M39 156h14M46 149v14" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>
+      <text class="body" x="70" y="165" fill="#ffffff" font-weight="700">任务中心</text>
+      <text class="body" x="70" y="219" fill="#c3d0da">同步工作台</text>
+      <text class="body" x="70" y="273" fill="#c3d0da">路径规则</text>
+      <text class="body" x="70" y="327" fill="#c3d0da">运行设置</text>
+      <line x1="26" y1="374" x2="224" y2="374" stroke="#304656"/>
+      <text class="small" x="26" y="410" fill="#8398a8" font-weight="700">任务日志</text>
+      <circle cx="38" cy="442" r="5" fill="#4ade80"/>
+      <text class="body" x="53" y="447" fill="#d6e1e8">服务正常</text>
+      <text class="small" x="53" y="468" fill="#8398a8">摘要保留 90 天</text>
+      <rect x="26" y="752" width="198" height="72" rx="8" fill="#1e3b4b"/>
+      <text class="small" x="43" y="778" fill="#e5edf2" font-weight="700">动作明细</text>
+      <text class="small" x="43" y="805" fill="#a3b6c4">保留 30 天 · 可按动作检索</text>
+    </symbol>
+  </defs>
+
+  <rect width="1800" height="2860" fill="#f2f5f7"/>
+  <g class="ui">
+    <text class="title ink" x="70" y="70">云盘 STRM 小管家 · 任务中心优化设计</text>
+    <text class="body muted" x="70" y="101">以“能看懂、能定位、能恢复”为设计目标，原稿保留，以下为优化方向。</text>
+    <rect x="1400" y="48" width="142" height="30" rx="15" fill="#ffffff" stroke="#cbd8df"/>
+    <text class="label primary-text" x="1471" y="68" text-anchor="middle">优化评审稿</text>
+    <rect x="1556" y="48" width="174" height="30" rx="15" fill="#e8f5f3" stroke="#b7ded8"/>
+    <text class="label primary-text" x="1643" y="68" text-anchor="middle">v2.2 · 未实施</text>
+
+    <text class="small faint" x="70" y="132" font-weight="700">语义色</text>
+    <circle cx="139" cy="128" r="5" fill="#0f766e"/><text class="small muted" x="151" y="132">主操作 / 进行中</text>
+    <circle cx="276" cy="128" r="5" fill="#15803d"/><text class="small muted" x="288" y="132">已完成</text>
+    <circle cx="359" cy="128" r="5" fill="#b45309"/><text class="small muted" x="371" y="132">等待 / 重试 / 待确认</text>
+    <circle cx="515" cy="128" r="5" fill="#b42318"/><text class="small muted" x="527" y="132">失败 / 危险</text>
+    <circle cx="621" cy="128" r="5" fill="#64748b"/><text class="small muted" x="633" y="132">跳过 / 未变化</text>
+    <text class="small faint" x="1510" y="132">8px 间距 · 8px 圆角 · 单一主色</text>
+  </g>
+
+  <!-- 01 dashboard -->
+  <g filter="url(#board-shadow)"><rect x="70" y="160" width="1660" height="780" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <use href="#sidebar-dashboard" x="70" y="160" width="250" height="780" preserveAspectRatio="none"/>
+    <rect x="320" y="160" width="1410" height="780" fill="#fbfcfe"/>
+    <text class="page-title ink" x="368" y="217">同步工作台</text>
+    <text class="body muted" x="368" y="244">当前库存、实时队列和最近运行结果分开统计。</text>
+    <rect x="1438" y="190" width="112" height="40" rx="6" fill="#ffffff" stroke="#c4d2da"/>
+    <path d="M1460 203a10 10 0 1 0 9 14M1469 203v7h-7" fill="none" stroke="#526b78" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="label" x="1480" y="215" fill="#3a5966">刷新</text>
+    <rect x="1564" y="190" width="130" height="40" rx="6" fill="#0f766e"/>
+    <path d="M1585 210h14m-7-7v14" stroke="#ffffff" stroke-width="1.7" stroke-linecap="round"/>
+    <text class="label" x="1611" y="215" fill="#ffffff">全量生成</text>
+    <line x1="368" y1="270" x2="1694" y2="270" class="border"/>
+
+    <rect x="368" y="292" width="1326" height="76" rx="8" fill="#ffffff" stroke="#b8ddcc"/>
+    <rect x="368" y="292" width="6" height="76" rx="3" fill="#15803d"/>
+    <circle cx="410" cy="330" r="22" fill="#e5f5eb"/>
+    <path d="M399 330l7 7 15-17" fill="none" stroke="#15803d" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="section ink" x="448" y="322">目录监控运行正常</text>
+    <text class="small muted" x="448" y="346">3 个规则 · 0 个等待任务 · 0 个未解决失败 · 最近事件 14:32</text>
+    <rect x="1518" y="312" width="152" height="32" rx="6" fill="#f1faf5" stroke="#b8ddcc"/>
+    <text class="label success" x="1594" y="333" text-anchor="middle">查看监控事件</text>
+
+    <text class="section ink" x="368" y="408">当前库存</text>
+    <text class="small muted" x="458" y="408">真实文件盘点 · 最后核对今天 14:32</text>
+    <rect x="368" y="426" width="312" height="92" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="small muted" x="390" y="454">媒体总数</text><text class="metric ink" x="390" y="493">12,480</text><text class="small muted" x="500" y="490">个源文件</text>
+    <rect x="696" y="426" width="312" height="92" rx="8" fill="#ffffff" stroke="#c4e1dd"/>
+    <text class="small muted" x="718" y="454">已生成 STRM</text><text class="metric primary-text" x="718" y="493">12,462</text><text class="small warning" x="835" y="490">少 18 个</text>
+    <rect x="1024" y="426" width="312" height="92" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="small muted" x="1046" y="454">非媒体文件</text><text class="metric ink" x="1046" y="493">3,614</text><text class="small success" x="1150" y="490">已完成 3,580</text>
+    <rect x="1352" y="426" width="342" height="92" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="small muted" x="1374" y="454">字幕文件</text><text class="metric ink" x="1374" y="493">3,012</text><text class="small warning" x="1479" y="490">已完成 2,980</text>
+
+    <rect x="368" y="550" width="600" height="326" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="section ink" x="392" y="588">实时队列</text><text class="small muted" x="486" y="588">所有入口共用同一套队列状态</text>
+    <line x1="392" y1="608" x2="944" y2="608" class="hairline"/>
+    <text class="small muted" x="392" y="641">等待中</text><text class="big-number warning" x="392" y="679">24</text>
+    <text class="small muted" x="500" y="641">进行中</text><text class="big-number primary-text" x="500" y="679">3</text>
+    <text class="small muted" x="608" y="641">重试中</text><text class="big-number warning" x="608" y="679">6</text>
+    <text class="small muted" x="716" y="641">失败</text><text class="big-number danger" x="716" y="679">2</text>
+    <text class="small muted" x="824" y="641">已跳过</text><text class="big-number neutral" x="824" y="679">8,902</text>
+    <rect x="392" y="712" width="552" height="44" rx="6" fill="#f5f8fa"/>
+    <text class="small muted" x="412" y="739">最高优先级</text><text class="small primary-text" x="520" y="739" font-weight="700">监控新增 · /CloudDrive/电影/第 08 集.mkv</text>
+    <rect x="392" y="778" width="166" height="40" rx="6" fill="#e5f5f3"/>
+    <text class="label primary-text" x="475" y="803" text-anchor="middle">查看任务中心</text>
+    <rect x="574" y="778" width="190" height="40" rx="6" fill="#fff8eb" stroke="#f1d7a6"/>
+    <text class="label warning" x="669" y="803" text-anchor="middle">待确认清理 · 1 批</text>
+    <text class="small muted" x="786" y="803">清理始终人工确认</text>
+
+    <rect x="990" y="550" width="704" height="326" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="section ink" x="1014" y="588">近期运行</text><text class="small muted" x="1100" y="588">运行级摘要 · 可下钻到动作日志</text><text class="label primary-text" x="1618" y="588">查看全部</text>
+    <line x1="1014" y1="608" x2="1670" y2="608" class="hairline"/>
+    <text class="small faint" x="1014" y="635" font-weight="700">入口 / 时间</text><text class="small faint" x="1210" y="635" font-weight="700">运行状态</text><text class="small faint" x="1330" y="635" font-weight="700">结果</text><text class="small faint" x="1586" y="635" font-weight="700">通知</text>
+    <line x1="1014" y1="648" x2="1670" y2="648" class="hairline"/>
+    <text class="small ink" x="1014" y="675">全量生成 · 14:30</text><rect x="1210" y="658" width="74" height="24" rx="12" fill="#fff8eb"/><text class="small warning" x="1247" y="674" text-anchor="middle" font-weight="700">部分完成</text><text class="small muted" x="1330" y="675">12,451 完成 · 2 失败</text><text class="small success" x="1586" y="675">已聚合</text>
+    <line x1="1014" y1="695" x2="1670" y2="695" class="hairline"/>
+    <text class="small ink" x="1014" y="722">目录监控 · 14:18</text><rect x="1210" y="705" width="48" height="24" rx="12" fill="#fff1f0"/><text class="small danger" x="1234" y="721" text-anchor="middle" font-weight="700">失败</text><text class="small danger" x="1330" y="722">字幕 1 · 重试 3</text><text class="small muted" x="1586" y="722">未发送</text>
+    <line x1="1014" y1="742" x2="1670" y2="742" class="hairline"/>
+    <text class="small ink" x="1014" y="769">定向生成 · 11:04</text><rect x="1210" y="752" width="62" height="24" rx="12" fill="#e9f7ee"/><text class="small success" x="1241" y="768" text-anchor="middle" font-weight="700">已完成</text><text class="small muted" x="1330" y="769">60 个文件任务</text><text class="small success" x="1586" y="769">已发送</text>
+    <line x1="1014" y1="789" x2="1670" y2="789" class="hairline"/>
+    <text class="small muted" x="1014" y="824">运行状态与动作状态分开显示，避免“已处理”掩盖失败动作。</text>
+
+    <!-- full generation drawer -->
+    <rect x="1116" y="160" width="614" height="780" fill="#0f1f2c" opacity="0.18"/>
+    <rect x="1132" y="182" width="566" height="736" rx="10" fill="#ffffff" filter="url(#panel-shadow)"/>
+    <text class="page-title ink" x="1164" y="230">执行全量生成</text>
+    <text class="body muted" x="1164" y="256">本次配置只作用于当前运行，不改变全局配置。</text>
+    <rect x="1642" y="207" width="32" height="32" rx="6" fill="#f3f6f8"/>
+    <path d="M1652 217l12 12m0-12-12 12" stroke="#536776" stroke-width="1.6" stroke-linecap="round"/>
+    <line x1="1132" y1="280" x2="1698" y2="280" class="border"/>
+    <text class="section ink" x="1164" y="322">扫描范围</text>
+    <rect x="1164" y="340" width="502" height="42" rx="6" fill="#ffffff" stroke="#c4d2da"/>
+    <text class="body ink" x="1184" y="367">全部有效规则</text><path d="M1635 357l8 8 8-8" fill="none" stroke="#60717f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="section ink" x="1164" y="428">本次处理内容</text>
+    <rect x="1164" y="448" width="502" height="52" rx="7" fill="#eef8f6"/>
+    <rect x="1184" y="464" width="20" height="20" rx="4" fill="#0f766e"/><path d="M1189 474l4 4 7-8" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="body ink" x="1220" y="480" font-weight="700">生成 STRM</text><text class="small muted" x="1450" y="480">12,480 个媒体文件</text>
+    <rect x="1164" y="510" width="502" height="52" rx="7" fill="#ffffff" stroke="#d8e1e8"/>
+    <rect x="1184" y="526" width="20" height="20" rx="4" fill="#0f766e"/><path d="M1189 536l4 4 7-8" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="body ink" x="1220" y="542" font-weight="700">复制字幕</text><text class="small muted" x="1480" y="542">3,012 个文件</text>
+    <rect x="1164" y="572" width="502" height="52" rx="7" fill="#ffffff" stroke="#d8e1e8"/>
+    <rect x="1184" y="588" width="20" height="20" rx="4" fill="#0f766e"/><path d="M1189 598l4 4 7-8" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="body ink" x="1220" y="604" font-weight="700">复制非媒体文件</text><text class="small muted" x="1480" y="604">3,614 个文件</text>
+    <rect x="1164" y="648" width="502" height="88" rx="7" fill="#f5f8fa" stroke="#d8e1e8"/>
+    <text class="label ink" x="1184" y="675">执行预览</text>
+    <text class="small muted" x="1184" y="702">文件任务</text><text class="small ink" x="1266" y="702" font-weight="700">12,480</text>
+    <text class="small muted" x="1350" y="702">文件动作</text><text class="small primary-text" x="1432" y="702" font-weight="700">19,106</text>
+    <text class="small warning" x="1184" y="724">数字口径已拆开：文件任务 ≠ 文件动作</text>
+    <rect x="1164" y="752" width="502" height="58" rx="7" fill="#fff8eb" stroke="#f1d7a6"/>
+    <text class="label warning" x="1184" y="777">覆盖已有 STRM</text><text class="small muted" x="1184" y="796">本次关闭 · 全局配置不被修改</text>
+    <rect x="1608" y="769" width="38" height="22" rx="11" fill="#cbd5dc"/><circle cx="1619" cy="780" r="8" fill="#ffffff"/>
+    <line x1="1132" y1="834" x2="1698" y2="834" class="border"/>
+    <text class="small muted" x="1164" y="862">监控新增仍按优先级先处理 · ESC 可关闭</text>
+    <rect x="1444" y="856" width="86" height="40" rx="6" fill="#ffffff" stroke="#c4d2da"/><text class="label" x="1487" y="881" text-anchor="middle" fill="#526a77">取消</text>
+    <rect x="1540" y="856" width="126" height="40" rx="6" fill="#0f766e"/><text class="label" x="1603" y="881" text-anchor="middle" fill="#ffffff">开始生成</text>
+  </g>
+  <g class="ui"><text class="label primary-text" x="70" y="974">01 · 同步工作台 + 全量生成设置</text><text class="small muted" x="70" y="997">优化点：运行状态与库存分层；明确 12,480 个文件任务和 19,106 个文件动作；补入清理确认和通知结果。</text></g>
+
+  <!-- 02 task center -->
+  <g filter="url(#board-shadow)"><rect x="70" y="1030" width="1660" height="850" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <use href="#sidebar-task" x="70" y="1030" width="250" height="850" preserveAspectRatio="none"/>
+    <rect x="320" y="1030" width="1410" height="850" fill="#fbfcfe"/>
+    <text class="page-title ink" x="368" y="1088">任务中心</text>
+    <text class="body muted" x="368" y="1115">按入口、状态和路径定位运行结果；低频条件收进更多筛选。</text>
+    <rect x="1546" y="1060" width="148" height="40" rx="6" fill="#ffffff" stroke="#c4d2da"/>
+    <path d="M1568 1073a10 10 0 1 0 9 14M1577 1073v7h-7" fill="none" stroke="#526b78" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="label" x="1590" y="1085" fill="#3a5966">刷新任务</text>
+    <line x1="368" y1="1142" x2="1694" y2="1142" class="border"/>
+
+    <rect x="368" y="1166" width="1326" height="104" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="label muted" x="388" y="1190">常用筛选</text>
+    <rect x="388" y="1202" width="148" height="36" rx="6" fill="#ffffff" stroke="#c4d2da"/><text class="small muted" x="406" y="1225">时间：最近 7 天</text><path d="M511 1214l7 7 7-7" fill="none" stroke="#60717f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="548" y="1202" width="142" height="36" rx="6" fill="#ffffff" stroke="#c4d2da"/><text class="small muted" x="566" y="1225">入口：全部</text><path d="M663 1214l7 7 7-7" fill="none" stroke="#60717f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="702" y="1202" width="158" height="36" rx="6" fill="#ffffff" stroke="#c4d2da"/><text class="small muted" x="720" y="1225">状态：需要关注</text><path d="M833 1214l7 7 7-7" fill="none" stroke="#60717f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="872" y="1202" width="306" height="36" rx="6" fill="#ffffff" stroke="#c4d2da"/>
+    <path d="M892 1212a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm5 12 6 6" fill="none" stroke="#6f8290" stroke-width="1.4" stroke-linecap="round"/>
+    <text class="small faint" x="913" y="1225">搜索源路径或目标路径</text>
+    <rect x="1196" y="1202" width="122" height="36" rx="6" fill="#eef8f6"/><text class="label primary-text" x="1257" y="1225" text-anchor="middle">应用筛选</text>
+    <rect x="1332" y="1202" width="130" height="36" rx="6" fill="#ffffff" stroke="#c4d2da"/><path d="M1352 1212h18m-14 7h10m-6 7h2" stroke="#0f766e" stroke-width="1.5" stroke-linecap="round"/><text class="label primary-text" x="1410" y="1225">更多筛选</text>
+    <text class="small muted" x="1484" y="1225">12,486 条结果</text>
+    <rect x="388" y="1248" width="112" height="24" rx="12" fill="#e5f5f3"/><text class="small primary-text" x="444" y="1264" text-anchor="middle">需要关注 ×</text>
+    <rect x="510" y="1248" width="114" height="24" rx="12" fill="#f1f5f7"/><text class="small muted" x="567" y="1264" text-anchor="middle">最近 7 天 ×</text>
+    <text class="small primary-text" x="646" y="1264">清除筛选</text>
+
+    <text class="section ink" x="368" y="1316">任务状态</text><text class="small muted" x="456" y="1316">点击统计卡可直接筛选</text>
+    <rect x="368" y="1332" width="202" height="62" rx="7" fill="#fff8eb" stroke="#f1d7a6"/><text class="small warning" x="388" y="1357">等待中</text><text class="metric warning" x="388" y="1383">24</text>
+    <rect x="586" y="1332" width="202" height="62" rx="7" fill="#e5f5f3" stroke="#b9dfda"/><text class="small primary-text" x="606" y="1357">进行中</text><text class="metric primary-text" x="606" y="1383">3</text>
+    <rect x="804" y="1332" width="202" height="62" rx="7" fill="#f5f8fa" stroke="#d8e1e8"/><text class="small muted" x="824" y="1357">已完成</text><text class="metric ink" x="824" y="1383">12,408</text>
+    <rect x="1022" y="1332" width="202" height="62" rx="7" fill="#f5f8fa" stroke="#d8e1e8"/><text class="small neutral" x="1042" y="1357">已跳过</text><text class="metric neutral" x="1042" y="1383">8,902</text>
+    <rect x="1240" y="1332" width="202" height="62" rx="7" fill="#fff8eb" stroke="#f1d7a6"/><text class="small warning" x="1260" y="1357">重试中</text><text class="metric warning" x="1260" y="1383">6</text>
+    <rect x="1458" y="1332" width="236" height="62" rx="7" fill="#fff1f0" stroke="#f0c2bf"/><text class="small danger" x="1478" y="1357">失败</text><text class="metric danger" x="1478" y="1383">2</text><text class="small danger" x="1525" y="1381">需要介入</text>
+
+    <rect x="368" y="1426" width="1326" height="392" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <rect x="368" y="1426" width="1326" height="44" rx="8" fill="#f5f8fa"/>
+    <text class="label muted" x="392" y="1453">运行任务 / 入口</text><text class="label muted" x="666" y="1453">运行状态</text><text class="label muted" x="816" y="1453">文件任务进度</text><text class="label muted" x="1048" y="1453">动作结果</text><text class="label muted" x="1394" y="1453">开始 / 耗时</text><text class="label muted" x="1622" y="1453">操作</text>
+    <line x1="368" y1="1470" x2="1694" y2="1470" class="border"/>
+    <text class="small ink" x="392" y="1502" font-weight="700">全量生成</text><text class="small muted" x="392" y="1523">今天 14:30 · 全部规则</text>
+    <rect x="666" y="1488" width="74" height="24" rx="12" fill="#fff8eb"/><text class="small warning" x="703" y="1504" text-anchor="middle" font-weight="700">部分完成</text>
+    <text class="small ink" x="816" y="1502">12,480 / 12,480</text><rect x="816" y="1519" width="182" height="5" rx="2" fill="#15803d"/>
+    <text class="small muted" x="1048" y="1502">STRM 126 · 字幕 48 · 失败 2</text><text class="small muted" x="1394" y="1502">14:30 · 01:42</text><text class="label primary-text" x="1622" y="1502">详情</text>
+    <line x1="392" y1="1546" x2="1670" y2="1546" class="hairline"/>
+    <text class="small ink" x="392" y="1578" font-weight="700">目录监控</text><text class="small muted" x="392" y="1599">今天 14:18 · 国产剧</text>
+    <rect x="666" y="1564" width="48" height="24" rx="12" fill="#fff1f0"/><text class="small danger" x="690" y="1580" text-anchor="middle" font-weight="700">失败</text>
+    <text class="small ink" x="816" y="1578">4 / 5</text><rect x="816" y="1595" width="145" height="5" rx="2" fill="#b42318"/>
+    <text class="small danger" x="1048" y="1578">STRM 4 · 字幕失败 1</text><text class="small muted" x="1394" y="1578">14:18 · 00:08</text><text class="label primary-text" x="1622" y="1578">详情</text>
+    <line x1="392" y1="1622" x2="1670" y2="1622" class="hairline"/>
+    <text class="small ink" x="392" y="1654" font-weight="700">定向生成</text><text class="small muted" x="392" y="1675">今天 11:04 · /CloudDrive/电影/黑金营救</text>
+    <rect x="666" y="1640" width="62" height="24" rx="12" fill="#e9f7ee"/><text class="small success" x="697" y="1656" text-anchor="middle" font-weight="700">已完成</text>
+    <text class="small ink" x="816" y="1654">60 / 60</text><rect x="816" y="1671" width="182" height="5" rx="2" fill="#15803d"/>
+    <text class="small muted" x="1048" y="1654">STRM 48 · 字幕 12</text><text class="small muted" x="1394" y="1654">11:04 · 00:36</text><text class="label primary-text" x="1622" y="1654">详情</text>
+    <line x1="392" y1="1698" x2="1670" y2="1698" class="hairline"/>
+    <text class="small ink" x="392" y="1730" font-weight="700">清理批次</text><text class="small muted" x="392" y="1751">今天 09:30 · 待人工确认</text>
+    <rect x="666" y="1716" width="74" height="24" rx="12" fill="#fff8eb"/><text class="small warning" x="703" y="1732" text-anchor="middle" font-weight="700">待确认</text>
+    <text class="small warning" x="816" y="1730">1 批 · 36 个候选</text><text class="small muted" x="1048" y="1730">预览后确认删除</text><text class="small muted" x="1394" y="1730">09:30 · --</text><text class="label warning" x="1622" y="1730">查看</text>
+    <text class="small muted" x="392" y="1782">服务端分页 · 每页 50 条 · 返回详情时保留筛选、排序和分页位置</text>
+  </g>
+  <g class="ui"><text class="label primary-text" x="70" y="1914">02 · 任务中心</text><text class="small muted" x="70" y="1937">优化点：默认筛选收敛到常用条件；状态卡可点击；低频条件进入更多筛选；清理批次成为可操作入口。</text></g>
+
+  <!-- 03 task detail -->
+  <g filter="url(#board-shadow)"><rect x="70" y="1970" width="1660" height="720" rx="14" fill="#fbfcfe"/></g>
+  <g class="ui">
+    <use href="#sidebar-task" x="70" y="1970" width="250" height="720" preserveAspectRatio="none"/>
+    <rect x="320" y="1970" width="1410" height="720" fill="#fbfcfe"/>
+    <text class="small faint" x="368" y="2010">任务中心 / 全量生成 / 今天 14:30</text>
+    <text class="page-title ink" x="368" y="2055">全量生成 · 2026-08-15 14:30</text>
+    <rect x="688" y="2028" width="74" height="28" rx="14" fill="#fff8eb"/><text class="small warning" x="725" y="2046" text-anchor="middle" font-weight="700">部分完成</text>
+    <text class="body muted" x="782" y="2048">运行级状态：已结束，但存在 2 个失败动作</text>
+    <rect x="1390" y="2020" width="190" height="38" rx="6" fill="#ffffff" stroke="#d7aaa6"/><text class="label danger" x="1485" y="2044" text-anchor="middle">重试全部失败动作（2）</text>
+    <rect x="1592" y="2020" width="102" height="38" rx="6" fill="#0f766e"/><text class="label" x="1643" y="2044" text-anchor="middle" fill="#ffffff">返回列表</text>
+    <line x1="368" y1="2080" x2="1694" y2="2080" class="border"/>
+
+    <rect x="368" y="2104" width="1326" height="84" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="small muted" x="392" y="2132">文件任务</text><text class="metric ink" x="392" y="2168">12,480</text>
+    <text class="small muted" x="564" y="2132">文件动作</text><text class="metric primary-text" x="564" y="2168">19,106</text>
+    <text class="small muted" x="742" y="2132">已完成动作</text><text class="metric success" x="742" y="2168">19,077</text>
+    <text class="small muted" x="940" y="2132">已跳过</text><text class="metric neutral" x="940" y="2168">27</text>
+    <text class="small muted" x="1092" y="2132">失败</text><text class="metric danger" x="1092" y="2168">2</text>
+    <text class="small muted" x="1254" y="2132">自动重试</text><text class="body warning" x="1254" y="2166" font-weight="700">2 / 3 次</text>
+    <text class="small muted" x="1430" y="2132">通知</text><text class="body success" x="1430" y="2166" font-weight="700">已聚合</text>
+
+    <rect x="368" y="2210" width="842" height="424" rx="8" fill="#ffffff" stroke="#d8e1e8"/>
+    <text class="section ink" x="392" y="2248">动作日志</text><text class="small muted" x="486" y="2248">运行任务 → 文件任务 → 文件动作</text>
+    <rect x="392" y="2268" width="794" height="42" rx="6" fill="#f5f8fa"/>
+    <text class="label muted" x="410" y="2295">源文件 / 动作</text><text class="label muted" x="742" y="2295">目标文件</text><text class="label muted" x="1006" y="2295">状态</text><text class="label muted" x="1120" y="2295">尝试</text>
+    <line x1="392" y1="2310" x2="1186" y2="2310" class="border"/>
+    <rect x="392" y="2324" width="794" height="64" rx="6" fill="#eef8f6"/>
+    <text class="small ink" x="410" y="2347" font-weight="700">黑金营救.mkv</text><text class="small primary-text" x="410" y="2370">生成 STRM</text><text class="small mono muted" x="742" y="2347">/Strm/电影/黑金营救.strm</text>
+    <rect x="1006" y="2338" width="62" height="24" rx="12" fill="#e9f7ee"/><text class="small success" x="1037" y="2354" text-anchor="middle" font-weight="700">已完成</text><text class="small muted" x="1120" y="2353">1</text>
+    <line x1="410" y1="2404" x2="1168" y2="2404" class="hairline"/>
+    <rect x="392" y="2418" width="794" height="64" rx="6" fill="#fff6f5" stroke="#f0c2bf"/>
+    <text class="small ink" x="410" y="2441" font-weight="700">黑金营救.srt</text><text class="small danger" x="410" y="2464">复制字幕</text><text class="small mono muted" x="742" y="2441">/Strm/电影/黑金营救.srt</text>
+    <rect x="1006" y="2432" width="48" height="24" rx="12" fill="#fff1f0"/><text class="small danger" x="1030" y="2448" text-anchor="middle" font-weight="700">失败</text><text class="small danger" x="1120" y="2447">3</text>
+    <line x1="410" y1="2500" x2="1168" y2="2500" class="hairline"/>
+    <text class="small ink" x="410" y="2537" font-weight="700">黑金营救.nfo</text><text class="small neutral" x="410" y="2560">复制非媒体</text><text class="small mono muted" x="742" y="2537">/Strm/电影/黑金营救.nfo</text>
+    <rect x="1006" y="2528" width="62" height="24" rx="12" fill="#eef2f5"/><text class="small neutral" x="1037" y="2544" text-anchor="middle" font-weight="700">已跳过</text><text class="small neutral" x="1120" y="2543">1</text>
+    <text class="small muted" x="410" y="2602">选中失败动作后，右侧显示错误、诊断和修复建议。</text>
+
+    <rect x="1232" y="2210" width="462" height="424" rx="8" fill="#ffffff" stroke="#f0c2bf"/>
+    <rect x="1232" y="2210" width="462" height="5" rx="2" fill="#b42318"/>
+    <text class="section ink" x="1256" y="2248">动作详情</text><rect x="1600" y="2228" width="68" height="24" rx="12" fill="#fff1f0"/><text class="small danger" x="1634" y="2244" text-anchor="middle" font-weight="700">失败</text>
+    <text class="small muted" x="1256" y="2282">动作</text><text class="body danger" x="1350" y="2282" font-weight="700">复制字幕</text>
+    <text class="small muted" x="1256" y="2312">源文件</text><text class="small mono ink" x="1350" y="2312">/CloudDrive/电影/黑金营救.srt</text>
+    <text class="small muted" x="1256" y="2342">目标文件</text><text class="small mono ink" x="1350" y="2342">/Strm/电影/黑金营救.srt</text>
+    <text class="small muted" x="1256" y="2372">尝试次数</text><text class="body danger" x="1350" y="2372" font-weight="700">3 次 · 自动重试已用尽</text>
+    <line x1="1256" y1="2398" x2="1670" y2="2398" class="border"/>
+    <text class="label danger" x="1256" y="2428">诊断结论</text><text class="body danger" x="1256" y="2456" font-weight="700">目标目录没有写入权限</text>
+    <rect x="1256" y="2472" width="414" height="62" rx="6" fill="#fff8eb" stroke="#f1d7a6"/>
+    <text class="small warning" x="1274" y="2496">检查目标挂载、容器 UID/GID、NAS ACL，</text><text class="small warning" x="1274" y="2518">确认目录可写后，再手动重试。</text>
+    <text class="small muted" x="1256" y="2564">影响范围：当前动作 1 个 · 当前文件 1 个</text>
+    <rect x="1256" y="2580" width="196" height="40" rx="6" fill="#ffffff" stroke="#d7aaa6"/><text class="label danger" x="1354" y="2605" text-anchor="middle">重试此动作</text>
+    <rect x="1462" y="2580" width="208" height="40" rx="6" fill="#0f766e"/><text class="label" x="1566" y="2605" text-anchor="middle" fill="#ffffff">重试此文件任务</text>
+  </g>
+  <g class="ui"><text class="label primary-text" x="70" y="2724">03 · 任务详情与动作级重试</text><text class="small muted" x="70" y="2747">优化点：重试按钮带范围和数量；运行级“部分完成”与动作级“失败”并存；自动重试与人工重试可区分。</text></g>
+
+  <rect x="70" y="2782" width="1660" height="1" fill="#cbd8df"/>
+  <g class="ui">
+    <text class="small muted" x="70" y="2810">落地原则：</text>
+    <text class="small ink" x="140" y="2810">三种入口共用持久化队列</text>
+    <text class="small muted" x="328" y="2810">·</text>
+    <text class="small ink" x="348" y="2810">库存与任务结果分层</text>
+    <text class="small muted" x="512" y="2810">·</text>
+    <text class="small ink" x="532" y="2810">清理始终人工确认</text>
+    <text class="small muted" x="688" y="2810">·</text>
+    <text class="small ink" x="708" y="2810">任务摘要保留 90 天，动作明细保留 30 天</text>
+    <text class="small muted" x="1098" y="2810">·</text>
+    <text class="small ink" x="1118" y="2810">窄屏允许表格横向滚动</text>
+  </g>
+</svg>

@@ -321,6 +321,39 @@ class TaskStore:
             )
             self._conn.commit()
 
+    def cancel_run(self, run_id: str, message: str = "用户取消") -> bool:
+        """Mark an active run cancelled without rewriting its historical counters."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT status FROM task_runs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if not row or row["status"] != "running":
+                return False
+            self._conn.execute(
+                "UPDATE task_runs SET status = 'cancelled', finished_at = ?, message = ? WHERE run_id = ?",
+                (time.time(), message[:1000], run_id),
+            )
+            self._conn.commit()
+            return True
+
+    def cancel_run_jobs(self, run_id: str) -> int:
+        """Remove queued jobs that belong to a cancelled run."""
+        removed = 0
+        with self._lock:
+            rows = self._conn.execute("SELECT id, payload FROM pending_jobs").fetchall()
+            for row in rows:
+                try:
+                    payload = json.loads(row["payload"] or "{}")
+                except (TypeError, ValueError):
+                    payload = {}
+                if str(payload.get("run_id") or "") != str(run_id):
+                    continue
+                self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (row["id"],))
+                removed += 1
+            self._conn.commit()
+        return removed
+
     def finish_run_if_settled(self, run_id: str) -> bool:
         """Finish a queued run only after every accepted job reached a terminal result."""
         with self._lock:
@@ -401,6 +434,8 @@ class TaskStore:
     def status(self) -> dict:
         with self._lock:
             queued = self._conn.execute("SELECT COUNT(*) FROM pending_jobs").fetchone()[0]
+            retrying = self._conn.execute("SELECT COUNT(*) FROM pending_jobs WHERE attempts > 0").fetchone()[0]
+            open_failures = self._conn.execute("SELECT COUNT(*) FROM task_failures WHERE resolved_at IS NULL").fetchone()[0]
             running = self._conn.execute("SELECT * FROM task_runs WHERE status = 'running' ORDER BY started_at DESC").fetchall()
             latest = self._conn.execute("SELECT * FROM task_runs ORDER BY started_at DESC LIMIT 20").fetchall()
             pending_cleanup = self._conn.execute("SELECT batch_id,monitor_root,paths,created_at,expires_at FROM cleanup_batches WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC", (time.time(),)).fetchall()
@@ -417,11 +452,24 @@ class TaskStore:
                 item["result_counts"].setdefault(key, 0)
             return item
 
+        processed = sum(int(row.get("processed") or 0) for row in (run_dict(item) for item in latest))
+        skipped = sum(
+            int(row.get("skipped") or 0) + int(row.get("unchanged") or 0)
+            for row in (run_dict(item) for item in latest)
+        )
         return {
             "queued": queued,
             "running": [run_dict(row) for row in running],
             "recent_runs": [run_dict(row) for row in latest],
             "cleanup_batches": [{**dict(row), "path_count": len(json.loads(row["paths"]))} for row in pending_cleanup],
+            "task_summary": {
+                "waiting": int(queued),
+                "in_progress": len(running),
+                "processed": int(processed),
+                "skipped": int(skipped),
+                "retrying": int(retrying),
+                "failed": int(open_failures),
+            },
         }
 
     def failures(self, limit: int = 100, include_resolved: bool = False) -> List[dict]:

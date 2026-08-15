@@ -102,6 +102,12 @@ test('normalizeBoolean handles values returned as strings', () => {
   assert.equal(normalizeBoolean('on'), true)
 })
 
+test('new configurations enable the durable queue by default', () => {
+  const payload = buildConfigPayload({ rules: [] })
+
+  assert.equal(payload.reliable_engine, true)
+})
+
 test('serializeConfig accepts Vue reactive configuration objects', () => {
   const config = reactive({
     enabled: false,
