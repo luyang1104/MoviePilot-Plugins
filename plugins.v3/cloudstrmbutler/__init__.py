@@ -1,4 +1,5 @@
 import json
+import filecmp
 import hashlib
 import os
 import re
@@ -76,7 +77,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.19"
+    plugin_version = "2.1.20"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1296,13 +1297,20 @@ class CloudStrmButler(_PluginBase):
         """Copy one sidecar through a same-directory temporary file."""
         temp_path = None
         try:
+            target_path = Path(target_file)
+            if target_path.is_file():
+                try:
+                    if filecmp.cmp(str(event_path), str(target_path), shallow=False):
+                        logger.info(f"{kind}已存在且内容一致，跳过复制 {target_file}")
+                        return target_file
+                except OSError:
+                    pass
             target_dir = os.path.dirname(target_file)
             if target_dir:
                 os.makedirs(target_dir, exist_ok=True)
             write_check = self._check_write_target(target_file)
             if not write_check["writable"]:
                 raise PermissionError(write_check["raw_error"])
-            target_path = Path(target_file)
             with tempfile.NamedTemporaryFile(
                 prefix=f".{target_path.name}.",
                 suffix=".tmp",
@@ -2091,7 +2099,7 @@ class CloudStrmButler(_PluginBase):
                         season_episode = key
                         media_type = MediaType.MOVIE
                     mediainfo = self.chain.recognize_media(
-                        meta=file_meta, mtype=media_type, tmdbid=file_meta.tmdbid
+                        meta=file_meta, mtype=media_type
                     )
                     image = None
                     if mediainfo:

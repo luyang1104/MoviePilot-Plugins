@@ -2,6 +2,7 @@ import shutil
 import tempfile
 import threading
 import time
+from datetime import datetime, timedelta
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -499,6 +500,56 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(destination.read_text(encoding="utf-8"), "old")
         self.assertEqual(list(target.glob(".movie.nfo.*.tmp")), [])
+
+    def test_identical_existing_sidecar_skips_write_probe_and_records_success(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        sidecar = source / "movie.ass"
+        destination = target / "movie.ass"
+        sidecar.write_bytes(b"subtitle bytes")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(sidecar.read_bytes())
+
+        with patch.object(
+            plugin,
+            "_check_write_target",
+            return_value={"writable": False, "raw_error": "target is read-only"},
+        ) as write_check:
+            result = plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual(result["outputs"], [str(destination)])
+        write_check.assert_not_called()
+        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.ass"))
+
+    def test_media_notification_uses_current_recognize_media_signature(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin._notify = True
+        plugin._interval = 0
+        file_meta = plugin_module.MetaInfoPath(Path("/library/Movie (2020) [tmdbid=123].strm"))
+        file_meta.tmdbid = "123"
+        plugin._medias = {
+            "Movie (2020)": {
+                "episodes": [],
+                "file_meta": file_meta,
+                "type": "movie",
+                "time": datetime.now() - timedelta(seconds=1),
+            }
+        }
+
+        plugin.send_msg()
+
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertEqual(plugin.messages[0]["title"], "Movie (2020) Strm已生成")
+        self.assertEqual(file_meta.tmdbid, "123")
 
     def test_disabling_sidecar_copy_removes_old_output(self):
         base = self.new_temp()

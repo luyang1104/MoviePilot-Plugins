@@ -108,7 +108,7 @@ import Config from './Config.vue'
 import { unwrapApiResponse } from './api_response.js'
 import { readPluginConfig } from './config_persistence.js'
 
-const props = defineProps({ api: { type: Object, default: () => ({}) }, initialConfig: { type: Object, default: () => ({}) }, config: { type: Object, default: () => ({}) }, version: { type: String, default: '2.1.19' }, defaultTab: { type: String, default: 'dashboard' } })
+const props = defineProps({ api: { type: Object, default: () => ({}) }, initialConfig: { type: Object, default: () => ({}) }, config: { type: Object, default: () => ({}) }, version: { type: String, default: '2.1.20' }, defaultTab: { type: String, default: 'dashboard' } })
 const emit = defineEmits(['save'])
 const activeTab = ref(props.defaultTab === 'config' ? 'config' : 'dashboard')
 const loading = ref(false); const error = ref(''); const pending = ref(null); const lastUpdated = ref(null); const failures = ref([]); const savedConfig = ref(null)
@@ -123,7 +123,7 @@ const status = reactive({
   command_progress: { running: false, run_id: '', label: '', phase: 'idle', current_path: '', total: 0, processed: 0, unchanged: 0, skipped: 0, failed: 0, stalled: false, stalled_seconds: 0, last_progress_at: null }, recent_runs: [], cleanup_batches: [],
 })
 
-const version = computed(() => props.version || '2.1.19')
+const version = computed(() => props.version || '2.1.20')
 const initialConfig = computed(() => savedConfig.value && Object.keys(savedConfig.value).length ? savedConfig.value : (Object.keys(props.initialConfig || {}).length ? props.initialConfig : props.config || {}))
 const runtimeActive = computed(() => Boolean(status.service_busy || status.scan_running || status.command_running))
 const busy = computed(() => Boolean(status.scan_running || status.command_running || status.scan_progress?.running || status.command_progress?.running))
