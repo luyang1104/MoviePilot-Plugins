@@ -263,6 +263,30 @@ class PluginTests(unittest.TestCase):
         self.assertTrue(plugin._observer[0].running)
         self.assertEqual(len(plugin._observer[0].handlers), 1)
 
+    def test_stop_service_stops_all_observers_before_waiting(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        events = []
+        test_case = self
+
+        class BlockingObserver:
+            def __init__(self):
+                self.stopped = False
+
+            def stop(self):
+                self.stopped = True
+                events.append("stop")
+
+            def join(self, timeout=None):
+                events.append("join")
+                test_case.assertEqual(events[:2], ["stop", "stop"])
+                test_case.assertTrue(self.stopped)
+
+        observers = [BlockingObserver(), BlockingObserver()]
+        plugin._observer = observers
+
+        self.assertTrue(plugin.stop_service())
+        self.assertEqual(events, ["stop", "stop", "join", "join"])
+
     def test_media_file_is_current_after_first_write(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)

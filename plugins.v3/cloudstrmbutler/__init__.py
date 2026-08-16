@@ -76,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.18"
+    plugin_version = "2.1.19"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -2536,14 +2536,21 @@ class CloudStrmButler(_PluginBase):
         """
         退出插件
         """
-        if self._observer:
-            for observer in self._observer:
-                try:
-                    observer.stop()
-                    observer.join(timeout=10)
-                except Exception as e:
-                    logger.warning(f"停止目录监控失败：{e}")
+        observers = list(self._observer)
         self._observer = []
+        # Stop all polling observers before waiting so MoviePilot config reload
+        # is not delayed once per monitored directory.
+        for observer in observers:
+            try:
+                observer.stop()
+            except Exception as e:
+                logger.warning(f"停止目录监控失败：{e}")
+        observer_deadline = time.monotonic() + 2
+        for observer in observers:
+            try:
+                observer.join(timeout=max(0, observer_deadline - time.monotonic()))
+            except Exception as e:
+                logger.warning(f"等待目录监控退出失败：{e}")
         if self._scheduler:
             self._scheduler.remove_all_jobs()
             if self._scheduler.running:
