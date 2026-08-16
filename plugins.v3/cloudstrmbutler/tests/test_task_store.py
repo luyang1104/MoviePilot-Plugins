@@ -26,6 +26,35 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(len(jobs), 1)
         self.assertEqual(jobs[0].path, "/media/movie.mkv")
 
+    def test_claimed_job_keeps_a_later_generation(self):
+        self.store.enqueue("/media", "/media/movie.mkv", "sync")
+        job = self.store.claim_ready()[0]
+
+        self.assertTrue(
+            self.store.enqueue(
+                "/media",
+                "/media/movie.mkv",
+                "sync",
+                payload={"run_id": "scan-1", "wait_stable": True},
+            )
+        )
+        self.assertTrue(self.store.complete_job(job))
+
+        follow_up = self.store.claim_ready()[0]
+        self.assertEqual(follow_up.payload["run_id"], "scan-1")
+        self.assertTrue(follow_up.payload["wait_stable"])
+
+    def test_retry_restores_failure_payload(self):
+        payload = {"run_id": "scan-1", "copy_files": True, "wait_stable": True}
+        self.store.enqueue("/media", "/media/movie.mkv", "sync", payload=payload)
+        job = self.store.claim_ready()[0]
+        self.store.fail_job(job, "template invalid")
+
+        failure = self.store.failures()[0]
+        self.assertEqual(failure["payload"], payload)
+        self.assertTrue(self.store.retry_failure(failure["id"]))
+        self.assertEqual(self.store.claim_ready()[0].payload, payload)
+
     def test_failure_can_be_retried(self):
         self.store.enqueue("/media", "/media/movie.mkv", "sync")
         job = self.store.claim_ready()[0]
@@ -78,6 +107,8 @@ class TaskStoreTests(unittest.TestCase):
         batch_id = self.store.create_cleanup_batch("/media", ["/out/a.strm", "/out/a.strm"])
         self.assertEqual(self.store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
         self.assertIsNone(self.store.claim_cleanup_batch(batch_id))
+        self.store.release_cleanup_batch(batch_id)
+        self.assertEqual(self.store.claim_cleanup_batch(batch_id), ["/out/a.strm"])
 
     def test_cleanup_batch_can_keep_source_ownership(self):
         batch_id = self.store.create_cleanup_batch(

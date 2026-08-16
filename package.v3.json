@@ -35,11 +35,12 @@
     "name": "云盘Strm小管家",
     "description": "实时监控云盘目录，增量生成 STRM 文件，复制字幕和旁车文件，并刷新 Emby。",
     "labels": "moviepilot",
-    "version": "2.1.20",
+    "version": "2.1.21",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png",
     "author": "Felix Yang",
     "level": 2,
     "history": {
+      "2.1.21": "修复可靠队列去重在任务执行期间丢失后续事件、全量扫描无法结算的问题；修复模板或配置变化时旧 STRM 被误标记为最新、清理失败却删除状态记录、源目录不可用仍显示成功、失败重试丢失任务参数，以及监控标记大小写和旁车文件同大小替换检测问题。",
       "2.1.20": "修复 MoviePilot v3 通知接口兼容性：移除 recognize_media 已不支持的 tmdbid 参数；修复目标字幕已存在且内容一致时因云盘目录暂时不可写而被误报复制失败的问题，并补充状态记录。",
       "2.1.19": "修复 MoviePilot v3 重载插件时逐个等待目录监控退出导致接口延迟的问题；统一发布版本号并优化监控停止流程。",
       "2.1.18": "收敛 MoviePilot 插件工作台：保留运行状态与插件配置两个页签，突出媒体、STRM、字幕和非媒体数据，简化全量生成、定向生成、目录监控、失败重试和近期任务展示。",

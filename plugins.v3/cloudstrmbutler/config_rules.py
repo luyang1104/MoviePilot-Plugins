@@ -20,7 +20,7 @@ class MonitorRule:
     def should_monitor(self, global_monitor: bool) -> bool:
         if self.monitor_override is None:
             return bool(global_monitor)
-        return self.monitor_override == "monitor"
+        return str(self.monitor_override).strip().lower() == "monitor"
 
     def to_line(self) -> str:
         line = f"{self.local_dir}#{self.strm_dir}#{self.cloud_dir}#{self.format_str}"
@@ -44,7 +44,7 @@ def parse_monitor_confs(monitor_confs: Optional[str]) -> Tuple[List[MonitorRule]
         monitor_override = None
         if line.count("$") == 1:
             line, monitor_override = line.split("$", 1)
-            monitor_override = monitor_override.strip() or None
+            monitor_override = monitor_override.strip().lower() or None
 
         category = None
         if line.count("@") == 1:

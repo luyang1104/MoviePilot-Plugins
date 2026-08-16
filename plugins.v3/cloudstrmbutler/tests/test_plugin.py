@@ -1,4 +1,5 @@
 import shutil
+import os
 import tempfile
 import threading
 import time
@@ -325,6 +326,65 @@ class PluginTests(unittest.TestCase):
         create_mock.assert_not_called()
         self.assertTrue((target / "Series" / "movie.strm").is_file())
 
+    def test_template_change_rewrites_existing_strm_without_cover_mode(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "cover": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#one/{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        self.assertEqual(
+            (target / "movie.strm").read_text(encoding="utf-8"),
+            f"one/{str(cloud / 'movie.mkv').replace(chr(92), '/')}",
+        )
+
+        plugin._format_conf[str(source)] = "two/{cloud_file}"
+        plugin._config_fingerprint = "changed"
+        result = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertIn("generated_strm", result["result_statuses"])
+        self.assertEqual(
+            (target / "movie.strm").read_text(encoding="utf-8"),
+            f"two/{str(cloud / 'movie.mkv').replace(chr(92), '/')}",
+        )
+
+    def test_reloaded_configuration_rewrites_strm_when_template_changes(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        first = self.make_plugin(base / "data")
+        first.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#one/{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        first._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        second = self.make_plugin(base / "data")
+        second.init_plugin(
+            {
+                "enabled": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#two/{{cloud_file}}",
+            }
+        )
+        result = second._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual(
+            (target / "movie.strm").read_text(encoding="utf-8"),
+            f"two/{str(cloud / 'movie.mkv').replace(chr(92), '/')}",
+        )
+
     def test_media_processing_persists_independent_sidecar_record(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)
@@ -403,6 +463,126 @@ class PluginTests(unittest.TestCase):
         self.assertFalse((target / "movie.strm").exists())
         self.assertTrue((target / "movie.srt").exists())
         self.assertIsNotNone(plugin._state_store.get(str(source), "movie.srt"))
+
+    def test_failed_cleanup_keeps_batch_and_state_record(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "cleanup_mode": "confirm",
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        media_file.unlink()
+        plugin._reconcile_missing_records(str(source), set())
+        batch_id = plugin._task_store.status()["cleanup_batches"][0]["batch_id"]
+
+        with patch.object(
+            plugin,
+            "_remove_outputs",
+            return_value={"removed": [], "failed": [{"path": str(target / "movie.strm"), "error": "busy"}]},
+        ):
+            result = plugin.sync_confirm_cleanup_api({"batch_id": batch_id})
+
+        self.assertEqual(result["code"], 1)
+        self.assertTrue(result["data"]["failed"])
+        self.assertTrue((target / "movie.strm").exists())
+        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.mkv"))
+        self.assertEqual(len(plugin._task_store.status()["cleanup_batches"]), 1)
+
+    def test_cleanup_retry_can_finish_after_one_output_failed(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "cleanup_mode": "confirm",
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        subtitle = source / "movie.srt"
+        media_file.write_bytes(b"movie")
+        subtitle.write_text("subtitle", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+        media_file.unlink()
+        subtitle.unlink()
+        plugin._reconcile_missing_records(str(source), set())
+        batch_id = plugin._task_store.status()["cleanup_batches"][0]["batch_id"]
+        original_remove = plugin._remove_outputs
+        attempts = {"count": 0}
+
+        def remove_one_time_failure(outputs, notify_emby=False):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                return {"removed": [str(target / "movie.strm")], "failed": [{"path": str(target / "movie.srt"), "error": "busy"}]}
+            return original_remove(outputs, notify_emby=notify_emby)
+
+        with patch.object(plugin, "_remove_outputs", side_effect=remove_one_time_failure):
+            first = plugin.sync_confirm_cleanup_api({"batch_id": batch_id})
+            second = plugin.sync_confirm_cleanup_api({"batch_id": batch_id})
+
+        self.assertEqual(first["code"], 1)
+        self.assertEqual(second["code"], 0)
+        self.assertIsNone(plugin._state_store.get(str(source), "movie.mkv"))
+        self.assertIsNone(plugin._state_store.get(str(source), "movie.srt"))
+
+    def test_identical_existing_sidecar_skips_write_probe_and_records_success(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        sidecar = source / "movie.ass"
+        destination = target / "movie.ass"
+        sidecar.write_bytes(b"subtitle bytes")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(sidecar.read_bytes())
+
+        with patch.object(
+            plugin,
+            "_check_write_target",
+            return_value={"writable": False, "raw_error": "target is read-only"},
+        ) as write_check:
+            result = plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual(result["outputs"], [str(destination)])
+        write_check.assert_not_called()
+        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.ass"))
+
+    def test_media_notification_uses_current_recognize_media_signature(self):
+        plugin = self.make_plugin(self.new_temp() / "data")
+        plugin._notify = True
+        plugin._interval = 0
+        file_meta = plugin_module.MetaInfoPath(Path("/library/Movie (2020) [tmdbid=123].strm"))
+        file_meta.tmdbid = "123"
+        plugin._medias = {
+            "Movie (2020)": {
+                "episodes": [],
+                "file_meta": file_meta,
+                "type": "movie",
+                "time": datetime.now() - timedelta(seconds=1),
+            }
+        }
+
+        plugin.send_msg()
+
+        self.assertEqual(len(plugin.messages), 1)
+        self.assertEqual(plugin.messages[0]["title"], "Movie (2020) Strm已生成")
+        self.assertEqual(file_meta.tmdbid, "123")
 
     def test_deleting_media_keeps_sidecar_while_sidecar_source_exists(self):
         base = self.new_temp()
@@ -500,56 +680,6 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(destination.read_text(encoding="utf-8"), "old")
         self.assertEqual(list(target.glob(".movie.nfo.*.tmp")), [])
-
-    def test_identical_existing_sidecar_skips_write_probe_and_records_success(self):
-        base = self.new_temp()
-        source, target, cloud = self.make_rule_paths(base)
-        plugin = self.make_plugin(base / "data")
-        plugin.init_plugin(
-            {
-                "enabled": False,
-                "copy_subtitles": True,
-                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
-            }
-        )
-        sidecar = source / "movie.ass"
-        destination = target / "movie.ass"
-        sidecar.write_bytes(b"subtitle bytes")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(sidecar.read_bytes())
-
-        with patch.object(
-            plugin,
-            "_check_write_target",
-            return_value={"writable": False, "raw_error": "target is read-only"},
-        ) as write_check:
-            result = plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
-
-        self.assertEqual(result["status"], "processed")
-        self.assertEqual(result["outputs"], [str(destination)])
-        write_check.assert_not_called()
-        self.assertIsNotNone(plugin._state_store.get(str(source), "movie.ass"))
-
-    def test_media_notification_uses_current_recognize_media_signature(self):
-        plugin = self.make_plugin(self.new_temp() / "data")
-        plugin._notify = True
-        plugin._interval = 0
-        file_meta = plugin_module.MetaInfoPath(Path("/library/Movie (2020) [tmdbid=123].strm"))
-        file_meta.tmdbid = "123"
-        plugin._medias = {
-            "Movie (2020)": {
-                "episodes": [],
-                "file_meta": file_meta,
-                "type": "movie",
-                "time": datetime.now() - timedelta(seconds=1),
-            }
-        }
-
-        plugin.send_msg()
-
-        self.assertEqual(len(plugin.messages), 1)
-        self.assertEqual(plugin.messages[0]["title"], "Movie (2020) Strm已生成")
-        self.assertEqual(file_meta.tmdbid, "123")
 
     def test_disabling_sidecar_copy_removes_old_output(self):
         base = self.new_temp()
@@ -955,6 +1085,45 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(status["recent_runs"][0]["queued"], 1)
         self.assertEqual(status["recent_runs"][0]["processed"], 1)
 
+    def test_reliable_scan_settles_after_duplicate_event_during_claimed_job(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": True,
+                "monitor": False,
+                "reliable_engine": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        media_file.write_bytes(b"movie")
+        started = threading.Event()
+        release = threading.Event()
+
+        def handle_file(event_path, mon_path, wait_stable=False):
+            started.set()
+            release.wait(2)
+            return {"status": "processed", "result_statuses": ["generated_strm"]}
+
+        with patch.object(plugin, "_CloudStrmButler__handle_file", side_effect=handle_file):
+            plugin._sync_engine.enqueue(str(source), str(media_file), "sync")
+            self.assertTrue(started.wait(1))
+            self.assertTrue(plugin.scan("manual_full"))
+            self.assertTrue(plugin.sync_status_api()["data"]["scan_running"])
+            release.set()
+
+        self.assertTrue(
+            self.wait_until(
+                lambda: plugin.sync_status_api()["data"]["recent_runs"][0]["status"] == "completed"
+            )
+        )
+        self.assertFalse(plugin.sync_status_api()["data"]["scan_running"])
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["queued"], 1)
+        self.assertEqual(run["processed"], 1)
+
     def test_subtitle_formats_are_loaded_and_returned_by_form(self):
         plugin = self.make_plugin(self.new_temp() / "data")
         plugin.init_plugin(
@@ -1048,6 +1217,27 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(run["queued"], 1)
         self.assertEqual(run["processed"], 1)
         self.assertEqual(run["status"], "completed")
+
+    def test_missing_monitor_directory_marks_scan_with_errors(self):
+        base = self.new_temp()
+        source = base / "missing-media"
+        target = base / "library"
+        cloud = base / "cloud"
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "reliable_engine": False,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+
+        plugin.scan()
+
+        run = plugin.sync_status_api()["data"]["recent_runs"][0]
+        self.assertEqual(run["status"], "completed_with_errors")
+        self.assertEqual(run["failed"], 1)
+        self.assertIn(str(source), run["message"])
 
     def test_status_exposes_processing_overview_counts(self):
         base = self.new_temp()
@@ -1239,6 +1429,29 @@ class PluginTests(unittest.TestCase):
         self.assertEqual(run["kind"], "manual_full")
         self.assertGreaterEqual(run["result_counts"]["existing_skipped"], 1)
         self.assertEqual(run["result_counts"]["generated_strm"], 0)
+
+    def test_same_size_same_timestamp_subtitle_change_is_detected_by_hash(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        subtitle = source / "movie.srt"
+        subtitle.write_text("old!", encoding="utf-8")
+        plugin._CloudStrmButler__handle_file(str(subtitle), str(source))
+        original_stat = subtitle.stat()
+
+        subtitle.write_text("new!", encoding="utf-8")
+        os.utime(subtitle, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        result = plugin._CloudStrmButler__handle_file(str(subtitle), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual((target / "movie.srt").read_text(encoding="utf-8"), "new!")
 
     def test_full_scan_skips_existing_strm_and_generates_missing_strm(self):
         base = self.new_temp()

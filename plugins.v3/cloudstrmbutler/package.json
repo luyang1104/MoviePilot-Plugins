@@ -1,7 +1,7 @@
 {
   "name": "cloudstrm-butler-config",
   "private": true,
-  "version": "2.1.20",
+  "version": "2.1.21",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -32,6 +32,63 @@ class SyncEngineTests(unittest.TestCase):
         self.assertEqual(seen, ["/media/movie.mkv"])
         self.assertEqual(self.store.status()["queued"], 0)
 
+    def test_event_during_processing_is_run_as_a_follow_up_generation(self):
+        started = __import__("threading").Event()
+        release = __import__("threading").Event()
+        seen = []
+
+        def handler(job):
+            seen.append(job.payload)
+            if len(seen) == 1:
+                started.set()
+                release.wait(2)
+            return {"status": "processed"}
+
+        engine = SyncEngine(self.store, handler, workers=1)
+        engine.start()
+        engine.enqueue("/media", "/media/movie.mkv")
+        self.assertTrue(started.wait(1))
+        self.assertTrue(
+            engine.enqueue(
+                "/media",
+                "/media/movie.mkv",
+                payload={"run_id": "scan-1"},
+            )
+        )
+        release.set()
+
+        deadline = time.time() + 2
+        while len(seen) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        engine.stop()
+
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[1]["run_id"], "scan-1")
+        self.assertEqual(self.store.status()["queued"], 0)
+
+    def test_stop_drains_a_follow_up_generation_before_closing_workers(self):
+        started = __import__("threading").Event()
+        release = __import__("threading").Event()
+        seen = []
+
+        def handler(job):
+            seen.append(job.payload)
+            if len(seen) == 1:
+                started.set()
+                release.wait(2)
+            return {"status": "processed"}
+
+        engine = SyncEngine(self.store, handler, workers=1)
+        engine.start()
+        engine.enqueue("/media", "/media/movie.mkv")
+        self.assertTrue(started.wait(1))
+        engine.enqueue("/media", "/media/movie.mkv", payload={"run_id": "scan-1"})
+        release.set()
+
+        self.assertTrue(engine.stop(timeout=2))
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(self.store.status()["queued"], 0)
+
     def test_snapshot_counts_only_active_workers_as_inflight(self):
         started = []
         release = __import__("threading").Event()

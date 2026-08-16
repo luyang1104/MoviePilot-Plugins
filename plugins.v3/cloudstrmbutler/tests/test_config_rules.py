@@ -33,6 +33,16 @@ class ConfigRulesTests(unittest.TestCase):
         self.assertFalse(rules[1].should_monitor(False))
         self.assertTrue(rules[1].should_monitor(True))
 
+    def test_monitor_override_is_case_insensitive(self):
+        rules, errors = parse_monitor_confs(
+            "C:\\media#C:\\library#D:\\cloud#{cloud_file}$MONITOR\n"
+            r"C:\movies#C:\out#D:\cloud#{cloud_file}$NOMONITOR"
+        )
+
+        self.assertEqual(errors, [])
+        self.assertTrue(rules[0].should_monitor(False))
+        self.assertFalse(rules[1].should_monitor(True))
+
     def test_parse_reports_malformed_and_missing_template(self):
         rules, errors = parse_monitor_confs(
             r"C:\media#C:\out#D:\cloud#literal"

@@ -25,8 +25,8 @@ class SyncEngine:
         self._threads: list[threading.Thread] = []
         # Scheduled jobs include both the bounded in-memory queue and jobs
         # currently being handled. Only the latter are reported as inflight.
-        self._scheduled: set[int] = set()
-        self._active: set[int] = set()
+        self._scheduled: set[tuple[int, int]] = set()
+        self._active: set[tuple[int, int]] = set()
         self._lock = threading.RLock()
 
     def start(self) -> None:
@@ -48,14 +48,17 @@ class SyncEngine:
         moved = 0
         with self._lock:
             capacity = max(0, self._queue.maxsize - self._queue.qsize())
+            if capacity <= 0:
+                return 0
             for job in self.store.claim_ready(min(capacity, 500)):
-                if job.id in self._scheduled:
+                key = (job.id, job.generation)
+                if key in self._scheduled:
                     continue
                 try:
                     self._queue.put_nowait(job)
                 except queue.Full:
                     break
-                self._scheduled.add(job.id)
+                self._scheduled.add(key)
                 moved += 1
         return moved
 
@@ -103,7 +106,8 @@ class SyncEngine:
                 self._queue.task_done()
                 return
             with self._lock:
-                self._active.add(job.id)
+                key = (job.id, job.generation)
+                self._active.add(key)
             try:
                 result = self.handler(job) or {}
                 status = result.get("status", "processed")
@@ -117,7 +121,7 @@ class SyncEngine:
                     self.store.fail_job(job, str(result.get("reason") or "同步失败"), result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
                     self._complete(job, result)
                 else:
-                    self.store.remove_job(job.id)
+                    self.store.complete_job(job)
                     self.store.resolve_failure(job.monitor_root, job.path, job.action)
                     self._complete(job, result)
             except Exception as exc:
@@ -128,10 +132,10 @@ class SyncEngine:
                     self._complete(job, {"status": "failed", "reason": str(exc)})
             finally:
                 with self._lock:
-                    self._active.discard(job.id)
-                    self._scheduled.discard(job.id)
-                self._queue.task_done()
+                    self._active.discard(key)
+                    self._scheduled.discard(key)
                 self.pump()
+                self._queue.task_done()
 
     @staticmethod
     def _retryable(result: dict) -> bool:
@@ -141,5 +145,21 @@ class SyncEngine:
         return status == "unstable" or any(token in str(result.get("reason") or "").lower() for token in ("i/o", "tempor", "timeout", "stale"))
 
     def _complete(self, job: PendingJob, result: dict) -> None:
-        if self.completion:
-            self.completion(job, result)
+        if not self.completion:
+            return
+        self.completion(job, result)
+        for subscriber in job.subscribers:
+            if not isinstance(subscriber, dict) or subscriber == job.payload:
+                continue
+            subscriber_job = PendingJob(
+                id=job.id,
+                monitor_root=job.monitor_root,
+                path=job.path,
+                action=job.action,
+                old_path=job.old_path,
+                attempts=job.attempts,
+                available_at=job.available_at,
+                payload=dict(subscriber),
+                generation=job.generation,
+            )
+            self.completion(subscriber_job, result)

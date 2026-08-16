@@ -209,6 +209,23 @@ class SyncStateStore:
             for row in rows
         )
 
+    def has_output_for_other_source(self, monitor_root: str, output: str, source_rel: str) -> bool:
+        """Return whether an output is owned by a different source record."""
+        wanted = path_key(output)
+        root = self._normalise_root(monitor_root)
+        rel = self._normalise_rel(source_rel)
+        if not wanted:
+            return False
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT source_rel, outputs FROM sync_records WHERE monitor_root = ? AND source_rel != ?",
+                (root, rel),
+            ).fetchall()
+        return any(
+            wanted in {path_key(item) for item in json.loads(row["outputs"] or "[]")}
+            for row in rows
+        )
+
     def reap(
         self,
         monitor_root: str,

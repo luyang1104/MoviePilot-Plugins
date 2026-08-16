@@ -22,6 +22,8 @@ class PendingJob:
     attempts: int
     available_at: float
     payload: dict
+    generation: int = 0
+    subscribers: tuple = ()
 
 
 def classify_failure(error: str, actual_target: str = "") -> dict:
@@ -89,7 +91,7 @@ def classify_failure(error: str, actual_target: str = "") -> dict:
 class TaskStore:
     """SQLite store for resumable work. Successful file state stays in SyncStateStore."""
 
-    SCHEMA_VERSION = 4
+    SCHEMA_VERSION = 6
 
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -118,6 +120,10 @@ class TaskStore:
                     attempts INTEGER NOT NULL DEFAULT 0,
                     available_at REAL NOT NULL,
                     payload TEXT NOT NULL DEFAULT '{}',
+                    claimed INTEGER NOT NULL DEFAULT 0,
+                    generation INTEGER NOT NULL DEFAULT 0,
+                    subscribers TEXT NOT NULL DEFAULT '[]',
+                    followups TEXT NOT NULL DEFAULT '[]',
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
                     UNIQUE(monitor_root, path, action)
@@ -135,7 +141,8 @@ class TaskStore:
                     unchanged INTEGER NOT NULL DEFAULT 0,
                     failed INTEGER NOT NULL DEFAULT 0,
                     deleted INTEGER NOT NULL DEFAULT 0,
-                    message TEXT NOT NULL DEFAULT ''
+                    message TEXT NOT NULL DEFAULT '',
+                    run_errors INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS idx_task_runs_started ON task_runs(started_at DESC);
                 CREATE TABLE IF NOT EXISTS task_failures (
@@ -183,27 +190,109 @@ class TaskStore:
             if "actual_target" not in columns:
                 self._conn.execute("ALTER TABLE task_failures ADD COLUMN actual_target TEXT NOT NULL DEFAULT ''")
             self._conn.execute("UPDATE schema_version SET version = 4")
+            current = 4
+        if current < 5:
+            pending_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(pending_jobs)").fetchall()}
+            for name, definition in (
+                ("claimed", "INTEGER NOT NULL DEFAULT 0"),
+                ("generation", "INTEGER NOT NULL DEFAULT 0"),
+                ("subscribers", "TEXT NOT NULL DEFAULT '[]'"),
+                ("followups", "TEXT NOT NULL DEFAULT '[]'"),
+            ):
+                if name not in pending_columns:
+                    self._conn.execute(f"ALTER TABLE pending_jobs ADD COLUMN {name} {definition}")
+            failure_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(task_failures)").fetchall()}
+            for name, definition in (
+                ("old_path", "TEXT NOT NULL DEFAULT ''"),
+                ("payload", "TEXT NOT NULL DEFAULT '{}'"),
+            ):
+                if name not in failure_columns:
+                    self._conn.execute(f"ALTER TABLE task_failures ADD COLUMN {name} {definition}")
+            self._conn.execute("UPDATE schema_version SET version = 5")
+            current = 5
+        if current < 6:
+            run_columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(task_runs)").fetchall()}
+            if "run_errors" not in run_columns:
+                self._conn.execute("ALTER TABLE task_runs ADD COLUMN run_errors INTEGER NOT NULL DEFAULT 0")
+            self._conn.execute("UPDATE schema_version SET version = 6")
+        # A process that died after claiming a job must make it recoverable on restart.
+        self._conn.execute("UPDATE pending_jobs SET claimed = 0 WHERE claimed = 1")
+        self._conn.execute("UPDATE cleanup_batches SET status = 'pending' WHERE status = 'processing'")
         self._conn.commit()
 
     def enqueue(self, monitor_root: str, path: str, action: str, old_path: str = "", payload: Optional[dict] = None, delay: float = 0) -> bool:
         now = time.time()
         ready = now + max(0, delay)
-        encoded = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"))
+        incoming = dict(payload or {})
         with self._lock:
             existing = self._conn.execute(
-                "SELECT id FROM pending_jobs WHERE monitor_root = ? AND path = ? AND action = ?",
+                "SELECT * FROM pending_jobs WHERE monitor_root = ? AND path = ? AND action = ?",
                 (monitor_root, path, action),
             ).fetchone()
             if existing:
-                self._conn.execute(
-                    "UPDATE pending_jobs SET old_path = ?, payload = ?, available_at = MIN(available_at, ?), updated_at = ? WHERE id = ?",
-                    (old_path or "", encoded, ready, now, existing["id"]),
-                )
+                current_payload = self._decode_json(existing["payload"], {})
+                subscribers = self._decode_json(existing["subscribers"], [])
+                followups = self._decode_json(existing["followups"], [])
+                if int(existing["claimed"]):
+                    event = {
+                        "old_path": old_path or "",
+                        "payload": incoming,
+                        "available_at": ready,
+                    }
+                    if not followups or not self._event_in_followups(followups, event):
+                        followups.append(event)
+                        accepted = True
+                    else:
+                        accepted = False
+                    self._conn.execute(
+                        "UPDATE pending_jobs SET followups = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(followups, ensure_ascii=False, separators=(",", ":")), now, existing["id"]),
+                    )
+                else:
+                    event = {
+                        "old_path": old_path or "",
+                        "payload": incoming,
+                        "available_at": ready,
+                    }
+                    current_event = {
+                        "old_path": existing["old_path"] or "",
+                        "payload": current_payload,
+                    }
+                    if self._event_in_followups(followups, event) or (
+                        current_event["old_path"] == event["old_path"]
+                        and current_event["payload"] == event["payload"]
+                    ):
+                        accepted = False
+                    else:
+                        followups.append(event)
+                        accepted = True
+                    self._conn.execute(
+                        "UPDATE pending_jobs SET followups = ?, subscribers = ?, available_at = MIN(available_at, ?), updated_at = ? WHERE id = ?",
+                        (
+                            json.dumps(followups, ensure_ascii=False, separators=(",", ":")),
+                            json.dumps(subscribers, ensure_ascii=False, separators=(",", ":")),
+                            ready,
+                            now,
+                            existing["id"],
+                        ),
+                    )
                 self._conn.commit()
-                return False
+                return accepted
+            subscribers = []
+            self._add_subscriber(subscribers, incoming)
             self._conn.execute(
-                "INSERT INTO pending_jobs(monitor_root,path,action,old_path,available_at,payload,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                (monitor_root, path, action, old_path or "", ready, encoded, now, now),
+                "INSERT INTO pending_jobs(monitor_root,path,action,old_path,available_at,payload,subscribers,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    monitor_root,
+                    path,
+                    action,
+                    old_path or "",
+                    ready,
+                    json.dumps(incoming, ensure_ascii=False, separators=(",", ":")),
+                    json.dumps(subscribers, ensure_ascii=False, separators=(",", ":")),
+                    now,
+                    now,
+                ),
             )
             self._conn.commit()
             return True
@@ -211,14 +300,21 @@ class TaskStore:
     def claim_ready(self, limit: int = 100) -> List[PendingJob]:
         with self._lock:
             rows = self._conn.execute(
-                "SELECT * FROM pending_jobs WHERE available_at <= ? ORDER BY available_at, id LIMIT ?",
+                "SELECT * FROM pending_jobs WHERE claimed = 0 AND available_at <= ? ORDER BY available_at, id LIMIT ?",
                 (time.time(), max(1, limit)),
             ).fetchall()
+            for row in rows:
+                self._conn.execute("UPDATE pending_jobs SET claimed = 1, updated_at = ? WHERE id = ? AND claimed = 0", (time.time(), row["id"]))
+            self._conn.commit()
         return [self._job(row) for row in rows]
 
     def remove_job(self, job_id: int) -> None:
         with self._lock:
-            self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (job_id,))
+            row = self._conn.execute("SELECT * FROM pending_jobs WHERE id = ?", (job_id,)).fetchone()
+            if row and int(row["claimed"]):
+                self._promote_followup_or_delete(self._job(row), time.time())
+            else:
+                self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (job_id,))
             self._conn.commit()
 
     def retry_job(self, job: PendingJob, error: str, delay: float, diagnosis: Optional[dict] = None) -> None:
@@ -226,18 +322,31 @@ class TaskStore:
         attempts = job.attempts + 1
         with self._lock:
             self._conn.execute(
-                "UPDATE pending_jobs SET attempts = ?, available_at = ?, updated_at = ? WHERE id = ?",
-                (attempts, now + delay, now, job.id),
+                "UPDATE pending_jobs SET attempts = ?, available_at = ?, claimed = 0, updated_at = ? WHERE id = ? AND generation = ?",
+                (attempts, now + delay, now, job.id, job.generation),
             )
-            self._upsert_failure(job.monitor_root, job.path, job.action, error, attempts, now, diagnosis)
+            self._upsert_failure(job, error, attempts, now, diagnosis)
             self._conn.commit()
 
     def fail_job(self, job: PendingJob, error: str, diagnosis: Optional[dict] = None) -> None:
         now = time.time()
         with self._lock:
-            self._upsert_failure(job.monitor_root, job.path, job.action, error, job.attempts + 1, now, diagnosis)
-            self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (job.id,))
+            self._upsert_failure(job, error, job.attempts + 1, now, diagnosis)
+            self._promote_followup_or_delete(job, now)
             self._conn.commit()
+
+    def complete_job(self, job: PendingJob) -> bool:
+        """Finish one claimed generation without dropping events queued during it."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM pending_jobs WHERE id = ? AND generation = ? AND claimed = 1",
+                (job.id, job.generation),
+            ).fetchone()
+            if not row:
+                return False
+            self._promote_followup_or_delete(job, time.time())
+            self._conn.commit()
+            return True
 
     def resolve_failure(self, monitor_root: str, path: str, action: str) -> None:
         now = time.time()
@@ -248,22 +357,84 @@ class TaskStore:
             )
             self._conn.commit()
 
-    def _upsert_failure(self, root: str, path: str, action: str, error: str, attempts: int, now: float, diagnosis: Optional[dict] = None) -> None:
+    def _upsert_failure(self, job: PendingJob, error: str, attempts: int, now: float, diagnosis: Optional[dict] = None) -> None:
         actual_target = str((diagnosis or {}).get("actual_target") or "")
         row = self._conn.execute(
             "SELECT id FROM task_failures WHERE monitor_root = ? AND path = ? AND action = ? AND resolved_at IS NULL",
-            (root, path, action),
+            (job.monitor_root, job.path, job.action),
         ).fetchone()
+        payload = json.dumps(job.payload, ensure_ascii=False, separators=(",", ":"))
         if row:
             self._conn.execute(
-                "UPDATE task_failures SET error = ?, actual_target = ?, attempts = ?, updated_at = ? WHERE id = ?",
-                (error[:2000], actual_target, attempts, now, row["id"]),
+                "UPDATE task_failures SET old_path = ?, payload = ?, error = ?, actual_target = ?, attempts = ?, updated_at = ? WHERE id = ?",
+                (job.old_path, payload, error[:2000], actual_target, attempts, now, row["id"]),
             )
         else:
             self._conn.execute(
-                "INSERT INTO task_failures(monitor_root,path,action,error,actual_target,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
-                (root, path, action, error[:2000], actual_target, attempts, now, now),
+                "INSERT INTO task_failures(monitor_root,path,action,old_path,payload,error,actual_target,attempts,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (job.monitor_root, job.path, job.action, job.old_path, payload, error[:2000], actual_target, attempts, now, now),
             )
+
+    def _promote_followup_or_delete(self, job: PendingJob, now: float) -> None:
+        row = self._conn.execute(
+            "SELECT * FROM pending_jobs WHERE id = ? AND generation = ?",
+            (job.id, job.generation),
+        ).fetchone()
+        if not row:
+            return
+        followups = self._decode_json(row["followups"], [])
+        if not followups:
+            self._conn.execute("DELETE FROM pending_jobs WHERE id = ? AND generation = ?", (job.id, job.generation))
+            return
+        first = followups.pop(0)
+        payload = dict(first.get("payload") or {})
+        ready = float(first.get("available_at") or now)
+        old_path = str(first.get("old_path") or "")
+        self._conn.execute(
+            "UPDATE pending_jobs SET old_path = ?, payload = ?, subscribers = '[]', followups = ?, attempts = 0, available_at = ?, claimed = 0, generation = generation + 1, updated_at = ? WHERE id = ? AND generation = ?",
+            (
+                old_path,
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(followups, ensure_ascii=False, separators=(",", ":")),
+                max(now, ready),
+                now,
+                job.id,
+                job.generation,
+            ),
+        )
+
+    @staticmethod
+    def _decode_json(value, default):
+        try:
+            decoded = json.loads(value or "")
+            return decoded if isinstance(decoded, type(default)) else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _merge_payload(current: dict, incoming: dict) -> dict:
+        merged = dict(current or {})
+        merged.update(incoming or {})
+        return merged
+
+    @staticmethod
+    def _add_subscriber(subscribers: list, payload: dict) -> bool:
+        run_id = str((payload or {}).get("run_id") or "")
+        if not run_id:
+            return False
+        if any(str((item or {}).get("run_id") or "") == run_id for item in subscribers):
+            return False
+        subscribers.append(dict(payload))
+        return True
+
+    @classmethod
+    def _event_in_followups(cls, followups: list, event: dict) -> bool:
+        payload = event.get("payload") or {}
+        return any(
+            (item.get("old_path") or "") == (event.get("old_path") or "")
+            and (item.get("payload") or {}) == payload
+            for item in followups
+        )
 
     def start_run(self, kind: str, monitor_root: Optional[str] = None) -> str:
         run_id = uuid.uuid4().hex
@@ -282,6 +453,16 @@ class TaskStore:
         columns = ", ".join(f"{key} = {key} + ?" for key in allowed)
         with self._lock:
             self._conn.execute(f"UPDATE task_runs SET {columns} WHERE run_id = ?", (*allowed.values(), run_id))
+            self._conn.commit()
+
+    def record_run_error(self, run_id: str, message: str) -> None:
+        """Record a scan-level error that does not represent a completed job."""
+        detail = str(message or "同步扫描失败")[:1000]
+        with self._lock:
+            self._conn.execute(
+                "UPDATE task_runs SET run_errors = run_errors + 1, message = CASE WHEN message = '' THEN ? ELSE message || '; ' || ? END WHERE run_id = ?",
+                (detail, detail, run_id),
+            )
             self._conn.commit()
 
     def update_run_result_counts(self, run_id: str, statuses) -> None:
@@ -316,8 +497,8 @@ class TaskStore:
     def finish_run(self, run_id: str, status: str = "completed", message: str = "") -> None:
         with self._lock:
             self._conn.execute(
-                "UPDATE task_runs SET status = ?, finished_at = ?, message = ? WHERE run_id = ?",
-                (status, time.time(), message[:1000], run_id),
+                "UPDATE task_runs SET status = ?, finished_at = ?, message = CASE WHEN ? <> '' THEN ? ELSE message END WHERE run_id = ?",
+                (status, time.time(), message[:1000], message[:1000], run_id),
             )
             self._conn.commit()
 
@@ -358,7 +539,7 @@ class TaskStore:
         """Finish a queued run only after every accepted job reached a terminal result."""
         with self._lock:
             row = self._conn.execute(
-                "SELECT queued, processed, unchanged, failed, deleted, skipped, status FROM task_runs WHERE run_id = ?",
+                "SELECT queued, processed, unchanged, failed, deleted, skipped, run_errors, status FROM task_runs WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
             if not row or row["status"] != "running":
@@ -372,7 +553,7 @@ class TaskStore:
             )
             if completed < int(row["queued"]):
                 return False
-            final_status = "completed_with_errors" if int(row["failed"]) else "completed"
+            final_status = "completed_with_errors" if int(row["failed"]) or int(row["run_errors"] or 0) else "completed"
             self._conn.execute(
                 "UPDATE task_runs SET status = ?, finished_at = ? WHERE run_id = ?",
                 (final_status, time.time(), run_id),
@@ -427,9 +608,28 @@ class TaskStore:
             ).fetchone()
             if not row:
                 return None
-            self._conn.execute("UPDATE cleanup_batches SET status = 'confirmed', confirmed_at = ? WHERE batch_id = ?", (time.time(), batch_id))
+            self._conn.execute("UPDATE cleanup_batches SET status = 'processing' WHERE batch_id = ?", (batch_id,))
             self._conn.commit()
         return list(json.loads(row["paths"]))
+
+    def confirm_cleanup_batch(self, batch_id: str) -> bool:
+        with self._lock:
+            updated = self._conn.execute(
+                "UPDATE cleanup_batches SET status = 'confirmed', confirmed_at = ? WHERE batch_id = ? AND status = 'processing'",
+                (time.time(), batch_id),
+            ).rowcount
+            self._conn.commit()
+        return bool(updated)
+
+    def release_cleanup_batch(self, batch_id: str) -> bool:
+        """Return an incompletely processed cleanup batch to the confirmation queue."""
+        with self._lock:
+            updated = self._conn.execute(
+                "UPDATE cleanup_batches SET status = 'pending' WHERE batch_id = ? AND status = 'processing'",
+                (batch_id,),
+            ).rowcount
+            self._conn.commit()
+        return bool(updated)
 
     def status(self) -> dict:
         with self._lock:
@@ -438,7 +638,7 @@ class TaskStore:
             open_failures = self._conn.execute("SELECT COUNT(*) FROM task_failures WHERE resolved_at IS NULL").fetchone()[0]
             running = self._conn.execute("SELECT * FROM task_runs WHERE status = 'running' ORDER BY started_at DESC").fetchall()
             latest = self._conn.execute("SELECT * FROM task_runs ORDER BY started_at DESC LIMIT 20").fetchall()
-            pending_cleanup = self._conn.execute("SELECT batch_id,monitor_root,paths,created_at,expires_at FROM cleanup_batches WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC", (time.time(),)).fetchall()
+            pending_cleanup = self._conn.execute("SELECT batch_id,monitor_root,paths,created_at,expires_at FROM cleanup_batches WHERE status IN ('pending', 'processing') AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at DESC", (time.time(),)).fetchall()
         def run_dict(row):
             item = dict(row)
             try:
@@ -480,6 +680,7 @@ class TaskStore:
         with self._lock:
             items = [dict(row) for row in self._conn.execute(query, (max(1, min(limit, 500)),)).fetchall()]
         for item in items:
+            item["payload"] = self._decode_json(item.get("payload"), {})
             item.update(classify_failure(item.get("error", ""), item.get("actual_target", "")))
         return items
 
@@ -509,7 +710,13 @@ class TaskStore:
                 ).fetchone()
                 if not row:
                     continue
-                self.enqueue(row["monitor_root"], row["path"], row["action"])
+                self.enqueue(
+                    row["monitor_root"],
+                    row["path"],
+                    row["action"],
+                    old_path=row["old_path"] if "old_path" in row.keys() else "",
+                    payload=self._decode_json(row["payload"] if "payload" in row.keys() else "{}", {}),
+                )
                 self._conn.execute(
                     "UPDATE task_failures SET resolved_at = ?, updated_at = ? WHERE id = ?",
                     (now, now, failure_id),
@@ -536,8 +743,13 @@ class TaskStore:
 
     @staticmethod
     def _job(row: sqlite3.Row) -> PendingJob:
+        try:
+            subscribers = json.loads(row["subscribers"] or "[]")
+        except (TypeError, ValueError, KeyError):
+            subscribers = []
         return PendingJob(
             id=int(row["id"]), monitor_root=row["monitor_root"], path=row["path"],
             action=row["action"], old_path=row["old_path"], attempts=int(row["attempts"]),
             available_at=float(row["available_at"]), payload=json.loads(row["payload"] or "{}"),
+            generation=int(row["generation"] or 0), subscribers=tuple(subscribers if isinstance(subscribers, list) else ()),
         )

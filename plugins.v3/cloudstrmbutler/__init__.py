@@ -77,7 +77,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.20"
+    plugin_version = "2.1.21"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -192,6 +192,8 @@ class CloudStrmButler(_PluginBase):
         self._scan_cancel = threading.Event()
         self._cancelled_run_ids = set()
         self._cancelled_run_lock = threading.Lock()
+        self._scan_finalized_run_ids = set()
+        self._scan_finalized_lock = threading.Lock()
         self._scan_progress_lock = threading.RLock()
         self._scan_progress = self._new_scan_progress()
         self._command_running = False
@@ -530,9 +532,13 @@ class CloudStrmButler(_PluginBase):
                     self._task_store.cancel_run(run_id, "用户取消")
                     self._finish_scan_progress(run_id, phase="cancelled")
                 elif self._reliable_engine:
+                    with self._scan_finalized_lock:
+                        self._scan_finalized_run_ids.add(str(run_id))
                     settled = self._task_store.finish_run_if_settled(run_id)
                     if settled:
                         self._finish_scan_progress(run_id)
+                        with self._scan_finalized_lock:
+                            self._scan_finalized_run_ids.discard(str(run_id))
                 elif self._scan_run_failed(run_id):
                     self._task_store.finish_run(run_id, status="completed_with_errors")
                     self._finish_scan_progress(run_id, phase="completed_with_errors")
@@ -733,13 +739,22 @@ class CloudStrmButler(_PluginBase):
     def _scan_rule(self, rule: MonitorRule, run_id: Optional[str] = None):
         """Walk one monitor root and reconcile it with the persisted index."""
         if not Path(rule.local_dir).is_dir():
-            logger.error(f"监控目录不可用：{rule.local_dir}")
-            return
+            message = f"监控目录不可用：{rule.local_dir}"
+            logger.error(message)
+            self._record_scan_rule_error(run_id, message)
+            return False
         seen = set()
         covered_sidecars = set()
         completed = True
+        def on_walk_error(error):
+            nonlocal completed
+            completed = False
+            message = f"遍历监控目录失败：{rule.local_dir} - {error}"
+            logger.error(message)
+            self._record_scan_rule_error(run_id, message)
+
         try:
-            for root, _dirs, files in os.walk(rule.local_dir):
+            for root, _dirs, files in os.walk(rule.local_dir, onerror=on_walk_error):
                 if self._scan_cancel.is_set():
                     completed = False
                     break
@@ -786,9 +801,9 @@ class CloudStrmButler(_PluginBase):
                             "copy_files": self._copy_files,
                             "copy_subtitles": self._copy_subtitles,
                         } if run_id else None
-                        if run_id and self._task_store:
+                        accepted = self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload)
+                        if accepted and run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
-                        self._sync_engine.enqueue(rule.local_dir, source_file, "sync", payload=payload)
                     else:
                         if run_id and self._task_store:
                             self._task_store.update_run(run_id, queued=1)
@@ -797,10 +812,21 @@ class CloudStrmButler(_PluginBase):
                         self._record_scan_result(run_id, result)
         except OSError as exc:
             completed = False
-            logger.error(f"遍历监控目录失败：{rule.local_dir} - {exc}")
+            message = f"遍历监控目录失败：{rule.local_dir} - {exc}"
+            logger.error(message)
+            self._record_scan_rule_error(run_id, message)
 
         if completed and not self._scan_cancel.is_set() and self._state_store is not None:
             self._reconcile_missing_records(rule.local_dir, seen, run_id)
+        return completed
+
+    def _record_scan_rule_error(self, run_id: Optional[str], message: str) -> None:
+        if not run_id or not self._task_store:
+            return
+        self._task_store.update_run(run_id, failed=1)
+        self._task_store.update_run_result_counts(run_id, {"failed": 1})
+        self._task_store.record_run_error(run_id, message)
+        self._record_scan_result(run_id, {"status": "failed", "result_statuses": ["failed"]})
 
     def _reconcile_missing_records(self, monitor_root: str, seen: set, run_id: Optional[str] = None):
         """Protect generated files from mount outages by staging scan-based cleanup."""
@@ -902,8 +928,12 @@ class CloudStrmButler(_PluginBase):
         self._record_run_result(run_id, result)
         self._record_scan_result(run_id, result)
         if run_id and self._task_store:
-            if self._task_store.finish_run_if_settled(run_id):
+            with self._scan_finalized_lock:
+                finalized = str(run_id) in self._scan_finalized_run_ids
+            if finalized and self._task_store.finish_run_if_settled(run_id):
                 self._finish_scan_progress(run_id)
+                with self._scan_finalized_lock:
+                    self._scan_finalized_run_ids.discard(str(run_id))
 
     @eventmanager.register(EventType.PluginAction)
     def strm_one(self, event: Event = None):
@@ -1068,7 +1098,13 @@ class CloudStrmButler(_PluginBase):
                 )
                 if not self._cover and media_record_current and not sidecar_needs_processing:
                     return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
-                if self._cover or not strm_existed:
+                strm_content_changed = not strm_existed
+                if strm_existed and not self._cover:
+                    try:
+                        strm_content_changed = Path(strm_target).read_text(encoding="utf-8") != strm_content
+                    except (OSError, UnicodeError):
+                        strm_content_changed = True
+                if self._cover or not strm_existed or strm_content_changed:
                     write_check = self._check_write_target(strm_target)
                     if not write_check["writable"]:
                         return {
@@ -1084,7 +1120,7 @@ class CloudStrmButler(_PluginBase):
                 if strm_output:
                     outputs.append(strm_output)
                 result_statuses = [
-                    "existing_skipped" if strm_existed and not self._cover else "generated_strm"
+                    "generated_strm" if self._cover or strm_content_changed else "existing_skipped"
                 ]
                 for sidecar_path in sidecar_paths:
                     sidecar_target = self.__remap_path(str(sidecar_path), mon_path, strm_dir)
@@ -1112,11 +1148,12 @@ class CloudStrmButler(_PluginBase):
                 if not should_copy_sidecar:
                     self._remove_recorded_output(mon_path, target_file)
                     return {"status": "skipped", "result_statuses": ["skipped"]}
+                content_hash = self._file_content_hash(source)
                 sidecar_expected = [
                     target_file
                 ]
-                if not self._cover and self._record_is_current(
-                    source_rel, mtime_ns, size, content_hash, mon_path, sidecar_expected
+                if not self._cover and self._sidecar_record_is_current(
+                    event_path, mon_path, target_file
                 ):
                     return {"status": "unchanged", "result_statuses": ["existing_skipped"]}
                 actual_target = target_file
@@ -1188,11 +1225,16 @@ class CloudStrmButler(_PluginBase):
             stat = source.stat()
         except OSError:
             return False
+        content_hash = self._file_content_hash(source)
+        if not content_hash or not Path(target_file).is_file():
+            return False
+        if self._file_content_hash(Path(target_file)) != content_hash:
+            return False
         return self._record_is_current(
             source_rel,
             int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000)),
             int(stat.st_size),
-            "",
+            content_hash,
             mon_path,
             [target_file],
         )
@@ -1346,12 +1388,15 @@ class CloudStrmButler(_PluginBase):
         source_rel = relative_path(event_path, mon_path)
         if source_rel is None:
             return
+        content_hash = self._file_content_hash(source)
+        if not content_hash:
+            return
         self._state_store.upsert(
             monitor_root=mon_path,
             source_rel=str(source_rel),
             mtime_ns=int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000)),
             size=int(stat.st_size),
-            content_hash="",
+            content_hash=content_hash,
             outputs=[target_file],
             config_fingerprint=self._config_fingerprint,
         )
@@ -1359,8 +1404,9 @@ class CloudStrmButler(_PluginBase):
     def _remove_recorded_output(self, mon_path: str, target_file: str) -> None:
         if not self._state_store or not target_file:
             return
-        if self._state_store.remove_output(mon_path, target_file):
-            self._remove_outputs([target_file])
+        cleanup = self._remove_outputs([target_file])
+        if not cleanup.get("failed") and self._state_store.remove_output(mon_path, target_file):
+            self._invalidate_processing_overview()
 
     def _remove_obsolete_outputs(self, mon_path: str, source_rel: str, previous_outputs, current_outputs) -> None:
         if not self._state_store:
@@ -1369,12 +1415,15 @@ class CloudStrmButler(_PluginBase):
         for output in previous_outputs or []:
             if path_key(output) in current:
                 continue
-            if self._state_store.remove_output_for_source(mon_path, source_rel, output):
-                if not self._state_store.has_output(mon_path, output):
-                    self._remove_outputs(
-                        [output],
-                        notify_emby=Path(output).suffix.lower() == ".strm",
-                    )
+            if self._state_store.has_output_for_other_source(mon_path, output, source_rel):
+                self._state_store.remove_output_for_source(mon_path, source_rel, output)
+                continue
+            cleanup = self._remove_outputs(
+                [output],
+                notify_emby=Path(output).suffix.lower() == ".strm",
+            )
+            if not cleanup.get("failed"):
+                self._state_store.remove_output_for_source(mon_path, source_rel, output)
 
     @staticmethod
     def _is_retryable_io_error(error: Exception) -> bool:
@@ -1444,23 +1493,32 @@ class CloudStrmButler(_PluginBase):
         source_rel = relative_path(event_path, mon_path)
         if source_rel is None:
             return
-        record = self._state_store.delete(mon_path, str(source_rel))
+        record = self._state_store.get(mon_path, str(source_rel))
         if record:
             is_sidecar = (
                 Path(event_path).suffix.lower() in self._other_extensions
                 or Path(event_path).suffix.lower() in self._subtitle_extensions
             )
             if is_sidecar:
-                for output in record.outputs:
+                owned_outputs = [
+                    output for output in record.outputs
+                ]
+                cleanup = self._remove_outputs(owned_outputs)
+                for output in cleanup.get("removed") or []:
                     self._state_store.remove_output(mon_path, output)
-                self._remove_outputs(record.outputs)
+                if not cleanup.get("failed"):
+                    self._state_store.delete_if_matches(mon_path, str(source_rel), record.outputs)
                 return
             owned_outputs = [
                 output
                 for output in record.outputs
-                if not self._state_store.has_output(mon_path, output)
+                if not self._state_store.has_output_for_other_source(mon_path, output, str(source_rel))
             ]
-            self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+            cleanup = self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+            for output in cleanup.get("removed") or []:
+                self._state_store.remove_output_for_source(mon_path, str(source_rel), output)
+            if not cleanup.get("failed"):
+                self._state_store.delete(mon_path, str(source_rel))
         else:
             strm_dir = self._strm_dir_conf.get(mon_path)
             target_file = self.__remap_path(event_path, mon_path, strm_dir) if strm_dir else None
@@ -1468,18 +1526,36 @@ class CloudStrmButler(_PluginBase):
 
     def _remove_outputs(self, outputs, notify_emby: bool = False):
         """Remove only files that are recorded as generated by this plugin."""
+        removed = []
+        failed = []
         for output in outputs or []:
             path = Path(output)
             try:
                 path.unlink(missing_ok=True)
                 logger.info(f"已清理生成文件 {path}")
+                removed.append(str(path))
             except OSError as exc:
                 logger.warning(f"清理生成文件失败 {path}：{exc}")
+                failed.append({"path": str(path), "error": str(exc)})
+                continue
             if notify_emby and path.suffix.lower() == ".strm" and self._refresh_emby:
                 try:
                     self._queue_emby_refresh(str(path), update_type="Deleted")
                 except Exception as exc:
                     logger.warning(f"通知 Emby 删除失败 {path}：{exc}")
+        return {"removed": removed, "failed": failed}
+
+    @staticmethod
+    def _file_content_hash(source: Path) -> str:
+        """Hash sidecars so coarse NAS timestamps cannot hide replacements."""
+        digest = hashlib.sha256()
+        try:
+            with source.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError:
+            return ""
+        return digest.hexdigest()
 
     @staticmethod
     def __format_content(format_str: str, local_file: str, cloud_file: str, uriencode: bool):
@@ -1499,8 +1575,12 @@ class CloudStrmButler(_PluginBase):
 
             strm_file = str(parent / f"{Path(strm_file).stem}.strm")
             if Path(strm_file).exists() and not self._cover:
-                logger.debug(f"目标文件 {strm_file} 已存在")
-                return strm_file
+                try:
+                    if Path(strm_file).read_text(encoding="utf-8") == strm_content:
+                        logger.debug(f"目标文件 {strm_file} 内容未变化")
+                        return strm_file
+                except (OSError, UnicodeError):
+                    pass
 
             temp_file = Path(strm_file).with_name(f".{Path(strm_file).name}.tmp")
             with temp_file.open("w", encoding="utf-8", newline="") as file:
@@ -2309,6 +2389,8 @@ class CloudStrmButler(_PluginBase):
         if items is None:
             return {"code": 1, "msg": "未找到待确认清理批次"}
         removed = 0
+        failures = []
+        completed_items = []
         for item in items:
             if isinstance(item, dict):
                 root = str(item.get("monitor_root") or "")
@@ -2316,20 +2398,22 @@ class CloudStrmButler(_PluginBase):
                 expected_outputs = item.get("outputs") or []
                 if not root or not source_rel or Path(root, source_rel).exists():
                     continue
-                record = (
-                    self._state_store.delete_if_matches(root, source_rel, expected_outputs)
-                    if self._state_store
-                    else None
-                )
+                record = self._state_store.get(root, source_rel) if self._state_store else None
                 if not record:
+                    continue
+                if {path_key(output) for output in record.outputs} != {path_key(output) for output in expected_outputs}:
+                    failures.append({"path": source_rel, "error": "状态记录已变化，跳过本次清理"})
                     continue
                 owned_outputs = [
                     output
                     for output in record.outputs
-                    if not self._state_store.has_output(root, output)
+                    if not self._state_store.has_output_for_other_source(root, output, source_rel)
                 ]
-                self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
-                removed += len(owned_outputs)
+                cleanup = self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+                failures.extend(cleanup.get("failed") or [])
+                if not cleanup.get("failed"):
+                    completed_items.append((root, source_rel, tuple(record.outputs)))
+                removed += len(cleanup.get("removed") or [])
                 continue
 
             # Support batches created by older plugin versions.
@@ -2342,19 +2426,34 @@ class CloudStrmButler(_PluginBase):
                         continue
                     if Path(root, candidate.source_rel).exists():
                         continue
-                    record = self._state_store.delete_if_matches(
-                        root, candidate.source_rel, candidate.outputs
-                    )
+                    record = self._state_store.get(root, candidate.source_rel)
                     if not record:
                         continue
                     owned_outputs = [
                         output
                         for output in record.outputs
-                        if not self._state_store.has_output(root, output)
+                        if not self._state_store.has_output_for_other_source(root, output, candidate.source_rel)
                     ]
-                    self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
-                    removed += len(owned_outputs)
-        return {"code": 0, "data": {"removed": removed}, "msg": f"已清理 {removed} 个生成文件"}
+                    cleanup = self._remove_outputs(owned_outputs, notify_emby=bool(record.content_hash))
+                    failures.extend(cleanup.get("failed") or [])
+                    if not cleanup.get("failed"):
+                        completed_items.append((root, candidate.source_rel, tuple(record.outputs)))
+                    removed += len(cleanup.get("removed") or [])
+        if not failures and self._state_store:
+            for root, source_rel, expected_outputs in completed_items:
+                if not self._state_store.delete_if_matches(root, source_rel, expected_outputs):
+                    failures.append({"path": source_rel, "error": "状态记录已变化，未移除 ownership"})
+        if failures:
+            if self._task_store:
+                self._task_store.release_cleanup_batch(batch_id)
+            return {
+                "code": 1,
+                "data": {"removed": removed, "failed": failures},
+                "msg": f"清理完成 {removed} 个文件，{len(failures)} 个文件删除失败",
+            }
+        if self._task_store:
+            self._task_store.confirm_cleanup_batch(batch_id)
+        return {"code": 0, "data": {"removed": removed, "failed": []}, "msg": f"已清理 {removed} 个生成文件"}
 
     @staticmethod
     def get_render_mode() -> Tuple[str, str]:
@@ -2486,7 +2585,7 @@ class CloudStrmButler(_PluginBase):
             monitor_flag = None
             if line.count("$") == 1:
                 line, monitor_flag = line.split("$", 1)
-                monitor_flag = monitor_flag.strip()
+                monitor_flag = monitor_flag.strip().lower()
             category = None
             if line.count("@") == 1:
                 line, category = line.split("@", 1)
