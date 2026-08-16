@@ -12,6 +12,35 @@ export function normalizeBoolean(value, fallback = false) {
   return Boolean(value)
 }
 
+function normalizePathBoundary(value) {
+  const raw = String(value || '').trim().replace(/\\/g, '/')
+  const drive = /^[A-Za-z]:/.test(raw) ? raw.slice(0, 2).toLowerCase() : ''
+  const absolute = raw.startsWith('/') || Boolean(drive)
+  const segments = []
+
+  for (const segment of raw.slice(drive ? 2 : 0).split('/')) {
+    if (!segment || segment === '.') continue
+    if (segment === '..') {
+      if (segments.length && segments[segments.length - 1] !== '..') segments.pop()
+      else if (!absolute) segments.push(segment)
+      continue
+    }
+    segments.push(segment)
+  }
+
+  let normalized = (drive + (absolute ? '/' : '') + segments.join('/')) || (absolute ? '/' : '.')
+  if (drive) normalized = normalized.toLowerCase()
+  if (normalized !== '/' && !(drive && normalized === drive + '/')) normalized = normalized.endsWith('/') ? normalized.slice(0, -1) : normalized
+  return normalized
+}
+
+function isPathWithin(path, root) {
+  if (path === root) return true
+  if (root === '/') return !/^[a-z]:\//.test(path)
+  if (root === '.') return path !== '..' && !path.startsWith('../')
+  return path.startsWith(root.endsWith('/') ? root : root + '/')
+}
+
 export function validateRuleForSave(rule = {}) {
   const local = String(rule.local || '').trim()
   const strm = String(rule.strm || '').trim()
@@ -19,6 +48,11 @@ export function validateRuleForSave(rule = {}) {
   const format = String(rule.format || '').trim()
 
   if (!local || !strm) return '每条路径规则都需要填写来源目录和 STRM 输出目录。'
+  const localBoundary = normalizePathBoundary(local)
+  const strmBoundary = normalizePathBoundary(strm)
+  if (isPathWithin(strmBoundary, localBoundary)) {
+    return 'STRM 输出目录不能位于来源目录内。'
+  }
   if (!format || !['{local_file}', '{cloud_file}'].some(token => format.includes(token))) {
     return '每条路径规则的 STRM 模板必须包含 {local_file} 或 {cloud_file}。'
   }

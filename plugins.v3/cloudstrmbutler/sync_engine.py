@@ -111,14 +111,25 @@ class SyncEngine:
             try:
                 result = self.handler(job) or {}
                 status = result.get("status", "processed")
+                if status in {"invalid_target", "invalid_cloud", "invalid_content"}:
+                    result = {
+                        **result,
+                        "status": "failed",
+                        "retryable": False,
+                        "reason": str(result.get("reason") or status),
+                    }
+                    status = "failed"
                 if status in {"failed", "unstable"} and self._retryable(result):
                     if job.attempts < len(self.RETRY_DELAYS):
                         self.store.retry_job(job, str(result.get("reason") or status), self.RETRY_DELAYS[job.attempts], result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
                     else:
                         self.store.fail_job(job, str(result.get("reason") or status), result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
-                        self._complete(job, {"status": "failed", "reason": str(result.get("reason") or status)})
+                        self._complete(job, {**result, "status": "failed"})
                 elif status == "failed":
                     self.store.fail_job(job, str(result.get("reason") or "同步失败"), result.get("diagnosis") or {"actual_target": result.get("actual_target", "")})
+                    self._complete(job, result)
+                elif status == "cancelled":
+                    self.store.complete_job(job)
                     self._complete(job, result)
                 else:
                     self.store.complete_job(job)

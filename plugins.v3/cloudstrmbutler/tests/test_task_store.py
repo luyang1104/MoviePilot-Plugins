@@ -44,6 +44,41 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(follow_up.payload["run_id"], "scan-1")
         self.assertTrue(follow_up.payload["wait_stable"])
 
+    def test_cancel_run_jobs_preserves_a_followup_from_another_run(self):
+        self.store.enqueue("/media", "/media/movie.mkv", "sync", payload={"run_id": "scan-1"})
+        job = self.store.claim_ready()[0]
+        self.assertTrue(
+            self.store.enqueue(
+                "/media",
+                "/media/movie.mkv",
+                "sync",
+                payload={"run_id": "watcher-event", "wait_stable": True},
+            )
+        )
+
+        self.assertEqual(self.store.cancel_run_jobs("scan-1"), 1)
+        self.assertTrue(self.store.complete_job(job))
+        follow_up = self.store.claim_ready()[0]
+
+        self.assertEqual(follow_up.payload["run_id"], "watcher-event")
+        self.assertTrue(follow_up.payload["wait_stable"])
+
+    def test_cancel_run_jobs_promotes_followup_when_generation_is_not_claimed(self):
+        self.store.enqueue("/media", "/media/movie.mkv", "sync", payload={"run_id": "scan-1"})
+        self.assertTrue(
+            self.store.enqueue(
+                "/media",
+                "/media/movie.mkv",
+                "sync",
+                payload={"run_id": "watcher-event"},
+            )
+        )
+
+        self.assertEqual(self.store.cancel_run_jobs("scan-1"), 1)
+        follow_up = self.store.claim_ready()[0]
+
+        self.assertEqual(follow_up.payload["run_id"], "watcher-event")
+
     def test_retry_restores_failure_payload(self):
         payload = {"run_id": "scan-1", "copy_files": True, "wait_stable": True}
         self.store.enqueue("/media", "/media/movie.mkv", "sync", payload=payload)
@@ -99,6 +134,18 @@ class TaskStoreTests(unittest.TestCase):
 
     def test_failure_classifier_marks_transient_storage_errors_retryable(self):
         diagnosis = classify_failure("[Errno 110] Connection timed out")
+
+        self.assertEqual(diagnosis["reason_code"], "storage_unavailable")
+        self.assertTrue(diagnosis["retryable"])
+
+    def test_failure_classifier_marks_invalid_paths_as_configuration_errors(self):
+        diagnosis = classify_failure("invalid_target: 无法计算目标路径", "/library/movie.strm")
+
+        self.assertEqual(diagnosis["reason_code"], "invalid_target")
+        self.assertFalse(diagnosis["retryable"])
+
+    def test_failure_classifier_marks_busy_outputs_as_retryable(self):
+        diagnosis = classify_failure("[Errno 16] Device or resource busy", "/library/movie.strm")
 
         self.assertEqual(diagnosis["reason_code"], "storage_unavailable")
         self.assertTrue(diagnosis["retryable"])

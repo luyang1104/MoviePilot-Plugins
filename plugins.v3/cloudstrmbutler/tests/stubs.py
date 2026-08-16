@@ -33,7 +33,7 @@ class FakeSettings:
 
 
 class FakeChain:
-    def recognize_media(self, meta, mtype):
+    def recognize_media(self, **kwargs):
         return None
 
 

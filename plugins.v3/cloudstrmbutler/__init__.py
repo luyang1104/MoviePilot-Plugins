@@ -1,5 +1,4 @@
 import json
-import filecmp
 import hashlib
 import os
 import re
@@ -50,7 +49,7 @@ from .core_paths import (
 from .monitoring import FileMonitorHandler, is_ignored_path, is_temporary_path, wait_for_stable_file
 from .state_store import SyncStateStore
 from .sync_engine import SyncEngine
-from .task_store import PendingJob, TaskStore
+from .task_store import PendingJob, TaskStore, classify_failure
 
 
 def _as_bool(value: Any, default: bool = False) -> bool:
@@ -77,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.21"
+    plugin_version = "2.1.22"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -910,8 +909,25 @@ class CloudStrmButler(_PluginBase):
             try:
                 if job.action == "delete":
                     if self._cleanup_mode == "event":
-                        self.__handle_deleted_file(job.path, job.monitor_root)
-                        return {"status": "deleted"}
+                        cleanup = self.__handle_deleted_file(job.path, job.monitor_root)
+                        failures = cleanup.get("failed") or []
+                        if failures:
+                            reason = "; ".join(
+                                f"{item.get('path')}: {item.get('error')}" for item in failures
+                            )
+                            actual_target = str(failures[0].get("path") or "")
+                            diagnosis = classify_failure(reason, actual_target)
+                            retryable = bool(diagnosis.get("retryable"))
+                            return {
+                                "status": "unstable" if retryable else "failed",
+                                "reason": reason,
+                                "retryable": retryable,
+                                "actual_target": actual_target,
+                                "diagnosis": diagnosis,
+                                "removed": cleanup.get("removed") or [],
+                                "failed": failures,
+                            }
+                        return {"status": "deleted", **cleanup}
                     return {"status": "ignored"}
                 return self.__handle_file(
                     event_path=job.path,
@@ -1042,10 +1058,27 @@ class CloudStrmButler(_PluginBase):
             cloud_file = self.__remap_path(event_path, mon_path, cloud_dir)
             if not target_file:
                 logger.error(f"无法计算文件 {event_path} 的目标路径")
-                return {"status": "invalid_target", "result_statuses": ["failed"]}
+                reason = f"无法计算文件 {event_path} 的目标路径"
+                diagnosis = {"reason_code": "invalid_target", "actual_target": str(strm_dir or "")}
+                return {
+                    "status": "invalid_target",
+                    "reason": reason,
+                    "actual_target": str(strm_dir or ""),
+                    "diagnosis": diagnosis,
+                    "result_statuses": ["failed"],
+                }
             if not cloud_file and "{cloud_file}" in (format_str or ""):
                 logger.error(f"无法计算文件 {event_path} 的云盘路径")
-                return {"status": "invalid_cloud", "result_statuses": ["failed"]}
+                actual_target = str(Path(target_file).with_suffix(".strm"))
+                reason = f"无法计算文件 {event_path} 的云盘路径"
+                diagnosis = {"reason_code": "invalid_cloud", "actual_target": actual_target}
+                return {
+                    "status": "invalid_cloud",
+                    "reason": reason,
+                    "actual_target": actual_target,
+                    "diagnosis": diagnosis,
+                    "result_statuses": ["failed"],
+                }
 
             suffix = source.suffix.lower()
             content_hash = ""
@@ -1058,7 +1091,16 @@ class CloudStrmButler(_PluginBase):
                 )
                 if not strm_content:
                     logger.error(f"文件 {event_path} 的 STRM 模板无效")
-                    return {"status": "invalid_content", "result_statuses": ["failed"]}
+                    actual_target = str(Path(target_file).with_suffix(".strm"))
+                    reason = f"文件 {event_path} 的 STRM 模板无效"
+                    diagnosis = {"reason_code": "invalid_template", "actual_target": actual_target}
+                    return {
+                        "status": "invalid_content",
+                        "reason": reason,
+                        "actual_target": actual_target,
+                        "diagnosis": diagnosis,
+                        "result_statuses": ["failed"],
+                    }
                 strm_content = self._apply_path_replacements(strm_content)
                 content_hash = hashlib.sha256(strm_content.encode("utf-8")).hexdigest()
                 sidecar_paths = list(self._iter_sidecars(source))
@@ -1136,7 +1178,9 @@ class CloudStrmButler(_PluginBase):
                             outputs.append(sidecar_target)
                             continue
                         if not self._should_copy_sidecar(str(sidecar_path)):
-                            self._remove_recorded_output(mon_path, sidecar_target)
+                            self._remove_recorded_output(
+                                mon_path, sidecar_target, source_path=str(sidecar_path)
+                            )
                             continue
                         sidecar_outputs = self.__handle_other_files(str(sidecar_path), sidecar_target)
                         outputs.extend(sidecar_outputs)
@@ -1146,7 +1190,7 @@ class CloudStrmButler(_PluginBase):
             else:
                 should_copy_sidecar = self._should_copy_sidecar(event_path)
                 if not should_copy_sidecar:
-                    self._remove_recorded_output(mon_path, target_file)
+                    self._remove_recorded_output(mon_path, target_file, source_path=event_path)
                     return {"status": "skipped", "result_statuses": ["skipped"]}
                 content_hash = self._file_content_hash(source)
                 sidecar_expected = [
@@ -1162,11 +1206,11 @@ class CloudStrmButler(_PluginBase):
 
             if not outputs:
                 if suffix not in self._media_extensions:
-                    self._remove_recorded_output(mon_path, target_file)
+                    self._remove_recorded_output(mon_path, target_file, source_path=event_path)
                 elif previous_record:
                     self._remove_obsolete_outputs(mon_path, str(source_rel), previous_record.outputs, [])
                 else:
-                    self._remove_recorded_output(mon_path, target_file)
+                    self._remove_recorded_output(mon_path, target_file, source_path=event_path)
                 return {"status": "skipped", "result_statuses": ["skipped"]}
 
             if self._state_store is not None:
@@ -1339,20 +1383,13 @@ class CloudStrmButler(_PluginBase):
         """Copy one sidecar through a same-directory temporary file."""
         temp_path = None
         try:
-            target_path = Path(target_file)
-            if target_path.is_file():
-                try:
-                    if filecmp.cmp(str(event_path), str(target_path), shallow=False):
-                        logger.info(f"{kind}已存在且内容一致，跳过复制 {target_file}")
-                        return target_file
-                except OSError:
-                    pass
             target_dir = os.path.dirname(target_file)
             if target_dir:
                 os.makedirs(target_dir, exist_ok=True)
             write_check = self._check_write_target(target_file)
             if not write_check["writable"]:
                 raise PermissionError(write_check["raw_error"])
+            target_path = Path(target_file)
             with tempfile.NamedTemporaryFile(
                 prefix=f".{target_path.name}.",
                 suffix=".tmp",
@@ -1401,8 +1438,24 @@ class CloudStrmButler(_PluginBase):
             config_fingerprint=self._config_fingerprint,
         )
 
-    def _remove_recorded_output(self, mon_path: str, target_file: str) -> None:
+    def _remove_recorded_output(
+        self,
+        mon_path: str,
+        target_file: str,
+        source_path: Optional[str] = None,
+        source_rel: Optional[str] = None,
+    ) -> None:
         if not self._state_store or not target_file:
+            return
+        if source_rel is None and source_path:
+            relative = relative_path(source_path, mon_path)
+            source_rel = str(relative) if relative is not None else None
+        if not source_rel:
+            logger.warning(f"跳过清理未确认归属的生成文件：{target_file}")
+            return
+        record = self._state_store.get(mon_path, source_rel)
+        if not record or path_key(target_file) not in {path_key(output) for output in record.outputs}:
+            logger.warning(f"跳过清理未由插件记录的输出：{target_file}（来源：{source_rel}）")
             return
         cleanup = self._remove_outputs([target_file])
         if not cleanup.get("failed") and self._state_store.remove_output(mon_path, target_file):
@@ -1414,6 +1467,10 @@ class CloudStrmButler(_PluginBase):
         current = {path_key(output) for output in current_outputs or []}
         for output in previous_outputs or []:
             if path_key(output) in current:
+                continue
+            record = self._state_store.get(mon_path, source_rel)
+            if not record or path_key(output) not in {path_key(item) for item in record.outputs}:
+                logger.warning(f"跳过清理未由当前来源记录的输出：{output}（来源：{source_rel}）")
                 continue
             if self._state_store.has_output_for_other_source(mon_path, output, source_rel):
                 self._state_store.remove_output_for_source(mon_path, source_rel, output)
@@ -1488,11 +1545,12 @@ class CloudStrmButler(_PluginBase):
 
     def __handle_deleted_file(self, event_path: str, mon_path: str):
         """Remove generated outputs and the persisted record for a deleted source."""
+        empty_cleanup = {"removed": [], "failed": []}
         if self._state_store is None:
-            return
+            return empty_cleanup
         source_rel = relative_path(event_path, mon_path)
         if source_rel is None:
-            return
+            return empty_cleanup
         record = self._state_store.get(mon_path, str(source_rel))
         if record:
             is_sidecar = (
@@ -1508,7 +1566,7 @@ class CloudStrmButler(_PluginBase):
                     self._state_store.remove_output(mon_path, output)
                 if not cleanup.get("failed"):
                     self._state_store.delete_if_matches(mon_path, str(source_rel), record.outputs)
-                return
+                return cleanup
             owned_outputs = [
                 output
                 for output in record.outputs
@@ -1519,10 +1577,10 @@ class CloudStrmButler(_PluginBase):
                 self._state_store.remove_output_for_source(mon_path, str(source_rel), output)
             if not cleanup.get("failed"):
                 self._state_store.delete(mon_path, str(source_rel))
+            return cleanup
         else:
-            strm_dir = self._strm_dir_conf.get(mon_path)
-            target_file = self.__remap_path(event_path, mon_path, strm_dir) if strm_dir else None
-            self._remove_recorded_output(mon_path, target_file)
+            logger.warning(f"跳过清理未由插件记录的删除事件：{event_path}")
+            return empty_cleanup
 
     def _remove_outputs(self, outputs, notify_emby: bool = False):
         """Remove only files that are recorded as generated by this plugin."""
@@ -2179,7 +2237,7 @@ class CloudStrmButler(_PluginBase):
                         season_episode = key
                         media_type = MediaType.MOVIE
                     mediainfo = self.chain.recognize_media(
-                        meta=file_meta, mtype=media_type
+                        meta=file_meta, mtype=media_type, tmdbid=file_meta.tmdbid
                     )
                     image = None
                     if mediainfo:
@@ -2360,7 +2418,13 @@ class CloudStrmButler(_PluginBase):
         return {"code": 0, "data": {"items": failures, "total": len(failures)}}
 
     def sync_retry_failure_api(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        failure_id = int((payload or {}).get("failure_id") or 0)
+        raw_id = (payload or {}).get("failure_id") if isinstance(payload, dict) else None
+        try:
+            failure_id = int(raw_id or 0)
+        except (TypeError, ValueError):
+            return {"code": 1, "msg": "失败任务 ID 无效"}
+        if failure_id <= 0:
+            return {"code": 1, "msg": "失败任务 ID 无效"}
         if not self._task_store or not self._sync_engine or not self._task_store.retry_failure(failure_id):
             return {"code": 1, "msg": "未找到可重试的失败任务"}
         self._sync_engine.pump()

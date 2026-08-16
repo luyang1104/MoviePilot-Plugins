@@ -63,7 +63,19 @@ def classify_failure(error: str, actual_target: str = "") -> dict:
             "repair_hint": "确认源文件仍存在、目标挂载已连接，并检查 STRM 规则中的本地目录和输出目录映射。",
             "actual_target": actual_target,
         }
-    if any(token in text for token in ("connection timed out", "timed out", "i/o error", "input/output error", "stale file handle", "temporarily unavailable")):
+    if any(token in text for token in (
+        "connection timed out",
+        "timed out",
+        "i/o error",
+        "input/output error",
+        "stale file handle",
+        "temporarily unavailable",
+        "resource busy",
+        "device or resource busy",
+        "file is in use",
+        "being used",
+        "sharing violation",
+    )):
         return {
             "reason_code": "storage_unavailable",
             "reason_label": "NAS 或挂载暂时不可用",
@@ -77,6 +89,22 @@ def classify_failure(error: str, actual_target: str = "") -> dict:
             "reason_label": "STRM 模板或规则无效",
             "retryable": False,
             "repair_hint": "检查规则是否包含 {local_file} 或 {cloud_file}，并确认云盘目录映射有效。",
+            "actual_target": actual_target,
+        }
+    if "invalid_target" in text or "目标路径" in text:
+        return {
+            "reason_code": "invalid_target",
+            "reason_label": "STRM 输出路径无效",
+            "retryable": False,
+            "repair_hint": "检查规则中的 STRM 输出目录是否为空、越界或无法映射，并确认目标挂载可用。",
+            "actual_target": actual_target,
+        }
+    if "invalid_cloud" in text or "云盘路径" in text:
+        return {
+            "reason_code": "invalid_cloud",
+            "reason_label": "云盘路径映射无效",
+            "retryable": False,
+            "repair_hint": "检查规则中的 OpenList 云盘目录和来源目录映射。",
             "actual_target": actual_target,
         }
     return {
@@ -519,19 +547,70 @@ class TaskStore:
             return True
 
     def cancel_run_jobs(self, run_id: str) -> int:
-        """Remove queued jobs that belong to a cancelled run."""
+        """Cancel one run generation while retaining unrelated follow-up events."""
         removed = 0
+        cancelled = str(run_id or "")
         with self._lock:
-            rows = self._conn.execute("SELECT id, payload FROM pending_jobs").fetchall()
+            rows = self._conn.execute("SELECT * FROM pending_jobs").fetchall()
+            now = time.time()
             for row in rows:
-                try:
-                    payload = json.loads(row["payload"] or "{}")
-                except (TypeError, ValueError):
-                    payload = {}
-                if str(payload.get("run_id") or "") != str(run_id):
+                payload = self._decode_json(row["payload"], {})
+                followups = self._decode_json(row["followups"], [])
+                retained_followups = [
+                    event
+                    for event in followups
+                    if str((event.get("payload") or {}).get("run_id") or "") != cancelled
+                ]
+                removed_followups = len(followups) - len(retained_followups)
+                current_matches = str(payload.get("run_id") or "") == cancelled
+                subscribers = self._decode_json(row["subscribers"], [])
+                retained_subscribers = [
+                    item
+                    for item in subscribers
+                    if str((item or {}).get("run_id") or "") != cancelled
+                ]
+
+                if current_matches:
+                    removed += 1 + removed_followups
+                    if int(row["claimed"]):
+                        # Keep a claimed row until its in-memory worker can
+                        # complete the generation and promote any survivor.
+                        self._conn.execute(
+                            "UPDATE pending_jobs SET followups = ?, subscribers = ?, updated_at = ? WHERE id = ?",
+                            (
+                                json.dumps(retained_followups, ensure_ascii=False, separators=(",", ":")),
+                                json.dumps(retained_subscribers, ensure_ascii=False, separators=(",", ":")),
+                                now,
+                                row["id"],
+                            ),
+                        )
+                    elif not retained_followups:
+                        self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (row["id"],))
+                    else:
+                        self._conn.execute(
+                            "UPDATE pending_jobs SET followups = ?, subscribers = ?, updated_at = ? WHERE id = ?",
+                            (
+                                json.dumps(retained_followups, ensure_ascii=False, separators=(",", ":")),
+                                json.dumps(retained_subscribers, ensure_ascii=False, separators=(",", ":")),
+                                now,
+                                row["id"],
+                            ),
+                        )
+                        current = self._conn.execute("SELECT * FROM pending_jobs WHERE id = ?", (row["id"],)).fetchone()
+                        self._promote_followup_or_delete(self._job(current), now)
                     continue
-                self._conn.execute("DELETE FROM pending_jobs WHERE id = ?", (row["id"],))
-                removed += 1
+
+                if removed_followups or len(retained_subscribers) != len(subscribers):
+                    removed += removed_followups
+                    self._conn.execute(
+                        "UPDATE pending_jobs SET followups = ?, subscribers = ?, updated_at = ? WHERE id = ?",
+                        (
+                            json.dumps(retained_followups, ensure_ascii=False, separators=(",", ":")),
+                            json.dumps(retained_subscribers, ensure_ascii=False, separators=(",", ":")),
+                            now,
+                            row["id"],
+                        ),
+                    )
             self._conn.commit()
         return removed
 

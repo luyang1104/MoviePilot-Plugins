@@ -89,6 +89,26 @@ test('invalid rules are rejected before a save payload is created', () => {
     () => buildConfigPayload({ rules: [{ local: '/source', strm: '/strm', format: 'literal' }] }),
     /模板|local_file|cloud_file/,
   )
+  assert.match(
+    validateRuleForSave({ local: '/source', strm: '/source/output', format: '{cloud_file}', cloud: '/cloud' }),
+    /不能位于来源目录内|子目录/,
+  )
+  assert.equal(
+    validateRuleForSave({ local: '/source', strm: '/source-copy', format: '{cloud_file}', cloud: '/cloud' }),
+    '',
+  )
+  assert.match(
+    validateRuleForSave({ local: 'C:\\Media', strm: 'C:\\Media\\..\\Media\\output', format: '{cloud_file}', cloud: 'C:\\Cloud' }),
+    /不能位于来源目录内|子目录/,
+  )
+  assert.match(
+    validateRuleForSave({ local: '.', strm: './output', format: '{cloud_file}', cloud: './cloud' }),
+    /不能位于来源目录内|子目录/,
+  )
+  assert.match(
+    validateRuleForSave({ local: '/', strm: 'relative/output', format: '{cloud_file}', cloud: '/cloud' }),
+    /不能位于来源目录内|子目录/,
+  )
 })
 
 test('normalizeBoolean handles values returned as strings', () => {

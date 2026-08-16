@@ -136,6 +136,63 @@ class SyncEngineTests(unittest.TestCase):
         self.assertTrue(engine.stop(timeout=2))
         self.assertFalse(engine._threads)
 
+    def test_invalid_result_is_failed_and_kept_in_failures(self):
+        completed = []
+        engine = SyncEngine(
+            self.store,
+            lambda job: {
+                "status": "invalid_target",
+                "reason": "目标路径无效",
+                "actual_target": "/library/movie.strm",
+                "diagnosis": {"reason_code": "invalid_target", "actual_target": "/library/movie.strm"},
+            },
+            workers=1,
+            completion=lambda job, result: completed.append(result),
+        )
+        engine.start()
+        engine.enqueue("/media", "/media/movie.mkv")
+
+        deadline = time.time() + 2
+        while not completed and time.time() < deadline:
+            time.sleep(0.02)
+        engine.stop()
+
+        self.assertEqual(completed[0]["status"], "failed")
+        self.assertEqual(completed[0]["reason"], "目标路径无效")
+        self.assertEqual(completed[0]["actual_target"], "/library/movie.strm")
+        self.assertEqual(len(self.store.failures()), 1)
+        self.assertEqual(self.store.failures()[0]["actual_target"], "/library/movie.strm")
+        self.assertEqual(self.store.status()["queued"], 0)
+
+    def test_cancelled_generation_keeps_a_later_event_for_the_worker(self):
+        import threading
+
+        started = threading.Event()
+        release = threading.Event()
+        seen = []
+
+        def handler(job):
+            seen.append(job.payload)
+            if len(seen) == 1:
+                started.set()
+                release.wait(2)
+            return {"status": "processed"}
+
+        engine = SyncEngine(self.store, handler, workers=1)
+        engine.start()
+        engine.enqueue("/media", "/media/movie.mkv", payload={"run_id": "scan-1"})
+        self.assertTrue(started.wait(1))
+        engine.enqueue("/media", "/media/movie.mkv", payload={"run_id": "watcher-event"})
+
+        self.assertEqual(self.store.cancel_run_jobs("scan-1"), 1)
+        release.set()
+        deadline = time.time() + 2
+        while len(seen) < 2 and time.time() < deadline:
+            time.sleep(0.02)
+        engine.stop()
+
+        self.assertEqual([item["run_id"] for item in seen], ["scan-1", "watcher-event"])
+
 
 if __name__ == "__main__":
     unittest.main()
