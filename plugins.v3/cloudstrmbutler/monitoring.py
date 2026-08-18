@@ -102,7 +102,7 @@ def wait_for_stable_file(
         except OSError:
             return False
 
-        if current == previous and current[0] > 0:
+        if current == previous:
             stable_count += 1
             if stable_count >= stable_checks:
                 return True

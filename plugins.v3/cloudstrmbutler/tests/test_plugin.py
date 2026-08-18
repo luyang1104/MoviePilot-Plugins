@@ -325,6 +325,31 @@ class PluginTests(unittest.TestCase):
         create_mock.assert_not_called()
         self.assertTrue((target / "Series" / "movie.strm").is_file())
 
+    def test_media_processing_copies_tagged_sidecars_like_legacy_glob(self):
+        base = self.new_temp()
+        source, target, cloud = self.make_rule_paths(base)
+        plugin = self.make_plugin(base / "data")
+        plugin.init_plugin(
+            {
+                "enabled": False,
+                "copy_files": True,
+                "copy_subtitles": True,
+                "monitor_confs": f"{source}#{target}#{cloud}#{{cloud_file}}",
+            }
+        )
+        media_file = source / "movie.mkv"
+        subtitle = source / "movie.zh-CN.srt"
+        sidecar = source / "movie.4k.nfo"
+        media_file.write_bytes(b"movie")
+        subtitle.write_text("subtitle", encoding="utf-8")
+        sidecar.write_text("nfo", encoding="utf-8")
+
+        result = plugin._CloudStrmButler__handle_file(str(media_file), str(source))
+
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual((target / "movie.zh-CN.srt").read_text(encoding="utf-8"), "subtitle")
+        self.assertEqual((target / "movie.4k.nfo").read_text(encoding="utf-8"), "nfo")
+
     def test_template_change_rewrites_existing_strm_without_cover_mode(self):
         base = self.new_temp()
         source, target, cloud = self.make_rule_paths(base)
@@ -704,11 +729,11 @@ class PluginTests(unittest.TestCase):
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("old", encoding="utf-8")
 
-        with patch("os.replace", side_effect=OSError(110, "Connection timed out")):
+        with patch("os.replace", side_effect=OSError(95, "Operation not supported")):
             result = plugin._CloudStrmButler__handle_file(str(sidecar), str(source))
 
-        self.assertEqual(result["status"], "failed")
-        self.assertEqual(destination.read_text(encoding="utf-8"), "old")
+        self.assertEqual(result["status"], "processed")
+        self.assertEqual(destination.read_text(encoding="utf-8"), "new")
         self.assertEqual(list(target.glob(".movie.nfo.*.tmp")), [])
 
     def test_disabling_sidecar_copy_removes_old_output(self):

@@ -63,6 +63,20 @@ class MonitoringTests(unittest.TestCase):
                     )
                 )
 
+    def test_wait_for_stable_file_accepts_stable_empty_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "movie.srt"
+            path.write_bytes(b"")
+            with patch("cloudstrmbutler.monitoring.time.sleep"):
+                self.assertTrue(
+                    wait_for_stable_file(
+                        str(path),
+                        stable_checks=2,
+                        stable_interval=0,
+                        max_wait=10,
+                    )
+                )
+
     def test_wait_for_stable_file_rejects_missing_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             self.assertFalse(

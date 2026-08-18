@@ -76,7 +76,7 @@ class CloudStrmButler(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/cloudstrm.png"
     # 插件版本
-    plugin_version = "2.1.22"
+    plugin_version = "2.1.23"
     # 插件作者
     plugin_author = "FelixYang"
     # 作者主页
@@ -1400,7 +1400,19 @@ class CloudStrmButler(_PluginBase):
             shutil.copy2(str(event_path), str(temp_path))
             if temp_path.stat().st_size != Path(event_path).stat().st_size:
                 raise OSError(11, f"{kind}复制后大小校验失败")
-            os.replace(str(temp_path), str(target_path))
+            try:
+                os.replace(str(temp_path), str(target_path))
+            except OSError as atomic_error:
+                # Some SMB/FUSE mounts allow writing but reject rename/replace.
+                logger.warning(
+                    f"{kind}原子替换失败，回退普通复制到 {target_file}：{atomic_error}"
+                )
+                shutil.copy2(str(event_path), str(target_path))
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                temp_path = None
             temp_path = None
             logger.info(f"复制{kind} {str(event_path)} 到 {target_file}")
             return target_file
@@ -1536,8 +1548,15 @@ class CloudStrmButler(_PluginBase):
     @staticmethod
     def _iter_sidecars(source: Path):
         stem = source.stem
+        # Match the legacy ``Path.glob(f"{stem}.*")`` behavior, including
+        # language and release tags such as ``movie.zh-CN.srt``.
+        prefix = f"{stem}.".casefold()
         for sibling in source.parent.iterdir():
-            if sibling.is_file() and sibling != source and sibling.stem == stem:
+            if (
+                sibling.is_file()
+                and sibling != source
+                and sibling.name.casefold().startswith(prefix)
+            ):
                 yield sibling
         thumb = source.parent / f"{stem}-thumb.jpg"
         if thumb.is_file():
