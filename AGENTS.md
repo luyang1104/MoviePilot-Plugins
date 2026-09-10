@@ -56,7 +56,7 @@ MoviePilot v3 架构的第三方插件仓库，同时用作 MP 插件市场源�
 
 - LinkedMediaDel 测试：`python3 -m venv .venv && .venv/bin/pip install pytest`（仓库根，.venv 已 gitignore），然后 `cd plugins.v3/linkedmediadel && ../../../.venv/bin/python -m pytest`（pytest.ini 已配 `pythonpath=. testpaths=tests`）。
 - 无 pytest 时的最低检查：`python3 -m py_compile plugins.v3/linkedmediadel/*.py` + `git diff --check`。
-- 功能验证（不碰真实文件）：伪造 `media_del` webhook（`item_isvirtual='False'`、不存在的 tmdb_id）→ 插件日志出现「未获取到可删除数据」即证明进入删除逻辑。
+- 功能验证（不碰真实文件）：伪造 `media_del` webhook（`item_isvirtual='False'`、不存在的 tmdb_id）→ 插件日志出现「未获取到可删除数据」即证明进入删除逻辑。**注意：MP v3 把插件日志路由到独立文件 `config/logs/plugins/linkedmediadel.log`，主日志 `moviepilot.log` 里看不到插件输出**（已实测确认，勿再误判为静默失败）。伪造方法：`POST /api/v1/webhook/?token=<API_TOKEN>`，表单字段 `data` 为 JSON：`{"Event":"media_del","item_isvirtual":"False","item_type":"Movie","item_name":"__自检__","item_path":"/nonexistent/x.mkv","tmdb_id":"999999999"}`。
 - 本机环境实测：系统 `python3` 无 pytest；有 `node` 无 pnpm。CloudStrmButler 的测试与前端构建与本插件无关，勿动。
 
 ## 生产机约束与挂起事项（2026-09-10 记录）
