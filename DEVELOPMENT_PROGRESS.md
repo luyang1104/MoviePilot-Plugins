@@ -1,5 +1,27 @@
 ---
 
+# LinkedMediaDel v1.0 更名发布（原 MediaSyncDel 2.0.2 模块化重构）（2026-09-10）
+
+## 本轮更新
+
+- **身份更名**：插件 ID `MediaSyncDel` → `LinkedMediaDel`，显示名「媒体文件同步删除」→「媒体联动删除」，版本重置为 1.0，作者改署 Felix Yang；目录 `plugins.v3/linkedmediadel/`、配置前缀 `linkedmediadel_`、图标 `icons/linkedmediadel.png`、详情页 API 路径同步更换。MP 会将其视为全新插件：旧 MediaSyncDel 的配置与历史不迁移。
+- 单文件（1280 行）拆分为多文件包：`payloads.py`（webhook 字段归一化 + `DeleteRequest`）、`transfer_query.py`（转移历史查询组装）、`deleter.py`（删除执行核心 `SyncDeleter`）、`torrents.py`（种子/辅种/合集 `TorrentCleaner`）、`views.py`（配置表单与详情页构建）；`__init__.py` 仅保留插件元数据、配置初始化与四个事件入口，方法体委托模块。
+- `sync_del_by_webhook` / `sync_del_by_plugin` 的字段提取、排除路径、身份校验合并为共享流程 `_dispatch_request`。
+- item_isvirtual 防线固化在 `payloads.normalize_bool`：字符串 `"False"` 判假（issue #359 回归防护）；`None` 与无法识别的值统一走防误删保护（自动停用插件），不再放行删除。
+- 修复潜伏问题：`handle_torrent` 错误返回 `(False, False, 0)` 改为 `(False, False, [])`；`__del_seed` 遇残缺辅种记录裸 `return None`（会让调用方崩溃）改为跳过该条；`__del_collection` 异常 `print` 改为 `logger.error`；删除时间戳解析改为 None 安全（缺失/解析失败跳过时间比较）。
+- 跳过分支补日志：事件类型不匹配 debug、虚拟 item 跳过 info；删除 `execute` 中不可达的身份兜底循环与无调用方的 `get_tmdbimage_url` / 类上 `format_timestamp`（逻辑移入 `payloads.parse_delete_time`）；保留公开方法 `handle_torrent` 作为 `TorrentCleaner.handle` 的兼容委托。
+- 新增 `tests/`（stubs + 53 条用例）：入口级表征测试锁定 webhook/Scripter X/PluginAction 行为，模块级单测覆盖归一化、查询组装与种子清理。
+- 范围说明：仅面向 Emby（原生 Webhook + Scripter X），Jellyfin 顺带兼容保持原样，不新增 Plex。
+- 保留的既有语义（未改动）：`downloadfile_del_sync` 不检查插件启用状态（与上游一致）；路径映射按前缀替换；排除路径命中后转发 `networkdisk_del`；配置表单内 Scripter X 文档链接仍指向上游 thsrite 仓库（功能性引用）。
+
+## 验证
+
+- 重构前表征测试对旧单文件全绿（30 条），重构后及更名后同套测试全绿（53 条）：`.venv/bin/python -m pytest`（venv 内 pytest 9.1.1）。
+- `python3 -m py_compile` 全部模块通过；`git diff --check` 通过；`plugin_version` 与 `package.v3.json` 均为 1.0。
+- 生产走查（推送后）：换源刷新市场应出现「媒体联动删除」；安装启用后伪造 `media_del` webhook（`item_isvirtual='False'`、不存在的 tmdb_id）应出现「未获取到可删除数据」日志；本机已装文件与仓库 raw 文件 sha256 对比。
+
+---
+
 # V1.5.3 配置页映射规则增删与 SVG 对齐（2026-08-12）
 
 ## 本轮更新

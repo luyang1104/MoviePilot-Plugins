@@ -69,20 +69,18 @@
       "1.0.0": "首个版本：目录监控、全量/增量扫描、STRM 生成、旁车文件复制、删除清理和 Emby 刷新。"
     }
   },
-  "MediaSyncDel": {
-    "name": "媒体文件同步删除",
+  "LinkedMediaDel": {
+    "name": "媒体联动删除",
     "description": "同步删除历史记录、源文件和下载任务。",
     "labels": "媒体库，文件整理",
-    "version": "2.0.2",
-    "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/mediasyncdel.png",
-    "author": "thsrite",
+    "version": "1.0",
+    "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/linkedmediadel.png",
+    "author": "Felix Yang",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
-      "v2.0.2": "修复 Scripter X 方式下 item_isvirtual 为字符串 \"False\" 时被当作真值、导致所有删除事件被静默跳过的问题（上游 thsrite/MoviePilot-Plugins issue #359）。",
-      "v2.0.1": "外部文件或下载器清理失败时保留整理历史，避免丢失重试依据。",
-      "v2.0.0": "适配 V3 SDK、统一媒体身份并迁移整理与下载历史合同。"
+      "v1.0": "基于 MediaSyncDel 2.0.2（含上游 issue #359 的 item_isvirtual 字符串修复）模块化重构并更名发布：拆分为 payloads/transfer_query/deleter/torrents/views 模块，补 53 条测试；无法识别的 item_isvirtual 一律走防误删保护；修复删种返回类型、辅种中断、合集日志、时间戳解析等潜伏问题。"
     }
   }
 }
