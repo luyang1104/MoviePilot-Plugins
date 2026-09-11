@@ -1,5 +1,20 @@
 ---
 
+# LinkedMediaDel v1.1.2 UI 恢复 v1.0 样式（2026-09-11）
+
+## 本轮更新
+
+- 按用户要求将 views.py 整体恢复为 v1.0（commit fbf307c）的表单与详情页样式：撤销 v1.1.0/v1.1.1 的界面改动（开关警示 hint、warning 条、字段 hint、alert 收敛、详情页统计行/100 条上限/路径行/卡片等高等）。
+- 仅保留一处不可见的防御性修复：详情页排序对缺失 del_time 的历史记录用空串兜底（防 TypeError），不影响外观。
+- v1.1.0 的全部功能修复（H1-H3/M1-M9/L1/L4/L6）不受影响。
+
+## 验证
+
+- `git show fbf307c:views.py` 恢复后仅排序一行有意的差异；`py_compile` 通过；pytest 91 条全绿。
+- `plugin_version` 与 `package.v3.json` 均为 1.1.2。
+
+---
+
 # LinkedMediaDel v1.1.1 配置页与详情页排版修正（2026-09-11）
 
 ## 本轮更新
