@@ -73,13 +73,14 @@
     "name": "媒体联动删除",
     "description": "同步删除历史记录、源文件和下载任务。",
     "labels": "媒体库，文件整理",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "icon": "https://raw.githubusercontent.com/luyang1104/MoviePilot-Plugins/main/icons/linkedmediadel.png",
     "author": "Felix Yang",
     "level": 1,
     "release": true,
     "system_version": ">=3.0.0",
     "history": {
+      "v1.1.1": "配置页排版修正：开关行去掉长 hint 恢复等高、清空历史记录改短标签（一次性语义并入警示条）、路径映射框加大并自适应增高；详情页路径改小字号强制换行、卡片统一等高。",
       "v1.1.0": "深度审查修复：空目录回收改为只删真空目录且遇映射目标根/挂载点即停（防误删库根）；特别篇 Season 0 不再退化为整剧删除；空路径拒绝查询防命中全部版本；时间解析失败跳过比较而非退化 1970；Emby 整季删除兜底生效；单条删除异常不再中断批次；转种按目标任务 ID 删种；无种子记录视为已清理；自动停用进程内即时生效；扩展名大小写、排除路径边界、路径映射级联/盘符修复；历史落盘加锁并限 500 条；UI 补危险开关警示与常驻提示，详情页限 100 条。测试 91 条全绿。",
       "v1.0": "基于 MediaSyncDel 2.0.2（含上游 issue #359 的 item_isvirtual 字符串修复）模块化重构并更名发布：拆分为 payloads/transfer_query/deleter/torrents/views 模块，补 53 条测试；无法识别的 item_isvirtual 一律走防误删保护；修复删种返回类型、辅种中断、合集日志、时间戳解析等潜伏问题。"
     }

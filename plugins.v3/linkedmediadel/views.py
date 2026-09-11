@@ -58,8 +58,6 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'props': {
                                         'model': 'del_source',
                                         'label': '删除源文件',
-                                        'hint': '开启后同时删除源文件并联动删除/暂停下载器种子（含转种、辅种、合集），不可恢复；关闭时仅删除整理历史',
-                                        'persistent-hint': True,
                                     }
                                 }
                             ]
@@ -75,7 +73,7 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'component': 'VSwitch',
                                     'props': {
                                         'model': 'del_history',
-                                        'label': '清空历史记录（保存后立即执行一次并自动关闭）',
+                                        'label': '清空历史记录',
                                     }
                                 }
                             ]
@@ -96,7 +94,7 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'props': {
                                         'type': 'warning',
                                         'variant': 'tonal',
-                                        'text': '注意：开启「删除源文件」后，媒体库删除事件将真实删除磁盘文件并处理下载任务，请先确认路径映射正确，避免误删。'
+                                        'text': '注意：开启「删除源文件」后，媒体库删除事件将真实删除磁盘文件并联动删除/暂停下载器种子（含转种、辅种、合集），不可恢复，请先确认路径映射正确，避免误删；关闭时仅删除整理历史。「清空历史记录」为一次性操作，保存后立即执行一次并自动关闭。'
                                     }
                                 }
                             ]
@@ -162,7 +160,8 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'component': 'VTextarea',
                                     'props': {
                                         'model': 'library_path',
-                                        'rows': '2',
+                                        'rows': '4',
+                                        'auto-grow': True,
                                         'label': '媒体库路径映射',
                                         'placeholder': '媒体服务器路径:MoviePilot路径（一行一个）',
                                         'hint': '一行一条，格式：媒体服务器路径:MoviePilot路径；路径一致可留空',
@@ -349,7 +348,8 @@ def build_page(historys: List[dict]) -> List[dict]:
                 {
                     'component': 'VCardText',
                     'props': {
-                        'class': 'pa-0 px-2'
+                        'class': 'pa-0 px-2 text-caption text-medium-emphasis',
+                        'style': 'word-break: break-all;'
                     },
                     'text': f'路径：{history.get("path")}'
                 }
@@ -358,6 +358,9 @@ def build_page(historys: List[dict]) -> List[dict]:
         contents.append(
             {
                 'component': 'VCard',
+                'props': {
+                    'class': 'h-100'
+                },
                 'content': [
                     {
                         "component": "VDialogCloseBtn",

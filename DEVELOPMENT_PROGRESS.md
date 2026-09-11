@@ -1,5 +1,20 @@
 ---
 
+# LinkedMediaDel v1.1.1 配置页与详情页排版修正（2026-09-11）
+
+## 本轮更新
+
+- 开关行：`del_source` 的长 persistent-hint 把整行撑高导致四个开关错位——移除该 hint（风险说明由下方 warning 条承担），`del_history` 长标签改为「清空历史记录」，一次性语义与「关闭删除源文件时仅删整理历史」并入 warning 条文案，开关行恢复等高。
+- `library_path` 路径映射框 rows 2→4 并加 auto-grow（实际配置常见 3 行以上映射）。
+- 详情页：路径行改 `text-caption` 小字号 + `word-break: break-all`（电影路径含完整长文件名不再撑破卡片）；VCard 加 `h-100` 统一卡片高度。
+
+## 验证
+
+- `python3 -m py_compile plugins.v3/linkedmediadel/views.py` 通过；pytest 91 条全绿（views 无测试覆盖，改动为纯字典文案/属性）。
+- `plugin_version` 与 `package.v3.json` 均为 1.1.1。
+
+---
+
 # LinkedMediaDel v1.1.0 深度审查修复（2026-09-11）
 
 ## 本轮更新
