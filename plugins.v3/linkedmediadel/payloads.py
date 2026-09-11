@@ -7,7 +7,6 @@ item_isvirtual 是字符串（如 "False"），MP 核心不做类型强转，隐
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -39,26 +38,50 @@ def normalize_path(path: Any) -> str:
     return str(path or "").replace("\\", "/")
 
 
+def _normalize_dir_path(path: Any) -> str:
+    """目录路径归一化：反斜杠转斜杠并去除尾部斜杠，供前缀边界比较。"""
+    return normalize_path(path).strip().rstrip("/")
+
+
 def is_excluded_path(media_path: str, exclude_path: str) -> bool:
-    """命中逗号分隔的排除路径前缀时返回 True。"""
+    """命中逗号分隔的排除路径前缀时返回 True（按路径边界比较，/mnt/a 不命中 /mnt/abc）。"""
     if not exclude_path or not media_path:
         return False
+    candidate = _normalize_dir_path(media_path)
     return any(
-        os.path.abspath(media_path).startswith(os.path.abspath(item))
-        for item in exclude_path.split(",")
-        if item.strip()
+        candidate == item or candidate.startswith(item + "/")
+        for item in (_normalize_dir_path(item) for item in exclude_path.split(","))
+        if item
     )
 
 
-def apply_path_mapping(media_path: str, library_path: str) -> str:
-    """按「媒体服务器路径:MoviePilot路径」逐行映射（处理同一媒体多分辨率的情况）。"""
-    if not library_path:
-        return media_path
-    for line in library_path.split("\n"):
-        sub_paths = line.split(":", 1)
+def _parse_mapping_lines(library_path: str):
+    """解析路径映射配置行，产出 (源, 目标) 归一化对；rsplit 兼容 Windows 盘符行。"""
+    for line in str(library_path or "").split("\n"):
+        sub_paths = line.rsplit(":", 1)
         if len(sub_paths) < 2:
             continue
-        media_path = media_path.replace(sub_paths[0], sub_paths[1]).replace("\\", "/")
+        src, dst = _normalize_dir_path(sub_paths[0]), _normalize_dir_path(sub_paths[1])
+        if src and dst:
+            yield src, dst
+
+
+def library_mapping_dests(library_path: str) -> list:
+    """路径映射的目标根（dst）列表，空目录回收上溯到这些根即停。"""
+    return [dst for _, dst in _parse_mapping_lines(library_path)]
+
+
+def apply_path_mapping(media_path: str, library_path: str) -> str:
+    """按「媒体服务器路径:MoviePilot路径」逐行映射（处理同一媒体多分辨率的情况）。
+
+    仅当映射源命中路径前缀（含路径边界）时替换一次并停止，避免路径中间误替换与多行级联。
+    """
+    if not library_path or not media_path:
+        return media_path
+    media_path = normalize_path(media_path)
+    for src, dst in _parse_mapping_lines(library_path):
+        if media_path == src or media_path.startswith(src + "/"):
+            return dst + media_path[len(src):]
     return media_path
 
 
@@ -75,7 +98,8 @@ def parse_delete_time(json_object: Any) -> Optional[str]:
     if not raw:
         return None
     timestamp = StringUtils.str_to_timestamp(raw)
-    if timestamp is None:
+    # 真实 StringUtils.str_to_timestamp 解析失败返回 0（不是 None），0 会被格式化成 1970 年
+    if not timestamp:
         return None
     return StringUtils.format_timestamp(timestamp)
 

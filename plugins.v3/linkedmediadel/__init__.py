@@ -26,7 +26,7 @@ class LinkedMediaDel(_PluginBase):
     # 插件图标
     plugin_icon = "linkedmediadel.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1.0"
     # 插件作者
     plugin_author = "Felix Yang"
     # 作者主页
@@ -188,14 +188,12 @@ class LinkedMediaDel(_PluginBase):
             logger.error(
                 f"Scripter X插件方式，item_isvirtual参数未配置或无法识别（{event_data.item_isvirtual!r}），"
                 f"为防止误删除，暂停插件运行")
-            self.update_config({
-                "enabled": False,
-                "del_source": self._del_source,
-                "exclude_path": self._exclude_path,
-                "library_path": self._library_path,
-                "notify": self._notify,
-                "sync_type": self._sync_type,
-            })
+            # 保留全量现有配置键（如 del_history 挂起的清空请求），只改 enabled；
+            # update_config 只持久化不重载，进程内状态需同步置停
+            config = dict(self.get_config() or {})
+            config["enabled"] = False
+            self.update_config(config)
+            self._enabled = False
             return
 
         # 如果是虚拟item，则直接return，不进行删除

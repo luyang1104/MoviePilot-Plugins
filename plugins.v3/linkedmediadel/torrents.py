@@ -42,9 +42,11 @@ class TorrentCleaner:
             # 根据种子hash查询所有下载器文件记录
             download_files = self._downloadhis.get_files_by_hash(download_hash=torrent_hash)
             if not download_files:
-                logger.error(
-                    f"未查询到种子任务 {torrent_hash} 存在文件记录，未执行下载器文件同步或该种子已被删除")
-                return False, False, []
+                # 无文件记录说明种子已被外部手动清理干净，视为成功让整理历史可以正常清除；
+                # 与「真失败」区分，避免每次重试同样失败导致历史残留
+                logger.info(
+                    f"未查询到种子任务 {torrent_hash} 的文件记录，该种子应已被外部删除，视为处理成功")
+                return True, True, []
 
             # 查询未删除数
             no_del_cnt = 0
@@ -81,9 +83,9 @@ class TorrentCleaner:
                         self._chain.remove_torrents(torrent_hash)
                         handle_torrent_hashs.append(torrent_hash)
 
-                    # 删除转种后任务
+                    # 删除转种后任务（使用转种记录的目标任务 id，hash 跨站可能已变化）
                     logger.info(f"删除转种后下载任务：{download} - {download_id}")
-                    self._chain.remove_torrents(hashs=torrent_hash, downloader=download)
+                    self._chain.remove_torrents(hashs=download_id, downloader=download)
                     handle_torrent_hashs.append(download_id)
                 else:
                     # 暂停种子
@@ -127,8 +129,15 @@ class TorrentCleaner:
             logger.error(f"删种失败： {str(e)}")
             return False, False, []
 
-    def _del_seed(self, download_id, delete_flag, handle_torrent_hashs):
-        """删除/暂停辅种（联动 IYUUAutoSeed 记录）。"""
+    def _del_seed(self, download_id, delete_flag, handle_torrent_hashs, visited=None):
+        """删除/暂停辅种（联动 IYUUAutoSeed 记录）；visited 防止辅种互相引用时无限递归。"""
+        if visited is None:
+            visited = set()
+        if download_id in visited:
+            logger.info(f"辅种 {download_id} 已处理过（辅种记录存在循环引用），跳过重复递归")
+            return handle_torrent_hashs
+        visited.add(download_id)
+
         # 查询是否有辅种记录
         history_key = download_id
         plugin_id = "IYUUAutoSeed"
@@ -160,7 +169,8 @@ class TorrentCleaner:
                     # 处理辅种的辅种
                     handle_torrent_hashs = self._del_seed(download_id=torrent,
                                                           delete_flag=delete_flag,
-                                                          handle_torrent_hashs=handle_torrent_hashs)
+                                                          handle_torrent_hashs=handle_torrent_hashs,
+                                                          visited=visited)
 
             # 删除辅种历史
             if delete_flag:

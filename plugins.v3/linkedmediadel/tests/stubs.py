@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import os
 import sys
@@ -70,6 +71,19 @@ class MediaSource(str, Enum):
     Douban = "douban"
     Bangumi = "bangumi"
 
+    def __str__(self) -> str:
+        # 与真实 MediaSource 一致：str(member) 返回 value，供 SQL 过滤与日志使用
+        return self.value
+
+    @classmethod
+    def _missing_(cls, value):
+        # 模拟真实内置别名（tmdb → themoviedb），不支持动态插件来源成员
+        if not isinstance(value, str):
+            return None
+        normalized = value.strip().casefold()
+        normalized = {"tmdb": "themoviedb"}.get(normalized, normalized)
+        return cls._value2member_map_.get(normalized)
+
 
 class MediaImageType(Enum):
     Poster = "poster_path"
@@ -119,7 +133,11 @@ class Response:
 
 
 class WebhookEventInfo:
-    """松散的事件载体，字段与 app.schemas.WebhookEventInfo 对齐。"""
+    """松散的事件载体，字段与 app.schemas.WebhookEventInfo 对齐。
+
+    注：真实 WebhookEventInfo 是 pydantic 模型，带 media_source/media_id 成对校验；
+    桩件不强制该校验（成对约束已在 resolve_media_identity 桩件中体现）。
+    """
 
     def __init__(self, **kwargs):
         self.event = None
@@ -151,18 +169,22 @@ settings = FakeSettings()
 
 
 class FakeStringUtils:
-    """StringUtils 时间相关方法的最小真实语义实现。"""
+    """StringUtils 时间相关方法的最小真实语义实现。
+
+    真实 parse_timestamp（str_to_timestamp 的底层）无法解析时返回 0（含空值），
+    永不返回 None —— 这是 M1 回归的关键前提。
+    """
 
     @staticmethod
     def str_to_timestamp(value):
-        if value is None:
-            return None
+        if not value:
+            return 0
         if isinstance(value, (int, float)):
             # 13 位按毫秒处理
             return value / 1000 if value > 1e12 else float(value)
         text = str(value).strip()
         if not text:
-            return None
+            return 0
         if text.isdigit():
             return FakeStringUtils.str_to_timestamp(int(text))
         try:
@@ -174,7 +196,7 @@ class FakeStringUtils:
                 normalized = f"{head}.{frac[:6]}+{tz}" if tz else f"{head}.{frac[:6]}"
             return datetime.fromisoformat(normalized).timestamp()
         except ValueError:
-            return None
+            return 0
 
     @staticmethod
     def format_timestamp(ts):
@@ -201,11 +223,22 @@ class FakeSystemUtils:
 SystemUtils = FakeSystemUtils()
 
 
+_MEDIA_SOURCE_PREFIXES = {
+    MediaSource.TMDB: "tmdb",
+    MediaSource.Douban: "douban",
+    MediaSource.Bangumi: "bangumi",
+}
+
+
 def build_media_key(media_source, media_id):
-    if not media_source or not media_id:
-        return None
-    source_value = getattr(media_source, "value", media_source)
-    return f"{source_value}:{media_id}"
+    """与真实实现一致：输出 tmdb:<id> 前缀格式，身份无效时返回空串。"""
+    source = _coerce_source(media_source)
+    normalized_id = str(media_id).strip() if media_id is not None else ""
+    if not source or not normalized_id or normalized_id == "0":
+        return ""
+    prefix = _MEDIA_SOURCE_PREFIXES.get(source) or getattr(source, "value", None) \
+        or str(source).strip().casefold()
+    return f"{prefix}:{normalized_id}"
 
 
 def _coerce_source(value):
@@ -218,24 +251,30 @@ def _coerce_source(value):
 
 
 def resolve_media_identity(*args, media=None, media_source=None, media_id=None):
-    """支持插件的三种调用形态：位置参数事件对象、media= 字典/对象、关键字参数。"""
+    """支持插件的三种调用形态：位置参数事件对象、media= 字典/对象、关键字参数。
+
+    与真实实现一致：media_source 与 media_id 必须成对、去空白且非 "0"，
+    半对或无效身份一律返回 (None, None)。
+    """
     if args:
-        obj = args[0]
-        media_source = getattr(obj, "media_source", None)
-        media_id = getattr(obj, "media_id", None)
-    elif media is not None:
+        media = args[0]
+    if media_source is not None or media_id is not None:
+        source = _coerce_source(media_source)
+        normalized_id = str(media_id).strip() if media_id is not None else ""
+        if source and normalized_id and normalized_id != "0":
+            return source, normalized_id
+        return None, None
+    if media is not None:
         if isinstance(media, dict):
-            media_source = media.get("media_source")
-            media_id = media.get("media_id")
+            raw_source, raw_id = media.get("media_source"), media.get("media_id")
         else:
-            media_source = getattr(media, "media_source", None)
-            media_id = getattr(media, "media_id", None)
-    media_source = _coerce_source(media_source)
-    if media_id in (None, ""):
-        media_id = None
-    elif media_id is not None:
-        media_id = str(media_id)
-    return media_source, media_id
+            raw_source = getattr(media, "media_source", None)
+            raw_id = getattr(media, "media_id", None)
+        source = _coerce_source(raw_source)
+        normalized_id = str(raw_id).strip() if raw_id is not None else ""
+        if source and normalized_id and normalized_id != "0":
+            return source, normalized_id
+    return None, None
 
 
 class FakeChain:
@@ -284,11 +323,16 @@ class FakeTransferHistoryOper:
         self.deleted_ids = []
 
     def get_by(self, **filters):
+        """模拟真实 TransferHistory.list_by：空串/None 的 dest 跳过路径过滤。
+
+        真实 SQLAlchemy 组装里电影分支是 `elif dest:`，空串 dest 不会加进 where，
+        结果命中该 media_id 的全部版本——这正是 H3 要求插件侧拒绝的空 dest 场景。
+        """
         self.get_by_calls.append(filters)
 
         def matched(record):
             for key, value in filters.items():
-                if value is None:
+                if value is None or (key == "dest" and not value):
                     continue
                 # 查询参数 mtype 对应记录字段 type
                 attr = "type" if key == "mtype" else key
@@ -351,7 +395,8 @@ class FakePluginBase:
         self.messages = []
 
     def get_data(self, key=None, plugin_id=None):
-        return self._stored_data.get(plugin_id or "", {}).get(key)
+        # 真实实现每次从存储反序列化出新对象；返回深拷贝才能暴露读-改-写竞态
+        return copy.deepcopy(self._stored_data.get(plugin_id or "", {}).get(key))
 
     def save_data(self, key, value, plugin_id=None):
         self._stored_data.setdefault(plugin_id or "", {})[key] = value
@@ -362,9 +407,8 @@ class FakePluginBase:
     def update_config(self, config):
         self._stored_config = dict(config)
 
-    def get_config(self, name=None):
-        if name:
-            return self._stored_config.get(name)
+    def get_config(self, plugin_id=None):
+        # 真实 _PluginBase.get_config 的参数是 plugin_id（不是配置键），无参返回全量配置
         return self._stored_config
 
     def post_message(self, **kwargs):

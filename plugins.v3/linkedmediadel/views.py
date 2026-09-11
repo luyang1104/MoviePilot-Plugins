@@ -58,6 +58,8 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'props': {
                                         'model': 'del_source',
                                         'label': '删除源文件',
+                                        'hint': '开启后同时删除源文件并联动删除/暂停下载器种子（含转种、辅种、合集），不可恢复；关闭时仅删除整理历史',
+                                        'persistent-hint': True,
                                     }
                                 }
                             ]
@@ -73,7 +75,28 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'component': 'VSwitch',
                                     'props': {
                                         'model': 'del_history',
-                                        'label': '删除历史',
+                                        'label': '清空历史记录（保存后立即执行一次并自动关闭）',
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    'component': 'VRow',
+                    'content': [
+                        {
+                            'component': 'VCol',
+                            'props': {
+                                'cols': 12,
+                            },
+                            'content': [
+                                {
+                                    'component': 'VAlert',
+                                    'props': {
+                                        'type': 'warning',
+                                        'variant': 'tonal',
+                                        'text': '注意：开启「删除源文件」后，媒体库删除事件将真实删除磁盘文件并处理下载任务，请先确认路径映射正确，避免误删。'
                                     }
                                 }
                             ]
@@ -98,7 +121,9 @@ def build_form() -> Tuple[List[dict], Dict]:
                                         'items': [
                                             {'title': 'Webhook', 'value': 'webhook'},
                                             {'title': 'Scripter X', 'value': 'plugin'}
-                                        ]
+                                        ],
+                                        'hint': 'Webhook 需 Emby 4.8.0.45+；Scripter X 需在 Emby 安装对应插件',
+                                        'persistent-hint': True,
                                     }
                                 }
                             ]
@@ -114,7 +139,10 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'component': 'VTextField',
                                     'props': {
                                         'model': 'exclude_path',
-                                        'label': '排除路径'
+                                        'label': '排除路径',
+                                        'placeholder': '/downloads/strm,/mnt/cloud（英文逗号分隔，前缀匹配）',
+                                        'hint': '命中的媒体不删除本地数据，改为通知网盘删除插件处理云盘资源',
+                                        'persistent-hint': True,
                                     }
                                 }
                             ]
@@ -136,7 +164,9 @@ def build_form() -> Tuple[List[dict], Dict]:
                                         'model': 'library_path',
                                         'rows': '2',
                                         'label': '媒体库路径映射',
-                                        'placeholder': '媒体服务器路径:MoviePilot路径（一行一个）'
+                                        'placeholder': '媒体服务器路径:MoviePilot路径（一行一个）',
+                                        'hint': '一行一条，格式：媒体服务器路径:MoviePilot路径；路径一致可留空',
+                                        'persistent-hint': True,
                                     }
                                 }
                             ]
@@ -161,6 +191,7 @@ def build_form() -> Tuple[List[dict], Dict]:
                                                 '1、Webhook需要Emby4.8.0.45及以上开启媒体删除的Webhook。'
                                                 '2、Scripter X方式需要emby安装并配置Scripter X插件，无需配置执行周期。'
                                                 '3、启用该插件后，非媒体服务器触发的源文件删除，也会同步处理下载器中的下载任务。'
+                                                '该联动监听下载文件删除事件，不受插件启用状态与同步方式选择影响。'
                                     }
                                 }
                             ]
@@ -206,51 +237,10 @@ def build_form() -> Tuple[List[dict], Dict]:
                                     'props': {
                                         'type': 'info',
                                         'variant': 'tonal',
-                                        'text': '排除路径：命中排除路径后请求云盘删除插件删除云盘资源。'
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    'component': 'VRow',
-                    'content': [
-                        {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                            },
-                            'content': [
-                                {
-                                    'component': 'VAlert',
-                                    'props': {
-                                        'type': 'info',
-                                        'variant': 'tonal',
-                                        'text': 'Scripter X配置文档：'
+                                        'text': '配置文档：Scripter X：'
                                                 'https://github.com/thsrite/'
                                                 'MediaSyncDel/blob/main/MoviePilot/MoviePilot.md'
-                                    }
-                                }
-                            ]
-                        }
-                    ]
-                },
-                {
-                    'component': 'VRow',
-                    'content': [
-                        {
-                            'component': 'VCol',
-                            'props': {
-                                'cols': 12,
-                            },
-                            'content': [
-                                {
-                                    'component': 'VAlert',
-                                    'props': {
-                                        'type': 'info',
-                                        'variant': 'tonal',
-                                        'text': '路径映射配置文档：'
+                                                ' ｜ 路径映射：'
                                                 'https://github.com/thsrite/MediaSyncDel/blob/main/path.md'
                                     }
                                 }
@@ -277,14 +267,22 @@ def build_page(historys: List[dict]) -> List[dict]:
         return [
             {
                 'component': 'div',
-                'text': '暂无数据',
+                'text': '暂无同步删除历史记录',
                 'props': {
                     'class': 'text-center',
                 }
+            },
+            {
+                'component': 'div',
+                'text': '产生同步删除后会展示在这里',
+                'props': {
+                    'class': 'text-center text-caption text-grey',
+                }
             }
         ]
-    # 数据按时间降序排序
-    historys = sorted(historys, key=lambda x: x.get('del_time'), reverse=True)
+    # 数据按时间降序排序（缺失 del_time 的历史记录按空串兜底，避免比较 None 报 TypeError）
+    total = len(historys)
+    historys = sorted(historys, key=lambda x: x.get('del_time') or '', reverse=True)[:100]
     # 拼装页面
     contents = []
     for history in historys:
@@ -346,6 +344,16 @@ def build_page(historys: List[dict]) -> List[dict]:
                 'text': f'时间：{del_time}'
             }
         )
+        if history.get("path"):
+            sub_contents.append(
+                {
+                    'component': 'VCardText',
+                    'props': {
+                        'class': 'pa-0 px-2'
+                    },
+                    'text': f'路径：{history.get("path")}'
+                }
+            )
 
         contents.append(
             {
@@ -398,7 +406,18 @@ def build_page(historys: List[dict]) -> List[dict]:
             }
         )
 
+    if total > 100:
+        stats_text = f'共 {total} 条记录，显示最近 100 条'
+    else:
+        stats_text = f'共 {total} 条记录'
     return [
+        {
+            'component': 'div',
+            'text': stats_text,
+            'props': {
+                'class': 'text-caption text-grey',
+            }
+        },
         {
             'component': 'div',
             'props': {

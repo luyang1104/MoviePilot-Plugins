@@ -1,5 +1,28 @@
 ---
 
+# LinkedMediaDel v1.1.0 深度审查修复（2026-09-11）
+
+## 本轮更新
+
+- **审查方式**：对照 jxxghp/MoviePilot v3 分支真实源码逐条核实前提（`TransferHistory.list_by` 空 dest 跳过过滤、`str_to_timestamp` 失败返回 0 而非 None、`build_media_key` 输出 `tmdb:` 前缀等），关键场景实测复现后修复。
+- **高危**：
+  - 空目录回收越界（deleter `_remove_parent_dir`）：`shutil.rmtree` 改 `os.rmdir`（非空目录天然停止），新增终止白名单——路径映射目标根（payloads 新增 `library_mapping_dests`）、`os.path.ismount` 挂载点、文件系统根；保留三级上溯上限，各停止分支均有 debug 日志。修复前删除库内最后一部影片可上溯删掉媒体库根乃至挂载点内全部非媒体文件。
+  - Season 0 特别篇退化整剧删除（transfer_query）：`if season_num:` 对 Emby 传入的 int 0 判假；改为 `is not None and str(...) != ""`，int 0 与字符串 "0" 统一按第 0 季查询。
+  - 空 dest 命中全部版本（transfer_query 电影/单集分支）：Jellyfin ItemDeleted 场景 item_path 恒为空，真实 SQL 对空 dest 跳过过滤会命中该 media_id 全部记录；现为空路径记 warning 并拒绝执行。
+- **中危**：时间解析失败退化 1970 导致永久静默跳过（payloads 改 `if not timestamp`）；Emby 原生整季删除兜底生效（Season 类型 episode 数字兜底为季号）；文件删除逐条 try/except，单条失败不炸穿批次且保留该条历史；转种后按目标任务 id（download_id）删种而非源 hash；无种子文件记录视为外部已清理（成功）而非失败；自动停用插件进程内即时生效（`self._enabled = False`）且保留全量配置键；源文件扩展名判断补 `.lower()`；排除路径归一化后按边界匹配（`/mnt/a` 不再命中 `/mnt/abc`，兼容 Windows 反斜杠配置）；路径映射改前缀边界单次替换且命中即停、行解析用 `rsplit(":", 1)` 兼容盘符（修掉中间误替换与多行级联）。
+- **低危**：历史落盘加 `threading.Lock` 防并发丢记录并裁剪至最近 500 条；辅种递归加 visited 集合防循环引用爆栈；通知改用实际删除计数，0 条实际删除不发成功通知。
+- **UI（views.py）**：`del_source` 加常驻警示 hint 并在开关行下新增 warning 级 VAlert；`del_history` 标签改为一次性动作语义；`exclude_path`/`library_path`/`sync_type` 补 placeholder 与 persistent-hint；底部 info alert 5 条收敛为 3 条（两条文档链接合并，URL 原样保留）；详情页只渲染最近 100 条并加统计行、排序容忍缺失 del_time、空状态文案补语义、卡片补路径展示、downloadfile 联动说明补「不受启用状态影响」。
+- **测试桩件纠偏**（原桩件掩盖了 H3/M1 等 bug）：`str_to_timestamp` 失败返回 0；空 dest 跳过过滤；`MediaSource.__str__` 返回 value；`build_media_key` 输出 `tmdb:` 前缀；`get_data` 返回深拷贝。新增回归用例 39 条（tests/test_regressions.py 等），总用例 52 → 91，并对 11 处修复做变异验证（临时回退后对应测试如期失败）。
+
+## 验证
+
+- `cd plugins.v3/linkedmediadel && .venv/bin/python -m pytest`：91 条全绿（含 H1/H2/H3/M1/M2/M3/M5/M7/M8/M9/L1/L4/L6 回归用例）。
+- `python3 -m py_compile` 全部模块通过；views.py 运行时冒烟（空态/统计行/100 条上限/None del_time）通过。
+- `plugin_version` 与 `package.v3.json` 均为 1.1.0，history 已加 v1.1.0 条目。
+- 遗留提示：未配置 `library_path` 时 H1 的「映射目标根」防线不存在，空目录上溯仅靠挂载点/非空/三级上限兜底，生产机建议补配路径映射。
+
+---
+
 # LinkedMediaDel v1.0 更名发布（原 MediaSyncDel 2.0.2 模块化重构）（2026-09-10）
 
 ## 本轮更新

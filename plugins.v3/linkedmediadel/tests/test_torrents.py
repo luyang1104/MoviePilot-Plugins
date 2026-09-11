@@ -40,18 +40,19 @@ def make_cleaner(files=None, data_store=None):
 
 
 class HandleReturnTypeTests(unittest.TestCase):
-    """修复：错误路径必须返回 (False, False, [])，不再是 (False, False, 0)。"""
+    """M5：种子无文件记录（已被外部手动删除）视为成功，让整理历史可正常清除。"""
 
     def setUp(self):
         logger.clear()
 
-    def test_no_download_files_returns_list(self):
+    def test_no_download_files_treated_as_success(self):
         cleaner = make_cleaner(files=[])
         delete_flag, success, hashs = cleaner.handle(media_kind="电影", src="/x/a.mkv",
                                                      torrent_hash="abc")
-        self.assertFalse(delete_flag)
-        self.assertFalse(success)
+        self.assertTrue(delete_flag)
+        self.assertTrue(success)
         self.assertEqual(hashs, [])
+        self.assertTrue(any("视为处理成功" in m for m in logger.messages("info")))
 
     def test_delete_flag_flow_returns_list(self):
         files = [download_file(download_hash="abc", state="0")]
@@ -65,6 +66,9 @@ class HandleReturnTypeTests(unittest.TestCase):
 
 class DelSeedTests(unittest.TestCase):
     """修复：辅种记录缺字段时跳过该条继续处理，不再裸 return None。"""
+
+    def setUp(self):
+        logger.clear()
 
     def test_malformed_record_returns_list(self):
         store = FakeDataStore()
@@ -80,6 +84,46 @@ class DelSeedTests(unittest.TestCase):
         cleaner = make_cleaner(data_store=store)
         result = cleaner._del_seed(download_id="abc", delete_flag=True, handle_torrent_hashs=[])
         self.assertIn("seed1", result)
+
+    def test_cyclic_seed_records_no_recursion_error(self):
+        """L6：A 辅 B、B 辅 A 的循环引用不得导致 RecursionError。"""
+        store = FakeDataStore()
+        store.save_data(key="A", plugin_id="IYUUAutoSeed",
+                        value=[{"downloader": "qb", "torrents": ["B"]}])
+        store.save_data(key="B", plugin_id="IYUUAutoSeed",
+                        value=[{"downloader": "qb", "torrents": ["A"]}])
+        cleaner = make_cleaner(data_store=store)
+        result = cleaner._del_seed(download_id="A", delete_flag=True, handle_torrent_hashs=[])
+        self.assertIn("A", result)
+        self.assertIn("B", result)
+        self.assertTrue(any("循环引用" in m for m in logger.messages("info")))
+
+
+class TorrentTransferTests(unittest.TestCase):
+    """M4：删除转种后任务必须使用转种记录的目标任务 id（hash 跨站会变化）。"""
+
+    def setUp(self):
+        logger.clear()
+
+    def test_remove_transferred_torrent_uses_target_id(self):
+        store = FakeDataStore()
+        store.save_data(key="qb-hash_src", plugin_id="TorrentTransfer",
+                        value={"to_download": "tr", "to_download_id": "hash_dst",
+                               "delete_source": True})
+        files = [download_file(download_hash="hash_src", state="0")]
+        cleaner = make_cleaner(files=files, data_store=store)
+        delete_flag, success, hashs = cleaner.handle(media_kind="电影", src="/x/a.mkv",
+                                                     torrent_hash="hash_src")
+        self.assertTrue(delete_flag)
+        self.assertTrue(success)
+        removed = cleaner._chain.removed_torrents
+        self.assertTrue(
+            any(kw.get("hashs") == "hash_dst" and kw.get("downloader") == "tr" for _, kw in removed),
+            f"应以目标 id 删除转种后任务，实际调用：{removed}")
+        self.assertFalse(
+            any(kw.get("hashs") == "hash_src" and kw.get("downloader") == "tr" for _, kw in removed),
+            f"不得用源 hash 删转种后任务，实际调用：{removed}")
+        self.assertIn("hash_dst", hashs)
 
 
 class DelCollectionTests(unittest.TestCase):

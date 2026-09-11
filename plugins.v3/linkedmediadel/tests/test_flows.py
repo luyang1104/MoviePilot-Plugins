@@ -221,11 +221,17 @@ class PluginActionQueryTests(unittest.TestCase):
         return self.transferhis.get_by_calls
 
     def test_movie_query(self):
-        calls = self.fire()
+        calls = self.fire(media_path="/x/movie.mkv")
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0]["mtype"], "电影")
         self.assertEqual(calls[0]["media_id"], "12345")
-        self.assertIn("dest", calls[0])
+        self.assertEqual(calls[0]["dest"], "/x/movie.mkv")
+
+    def test_movie_query_without_path_refused(self):
+        """H3：电影删除缺少转移路径时拒绝查询（空 dest 会命中该媒体全部版本）。"""
+        calls = self.fire()
+        self.assertEqual(calls, [])
+        self.assertTrue(any("拒绝执行同步删除" in m for m in logger.messages("warning")))
 
     def test_series_query(self):
         calls = self.fire(media_type="Series")
